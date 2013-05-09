@@ -1,5 +1,5 @@
 CC      = gcc
-AS	= as
+AS      = as
 LD      = ld
 CFLAGS  = -I. -Wall -Wextra -Werror
 CFLAGS += -fPIC -mcpu=arm920t -msoft-float
@@ -27,8 +27,11 @@ $(MAIN): $(LINK) $(OBJS)
 $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD)
 	$(AS) -o $@ $(ASFLAGS) $<
 
-$(BUILD)/%.c.s: %.c |$(BUILD)
-	$(CC) -MD -S -o $@ $(CFLAGS) $<
+$(BUILD)/%.c.s: $(BUILD)/%.c.i |$(BUILD)
+	$(CC) -S -o $@ $(CFLAGS) $<
+
+$(BUILD)/%.c.i: %.c |$(BUILD)
+	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD):
 	mkdir $@
