@@ -1,23 +1,36 @@
- /*
- * iotest.c
- */
+#include "bwio.h"
+#include "ts7200.h"
 
-#include <bwio.h>
-#include <ts7200.h>
+int main(int argc, char* argv[])
+{
+    int *pttyflags;
+    int *ttydata;
 
-int main( int argc, char* argv[] ) {
-	(void)argc;
-	(void)argv;
-	char str[] = "Hello\n\r";
-	bwsetfifo( COM2, OFF );
-	bwputstr( COM2, str );
-	bwputw( COM2, 10, '*', str );
-	bwprintf( COM2, "Hello world.\n\r" );
-	bwprintf( COM2, "%s world%u.\n\r", "Well, hello", 23 );
-	bwprintf( COM2, "%d worlds for %u person.\n\r", -23, 1 );
-	bwprintf( COM2, "%x worlds for %d people.\n\r", -23, 723 );
-	str[0] = bwgetc( COM2 );
-	bwprintf( COM2, "%s", str );
-	return 0;
+    /* ignore arguments */
+    (void)argc;
+    (void)argv;
+
+    /* disable FIFOs */
+    /* bwsetfifo( COM1, OFF ); */
+    bwsetfifo( COM2, OFF );
+
+    /* get TTY register pointers */
+    pttyflags = (int*)(UART2_BASE + UART_FLAG_OFFSET);
+    ttydata   = (int*)(UART2_BASE + UART_DATA_OFFSET);
+
+    /* Print whatever character is received, quit on q. */
+    char c = '.';
+    for (;;) {
+        int ttyflags = *pttyflags;
+        if (ttyflags & RXFF_MASK)
+            c = *ttydata;
+
+        if (c == 'q')
+            break;
+
+        if (!(ttyflags & TXFF_MASK))
+            *ttydata = c;
+    }
+
+    return 0;
 }
-
