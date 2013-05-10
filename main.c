@@ -1,35 +1,28 @@
-#include "bwio.h"
-#include "ts7200.h"
+/* #include "bwio.h" */
+/* #include "ts7200.h" */
+
+#include "util.h"
+#include "serial.h"
+
+#include "bwio.h"  /* bwprintf */
 
 int main(int argc, char* argv[])
 {
-    int *pttyflags;
-    int *ttydata;
-
     /* ignore arguments */
     (void)argc;
     (void)argv;
 
-    /* disable FIFOs */
-    /* bwsetfifo( COM1, OFF ); */
-    bwsetfifo( COM2, OFF );
-
-    /* get TTY register pointers */
-    pttyflags = (int*)(UART2_BASE + UART_FLAG_OFFSET);
-    ttydata   = (int*)(UART2_BASE + UART_DATA_OFFSET);
+    /* disable FIFO */
+    p_enablefifo(P_TTY, false);
 
     /* Print whatever character is received, quit on q. */
     char c = '.';
     for (;;) {
-        int ttyflags = *pttyflags;
-        if (ttyflags & RXFF_MASK)
-            c = *ttydata;
-
+        bool got = p_trygetc(P_TTY, &c);
         if (c == 'q')
             break;
-
-        if (!(ttyflags & TXFF_MASK))
-            *ttydata = c;
+        else if (got)
+            p_tryputc(P_TTY, c);
     }
 
     return 0;

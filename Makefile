@@ -3,10 +3,12 @@ AS      = as
 LD      = ld
 CFLAGS  = -I. -Wall -Wextra -Werror
 CFLAGS += -fPIC -mcpu=arm920t -msoft-float
-ASFLAGS	= -mcpu=arm920t -mapcs-32 # always use full stack frames
+ASFLAGS = -mcpu=arm920t -mapcs-32 # always use full stack frames
 LDFLAGS = -init main -N -L$(GNUARM)/lib/gcc/arm-elf/4.0.2
 LIBS    = -lgcc
 BUILD   = build
+
+#CFLAGS += -DNDEBUG
 
 # Files
 MAIN    = $(BUILD)/rt.elf
