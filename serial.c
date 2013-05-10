@@ -48,6 +48,11 @@ int p_setbaudrate(Port p, int baudrate)
     return bwsetspeed(unPort(p), baudrate);
 }
 
+bool p_cts(Port p)
+{
+    return p_uart(p)->flag & CTS_MASK;
+}
+
 bool p_tryputc(Port p, char c)
 {
     volatile struct ts72uart *uart = p_uart(p);

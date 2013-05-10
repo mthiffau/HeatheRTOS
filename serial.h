@@ -33,6 +33,9 @@ int p_enablefifo(Port p, bool enabled);
 /* Set the baud rate. */
 int p_setbaudrate(Port p, int baudrate);
 
+/* Check for clear-to-send status. */
+bool p_cts(Port p);
+
 /* Attempt to write a character. True if written. */
 bool p_tryputc(Port p, char c);
 
