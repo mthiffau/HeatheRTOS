@@ -36,8 +36,11 @@ typedef unsigned int   size_t;
  * Static assert
  */
 
-#define STATIC_ASSERT(name, x) \
-    struct assert_##name { char a[(x) ? 1 : -1]; }
+#if 4 < __GNUC__ || (__GNUC__ == 4 && 6 <= __GNUC_MINOR__)
+#define STATIC_ASSERT(name, x) _Static_assert(x, #name)
+#else
+#define STATIC_ASSERT(name, x) typedef char static_assert_##name[(x) ? 1 : -1]
+#endif
 
 /*
  * Variadic arguments
