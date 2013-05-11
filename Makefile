@@ -1,10 +1,11 @@
-CC      = gcc
-AS      = as
-LD      = ld
+HOST    = arm-elf-
+CC      = $(HOST)gcc
+AS      = $(HOST)as
+LD      = $(HOST)gcc
 CFLAGS  = -I. -Wall -Wextra -Werror
 CFLAGS += -fPIC -mcpu=arm920t -msoft-float
 ASFLAGS = -mcpu=arm920t -mapcs-32 # always use full stack frames
-LDFLAGS = -init main -N -L$(GNUARM)/lib/gcc/arm-elf/4.0.2
+LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc
 BUILD   = build
 
@@ -24,7 +25,7 @@ OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o))
 all: $(MAIN)
 
 $(MAIN): $(LINK) $(OBJS)
-	$(LD) $(LDFLAGS) -T $(LINK) -Map $(MAP) -o $@ $(OBJS) $(LIBS)
+	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(MAP) -o $@ $(OBJS) $(LIBS)
 
 $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD)
 	$(AS) -o $@ $(ASFLAGS) $<
