@@ -28,7 +28,7 @@ NEWTYPE(Port, enum Port_);
  */
 
 /* Enable or disable FIFOs. */
-int p_enablefifo(Port p, bool enabled);
+void p_enablefifo(Port p, bool enabled);
 
 /* Set the baud rate. */
 int p_setbaudrate(Port p, int baudrate);

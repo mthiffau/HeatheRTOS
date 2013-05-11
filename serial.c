@@ -2,7 +2,6 @@
 #include "serial.h"
 
 #include "ts7200.h"
-#include "bwio.h"   /* bwsetfifo, bwsetspeed */
 
 struct ts72uart {
     uint32_t data;
@@ -38,19 +37,35 @@ static inline volatile struct ts72uart *p_uart(Port p)
     return (volatile struct ts72uart*)0;
 }
 
-int p_enablefifo(Port p, bool enabled)
+void p_enablefifo(Port p, bool enabled)
 {
-    return bwsetfifo(unPort(p), enabled);
+    volatile struct ts72uart *uart = p_uart(p);
+    if (enabled)
+        uart->lcrh |= FEN_MASK;
+    else
+        uart->lcrh &= ~FEN_MASK;
 }
 
 int p_setbaudrate(Port p, int baudrate)
 {
-    return bwsetspeed(unPort(p), baudrate);
+    volatile struct ts72uart *uart = p_uart(p);
+    switch (baudrate) {
+    case 115200:
+        uart->lcrm = 0x0;
+        uart->lcrl = 0x3;
+        return 0;
+    case 2400:
+        uart->lcrm = 0x0;
+        uart->lcrl = 0x90;
+        return 0;
+    default:
+        return -1;
+    }
 }
 
 bool p_cts(Port p)
 {
-    return p_uart(p)->flag & CTS_MASK;
+    return !(p_uart(p)->flag & CTS_MASK);
 }
 
 bool p_tryputc(Port p, char c)
