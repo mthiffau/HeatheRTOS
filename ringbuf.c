@@ -1,11 +1,14 @@
 #include "util.h"
 #include "ringbuf.h"
 
+/* FIXME HACK */
+void bwui2a(unsigned int num, unsigned int base, char *bf);
+void bwi2a(int num, char *bf);
+
+/* Save/restore bookkeeping data, to avoid partially writing a string. */
 struct rbufsav {
     int rd, wr, len;
 };
-
-/* Save/restore bookkeeping data, to avoid partially writing a string. */
 static void rbuf_save(struct ringbuf *r, struct rbufsav *sav);
 static void rbuf_load(struct ringbuf *r, struct rbufsav *sav);
 
@@ -72,6 +75,78 @@ int rbuf_print(struct ringbuf *r, const char *s)
     rbuf_save(r, &sav);
     while ((c = *s++)) {
         int rc = rbuf_putc(r, c);
+        if (rc != 0) {
+            rbuf_load(r, &sav);
+            return rc;
+        }
+    }
+
+    return 0;
+}
+
+int rbuf_printf(struct ringbuf *r, char *fmt, ...)
+{
+    va_list args;
+    int rc;
+    va_start(args, fmt);
+    rc = rbuf_vprintf(r, fmt, args);
+    va_end(args);
+    return rc;
+}
+
+/* Much the same as bwformat() */
+int rbuf_vprintf(struct ringbuf *r, char *fmt, va_list args)
+{
+    struct rbufsav sav;
+    char ch, buf[12];
+    int rc;
+
+    rbuf_save(r, &sav);
+    while ((ch = *fmt++)) {
+        if (ch != '%') {
+            rc = rbuf_putc(r, ch);
+            if (rc == 0)
+                continue;
+            else {
+                rbuf_load(r, &sav);
+                return rc;
+            }
+        }
+
+        /* Got a %. FIXME need to do alignment */
+        ch = *fmt++;
+        switch (ch) {
+        case 'c':
+            rc = rbuf_putc(r, va_arg(args, char));
+            break;
+
+        case 's':
+            rc = rbuf_print(r, va_arg(args, char*));
+            break;
+
+        case 'u':
+            bwui2a(va_arg(args, unsigned), 10, buf);
+            rc = rbuf_print(r, buf);
+            break;
+
+        case 'd':
+            bwi2a(va_arg(args, int), buf);
+            rc = rbuf_print(r, buf);
+            break;
+
+        case 'x':
+            bwui2a(va_arg(args, unsigned), 16, buf);
+            rc = rbuf_print(r, buf);
+            break;
+
+        case '%':
+            rc = rbuf_putc(r, '%');
+            break;
+
+        default:
+            rc = -1;
+        }
+
         if (rc != 0) {
             rbuf_load(r, &sav);
             return rc;

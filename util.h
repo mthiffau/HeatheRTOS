@@ -39,6 +39,24 @@ typedef unsigned int   size_t;
 #define STATIC_ASSERT(name, x) \
     struct assert_##name { char a[(x) ? 1 : -1]; }
 
+/*
+ * Variadic arguments
+ */
+
+typedef char *va_list;
+
+#define __va_argsiz(t) \
+    (((sizeof(t) + sizeof(int) - 1) / sizeof(int)) * sizeof(int))
+
+#define va_start(ap, pN) \
+    ((ap) = ((va_list) __builtin_next_arg(pN)))
+
+#define va_end(ap) \
+    ((void)0)
+
+#define va_arg(ap, t) \
+    (((ap) = (ap) + __va_argsiz(t)), *((t*) (void*) ((ap) - __va_argsiz(t))))
+
 
 /*
  * Strong typedefs.

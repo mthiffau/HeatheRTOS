@@ -2,17 +2,13 @@
  * bwio.h
  */
 
-typedef char *va_list;
+#ifdef BWIO_H
+#error "double-included bwio.h"
+#endif
 
-#define __va_argsiz(t)	\
-		(((sizeof(t) + sizeof(int) - 1) / sizeof(int)) * sizeof(int))
+#define BWIO_H
 
-#define va_start(ap, pN) ((ap) = ((va_list) __builtin_next_arg(pN)))
-
-#define va_end(ap)	((void)0)
-
-#define va_arg(ap, t)	\
-		 (((ap) = (ap) + __va_argsiz(t)), *((t*) (void*) ((ap) - __va_argsiz(t))))
+UTIL_H;
 
 #define COM1	0
 #define COM2	1

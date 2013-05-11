@@ -34,6 +34,11 @@ int rbuf_write(struct ringbuf *r, int n, const char *s);
 /* Print a NUL-terminated string verbatim. */
 int rbuf_print(struct ringbuf *r, const char *s);
 
+/* Formatted printing. Returns 0 for success, unlike real printf! */
+int rbuf_vprintf(struct ringbuf *r, char *fmt, va_list args);
+int rbuf_printf(struct ringbuf *r, char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+
 /* Struct definition */
 struct ringbuf {
     int  rd, wr, len;

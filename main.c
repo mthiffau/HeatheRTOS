@@ -10,6 +10,9 @@
 
 #define CLOCK_Hz 10
 
+#define ESC_ERASE_SCREEN "\e[2J"
+#define ESC_CURSOR_HOME  "\e[;H"
+
 int main(int argc, char* argv[])
 {
     struct ringbuf out;
@@ -30,30 +33,25 @@ int main(int argc, char* argv[])
     }
 
     /* clear screen before sending any other output */
-    rbuf_print(&out, "\e[2J");
+    rbuf_print(&out, ESC_ERASE_SCREEN);
 
     /* main loop */
     for (;;) {
-        char c, digit;
+        char c;
         if (p_trygetc(P_TTY, &c))
             break;
-
-        if (clock_update(&clock)) {
-            if (rbuf_print(&out, "\e[;H") != 0) {
-                bwprintf(COM2, "failed to rbuf_print\n");
-                return 1;
-            }
-
-            digit = '0' + clock_ticks(&clock) % 10;
-            if (rbuf_putc(&out, digit) != 0) {
-                bwprintf(COM2, "failed to rbuf_putc\n");
-                return 1;
-            }
-        }
 
         if (rbuf_peekc(&out, &c)) {
             if (p_tryputc(P_TTY, c))
                 rbuf_getc(&out, &c);
+        }
+
+        if (clock_update(&clock)) {
+            uint32_t ticks = clock_ticks(&clock);
+            if (rbuf_printf(&out, ESC_CURSOR_HOME "%u", ticks) != 0) {
+                bwprintf(COM2, "failed to rbuf_print\n");
+                return 1;
+            }
         }
     }
 
