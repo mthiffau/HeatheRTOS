@@ -94,17 +94,28 @@ int rbuf_printf(struct ringbuf *r, char *fmt, ...)
     return rc;
 }
 
-static int rbuf_pad(struct ringbuf *r, int n, char pad)
+static int rbuf_nputc_x(struct ringbuf *r, int n, char ch)
 {
     while (n-- > 0) {
-        int rc = rbuf_putc(r, pad);
+        int rc = rbuf_putc(r, ch);
         if (rc != 0)
             return rc;
     }
     return 0;
 }
 
-static int rbuf_align(
+int rbuf_nputc(struct ringbuf *r, int n, char ch)
+{
+    struct rbufsav sav;
+    int rc;
+    rbuf_save(r, &sav);
+    rc = rbuf_nputc_x(r, n, ch);
+    if (rc != 0)
+        rbuf_load(r, &sav);
+    return rc;
+}
+
+static int rbuf_align_x(
     struct ringbuf *r,
     int w,
     char pad,
@@ -118,17 +129,43 @@ static int rbuf_align(
     while (*p++ && w > 0)
         w--;
 
-    if (!left && (rc = rbuf_pad(r, w, pad)) != 0)
+    if (!left && (rc = rbuf_nputc_x(r, w, pad)) != 0)
         return rc;
 
     rc = rbuf_print(r, buf);
     if (rc != 0)
         return rc;
 
-    if (left && (rc = rbuf_pad(r, w, pad)) != 0)
+    if (left && (rc = rbuf_nputc_x(r, w, pad)) != 0)
         return rc;
 
     return 0;
+}
+
+static int rbuf_align(
+    struct ringbuf *r,
+    int width,
+    char pad,
+    bool left,
+    const char *buf)
+{
+    struct rbufsav sav;
+    int rc;
+    rbuf_save(r, &sav);
+    rc = rbuf_align_x(r, width, pad, left, buf);
+    if (rc != 0)
+        rbuf_load(r, &sav);
+    return rc;
+}
+
+int rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s)
+{
+    return rbuf_align(r, w, pad, true, s);
+}
+
+int rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s)
+{
+    return rbuf_align(r, w, pad, false, s);
 }
 
 /* Much the same as bwformat() */
@@ -180,39 +217,39 @@ int rbuf_vprintf(struct ringbuf *r, char *fmt, va_list args)
         case 'c':
             buf[0] = va_arg(args, char);
             buf[1] = '\0';
-            rc = rbuf_align(r, w, pad, left, buf);
+            rc = rbuf_align_x(r, w, pad, left, buf);
             break;
 
         case 's':
-            rc = rbuf_align(r, w, pad, left, va_arg(args, char*));
+            rc = rbuf_align_x(r, w, pad, left, va_arg(args, char*));
             break;
 
         case 'u':
             bwui2a(va_arg(args, unsigned), 10, buf);
-            rc = rbuf_align(r, w, pad, left, buf);
+            rc = rbuf_align_x(r, w, pad, left, buf);
             break;
 
         case 'd':
             bwi2a(va_arg(args, int), buf);
-            rc = rbuf_align(r, w, pad, left, buf);
+            rc = rbuf_align_x(r, w, pad, left, buf);
             break;
 
         case 'x':
             bwui2a(va_arg(args, unsigned), 16, buf);
-            rc = rbuf_align(r, w, pad, left, buf);
+            rc = rbuf_align_x(r, w, pad, left, buf);
             break;
 
         case 'p':
             buf[0] = '0';
             buf[1] = 'x';
             bwui2a(va_arg(args, unsigned), 16, buf + 2);
-            rc = rbuf_align(r, w, pad, left, buf);
+            rc = rbuf_align_x(r, w, pad, left, buf);
             break;
 
         case '%':
             buf[0] = '%';
             buf[1] = '\0';
-            rc = rbuf_align(r, w, pad, left, buf);
+            rc = rbuf_align_x(r, w, pad, left, buf);
             break;
 
         default:

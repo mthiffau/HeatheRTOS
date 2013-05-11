@@ -34,6 +34,13 @@ int rbuf_write(struct ringbuf *r, int n, const char *s);
 /* Print a NUL-terminated string verbatim. */
 int rbuf_print(struct ringbuf *r, const char *s);
 
+/* Repeat a character */
+int rbuf_nputc(struct ringbuf *r, int n, char ch);
+
+/* Print aligned strings */
+int rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s);
+int rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s);
+
 /* Formatted printing. Returns 0 for success, unlike real printf! */
 int rbuf_vprintf(struct ringbuf *r, char *fmt, va_list args);
 int rbuf_printf(struct ringbuf *r, char *fmt, ...)
