@@ -48,7 +48,7 @@ int main(int argc, char* argv[])
 
         if (clock_update(&clock)) {
             uint32_t ticks = clock_ticks(&clock);
-            if (rbuf_printf(&out, ESC_CURSOR_HOME "%u", ticks) != 0) {
+            if (rbuf_printf(&out, ESC_CURSOR_HOME "%04u", ticks) != 0) {
                 bwprintf(COM2, "failed to rbuf_print\n");
                 return 1;
             }
