@@ -31,6 +31,9 @@ bool rbuf_getc(struct ringbuf *r, char *c_out);
 /* Write many characters to ring buffer. */
 int rbuf_write(struct ringbuf *r, int n, const char *s);
 
+/* Print a NUL-terminated string verbatim. */
+int rbuf_print(struct ringbuf *r, const char *s);
+
 /* Struct definition */
 struct ringbuf {
     int  rd, wr, len;

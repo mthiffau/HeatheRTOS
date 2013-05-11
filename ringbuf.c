@@ -60,6 +60,24 @@ int rbuf_write(struct ringbuf *r, int n, const char *s)
             return rc;
         }
     }
+
+    return 0;
+}
+
+int rbuf_print(struct ringbuf *r, const char *s)
+{
+    char c;
+    struct rbufsav sav;
+
+    rbuf_save(r, &sav);
+    while ((c = *s++)) {
+        int rc = rbuf_putc(r, c);
+        if (rc != 0) {
+            rbuf_load(r, &sav);
+            return rc;
+        }
+    }
+
     return 0;
 }
 

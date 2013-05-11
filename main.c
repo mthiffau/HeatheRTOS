@@ -29,14 +29,23 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    /* clear screen before sending any other output */
+    rbuf_print(&out, "\e[2J");
+
     /* main loop */
     for (;;) {
-        char c;
+        char c, digit;
         if (p_trygetc(P_TTY, &c))
             break;
 
         if (clock_update(&clock)) {
-            if (rbuf_putc(&out, '.') != 0) {
+            if (rbuf_print(&out, "\e[;H") != 0) {
+                bwprintf(COM2, "failed to rbuf_print\n");
+                return 1;
+            }
+
+            digit = '0' + clock_ticks(&clock) % 10;
+            if (rbuf_putc(&out, digit) != 0) {
                 bwprintf(COM2, "failed to rbuf_putc\n");
                 return 1;
             }
