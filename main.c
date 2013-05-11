@@ -10,13 +10,14 @@
 
 #define CLOCK_Hz 10
 
-#define ESC_ERASE_SCREEN "\e[2J"
-#define ESC_CURSOR_HOME  "\e[;H"
+#define ERASE_ALL   "\e[2J"
+#define CURSOR_HOME "\e[;H"
 
 int main(int argc, char* argv[])
 {
     struct ringbuf out;
     struct clock   clock;
+    int rc;
 
     /* ignore arguments */
     (void)argc;
@@ -33,7 +34,7 @@ int main(int argc, char* argv[])
     }
 
     /* clear screen before sending any other output */
-    rbuf_print(&out, ESC_ERASE_SCREEN);
+    rbuf_print(&out, ERASE_ALL);
 
     /* main loop */
     for (;;) {
@@ -47,8 +48,16 @@ int main(int argc, char* argv[])
         }
 
         if (clock_update(&clock)) {
-            uint32_t ticks = clock_ticks(&clock);
-            if (rbuf_printf(&out, ESC_CURSOR_HOME "%04u", ticks) != 0) {
+            uint32_t ticks, tenths, seconds, minutes;
+            ticks   = clock_ticks(&clock);
+            tenths  = ticks % 10;
+            ticks   = ticks / 10;
+            seconds = ticks % 60;
+            ticks   = ticks / 60;
+            minutes = ticks;
+            rc = rbuf_printf(&out, CURSOR_HOME "%02u:%02u.%u",
+                minutes, seconds, tenths);
+            if (rc != 0) {
                 bwprintf(COM2, "failed to rbuf_print\n");
                 return 1;
             }
