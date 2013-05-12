@@ -45,51 +45,91 @@
 #define TERM_SAVE_CURSOR            "\e[s"
 #define TERM_RESTORE_CURSOR         "\e[u"
 
-/* Train commands */
-#define TRCMD_SWITCH_STRAIGHT  34
-#define TRCMD_SWITCH_CURVE     33
-#define TRCMD_SWITCH_OFF       32
+/* Trains and train commands */
+#define NTRAINS                256
+#define TRAIN_STOP_TICKS       25 /* 2.5 seconds */
+
+#define TRCMD_STOP             ((char)0)
+#define TRCMD_REVERSE          ((char)15)
+#define TRCMD_SWITCH_STRAIGHT  ((char)34)
+#define TRCMD_SWITCH_CURVE     ((char)33)
+#define TRCMD_SWITCH_OFF       ((char)32)
+
+typedef uint8_t trainid;
+STATIC_ASSERT(trainid_large_enough, (trainid)(NTRAINS - 1) == NTRAINS - 1);
+
+struct train {
+    uint8_t speed;
+    bool    rev;          /* reversing? */
+    int     rvstart;      /* reverse start time */
+    bool    rvhasnext;    /* is next valid? */
+    trainid rvnext;       /* next reversing train */
+};
 
 /* Program state. */
 #define TTYOUT_BUFSIZE   1024
 #define TROUT_BUFSIZE    128
 
+/* Program state */
 struct state {
-    struct ringbuf ttyout;      /* Output buffers */
-    struct ringbuf trout;       /* Output buffers */
-    struct clock   clock;       /* Clock state    */
-    int  cmdlen;                /* Command length */
-    char cmd[CMD_MAXLEN + 1];   /* Command string */
+    /* Output buffers */
+    struct ringbuf ttyout;
+    struct ringbuf trout;
+    char trout_mem [TROUT_BUFSIZE];
+    char ttyout_mem[TTYOUT_BUFSIZE];
+
+    /* Clock state  */
+    struct clock clock;
+
+    /* Command state */
+    int  cmdlen;
+    char cmd[CMD_MAXLEN + 1]; /* NUL-terminated */
     bool quit;
-    char trout_mem [TROUT_BUFSIZE];  /* Buffer memory */
-    char ttyout_mem[TTYOUT_BUFSIZE]; /* Buffer memory */
+
+    /* Train state */
+    struct train trains[NTRAINS];
+    int          trv_head; /* negative is invalid */
+    int          trv_last;
 };
 
 int init(struct state *st)
 {
-    int rc;
+    int i, rc;
 
-    /* Console setup */
+    /* Console port setup */
     p_enable_fifo(P_TTY, false);
 
-    /* Train setup */
+    /* Train port setup */
     p_enable_fifo(P_TRAIN, false);
     p_set_baudrate(P_TRAIN, 2400);
     p_enable_parity(P_TRAIN, false);
     p_enable_2stop(P_TRAIN, true);
 
-    /* Set up data */
+    /* Output buffer setup */
     rbuf_init(&st->ttyout, st->ttyout_mem, TTYOUT_BUFSIZE);
     rbuf_init(&st->trout,  st->trout_mem,  TROUT_BUFSIZE);
-    st->cmdlen = 0;
-    st->quit   = false;
+
+    /* Clock setup */
     rc = clock_init(&st->clock, CLOCK_Hz);
     if (rc != 0) {
         bwputstr(COM2, "failed to initialize clock at " STR(CLOCK_Hz) " Hz");
         return rc;
     }
 
-    /* Print initial output - reset terminal, clear screen, etc */
+    /* Command-line setup */
+    st->cmdlen = 0;
+    st->quit   = false;
+
+    /* Train data setup */
+    for (i = 0; i < NTRAINS; i++) {
+        struct train *train = &st->trains[i];
+        train->speed = 0;
+        train->rev   = false;
+    }
+
+    st->trv_head = st->trv_last = -1;
+
+    /* Initial output: reset terminal, clear screen, print static text. */
     rbuf_print(&st->ttyout,
         TERM_RESET_DEVICE
         TERM_ERASE_ALL
@@ -166,44 +206,133 @@ void cmd_msg_printf(struct state *st, const char *fmt, ...)
     rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
 
+void cmd_msg_clear(struct state *st)
+{
+    rbuf_print(&st->ttyout,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(CMD_MSG_ROW), STR(CMD_MSG_COL))
+        TERM_ERASE_EOL
+        TERM_RESTORE_CURSOR);
+}
+
 void runcmd_q(struct state *st, int argc, char *argv[])
 {
     (void)argv; /* ignore */
-    if (argc == 0)
-        st->quit = true;
-    else
+    if (argc != 0) {
         cmd_msg_printf(st, "usage: q");
+        return;
+    }
+
+    cmd_msg_clear(st);
+    st->quit = true;
 }
 
 void runcmd_tr(struct state *st, int argc, char *argv[])
 {
-    uint8_t train, speed;
     /* Parse arguments */
+    struct train *train;
+    trainid which;
+    uint8_t speed;
     if (argc != 2) {
         cmd_msg_printf(st, "usage: tr TRAIN SPEED");
         return;
     }
 
-    if (atou8(argv[0], &train) != 0) {
+    if (atou8(argv[0], &which) != 0) {
         cmd_msg_printf(st, "bad train '%s'", argv[0]);
         return;
     }
 
-    if (atou8(argv[1], &speed) != 0 || speed > 15) {
+    if (atou8(argv[1], &speed) != 0 || speed > 14) {
         cmd_msg_printf(st, "bad speed '%s'", argv[1]);
         return;
     }
 
     /* Send command */
-    rbuf_putc(&st->trout, (char)speed);
-    rbuf_putc(&st->trout, (char)train);
+    cmd_msg_clear(st);
+    train = &st->trains[which];
+    train->speed = speed;
+    if (!train->rev) { /* don't send speed while reversing  */
+        rbuf_putc(&st->trout, (char)speed);
+        rbuf_putc(&st->trout, (char)which);
+    }
+}
+
+void runcmd_rv(struct state *st, int argc, char *argv[])
+{
+    /* Parse arguments */
+    trainid which;
+    struct train *train;
+    if (argc != 1) {
+        cmd_msg_printf(st, "usage: rv TRAIN");
+        return;
+    }
+
+    if (atou8(argv[0], &which) != 0) {
+        cmd_msg_printf(st, "bad train '%s'", argv[1]);
+        return;
+    }
+
+    /* Start reversing the train. Issue stop */
+    cmd_msg_clear(st);
+    rbuf_putc(&st->trout, TRCMD_STOP);
+    rbuf_putc(&st->trout, (char)which);
+
+    /* Take note of reversing train */
+    train = &st->trains[which];
+    train->rev       = true;
+    train->rvstart   = st->clock.ticks;
+    train->rvhasnext = false;
+    if (st->trv_head < 0) {
+        st->trv_head = st->trv_last = which;
+    } else {
+        struct train *last = &st->trains[st->trv_last];
+        last->rvhasnext = true;
+        last->rvnext    = which;
+        st->trv_last    = which;
+    }
+}
+
+void rv_continue(struct state *st)
+{
+    struct train *train;
+    trainid id;
+    int head = st->trv_head;
+    if (head < 0)
+        return;
+
+    id = head;
+    train = &st->trains[id];
+    if (!train->rev) {
+        /* sanity check! */
+        bwprintf(COM2,
+            TERM_SAVE_CURSOR
+            TERM_FORCE_CURSOR("4", "1")
+            "assertion failed! non-reversing train in reversing train queue"
+            TERM_RESTORE_CURSOR);
+        st->quit = true;
+        return;
+    }
+
+    if (st->clock.ticks - train->rvstart < TRAIN_STOP_TICKS)
+        return; /* hasn't been long enough */
+
+    /* done waiting for train to stop. Reverse!
+     * and clear its reversing state */
+    train->rev   = false;
+    st->trv_head = train->rvhasnext ? train->rvnext : -1;
+
+    rbuf_putc(&st->trout, TRCMD_REVERSE);
+    rbuf_putc(&st->trout, (char)id);
+    rbuf_putc(&st->trout, (char)train->speed);
+    rbuf_putc(&st->trout, (char)id);
 }
 
 void runcmd_sw(struct state *st, int argc, char *argv[])
 {
+    /* Parse arguments */
     uint8_t sw;
     uint8_t dir, dir_err;
-    /* Parse arguments */
     if (argc != 2) {
         cmd_msg_printf(st, "usage: sw SWITCH [SC]");
         return;
@@ -238,9 +367,9 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
     }
 
     /* Send command */
-
+    cmd_msg_clear(st);
     rbuf_putc(&st->trout, dir);
-    rbuf_putc(&st->trout, sw);
+    rbuf_putc(&st->trout, (char)sw);
     rbuf_putc(&st->trout, TRCMD_SWITCH_OFF);
 }
 
@@ -262,6 +391,8 @@ void runcmd(struct state *st)
         runcmd_tr(st, nts - 1, ts + 1);
     else if (!strcmp(cmd, "sw"))
         runcmd_sw(st, nts - 1, ts + 1);
+    else if (!strcmp(cmd, "rv"))
+        runcmd_rv(st, nts - 1, ts + 1);
     else
         cmd_msg_printf(st, "unrecognized command");
 }
@@ -336,8 +467,10 @@ int main(int argc, char* argv[])
         if (p_trygetc(P_TTY, &c))
             tty_recv(&st, c);
 
-        if (clock_update(&st.clock))
+        if (clock_update(&st.clock)) {
             clock_print(&st);
+            rv_continue(&st);
+        }
 
         /* send the first queued byte to TTY if possible */
         if (rbuf_peekc(&st.ttyout, &c) && p_tryputc(P_TTY, c))
