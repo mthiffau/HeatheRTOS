@@ -47,7 +47,7 @@
 
 /* Trains and train commands */
 #define NTRAINS                256
-#define TRAIN_STOP_TICKS       25 /* 2.5 seconds */
+#define TRAIN_STOP_TICKS       20 /* 2 seconds */
 
 #define TRCMD_STOP             ((char)0)
 #define TRCMD_REVERSE          ((char)15)
