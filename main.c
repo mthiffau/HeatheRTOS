@@ -18,22 +18,21 @@
 #define MAX_CMD_LEN      72
 
 #define ERASE_ALL    "\e[2J"
+#define ERASE_EOL    "\e[K"
 #define RESET_DEVICE "\ec"
-#define ENABLE_WRAP  "\e[7h"
-#define TERM_INIT    RESET_DEVICE ENABLE_WRAP ERASE_ALL
+#define TERM_INIT    RESET_DEVICE ERASE_ALL
 
 #define MOVE_CURSOR  "\e[%d;%df"
 #define CURSOR_LEFT1 "\e[D"
 
 struct cmdline {
-    int  len, cur;
+    int  len;
     char buf[MAX_CMD_LEN + 1];
 };
 
 void cmdl_init(struct cmdline *cmdl)
 {
     cmdl->len = 0;
-    cmdl->cur = 0;
 }
 
 void cmdl_print_init(struct ringbuf *out)
@@ -43,59 +42,57 @@ void cmdl_print_init(struct ringbuf *out)
 
 void cmdl_set_cursor(struct cmdline *cmdl, struct ringbuf *out)
 {
-    int col = 1 + CMDPROMPT_WIDTH + cmdl->cur;
+    int col = 1 + CMDPROMPT_WIDTH + cmdl->len;
     rbuf_printf(out, MOVE_CURSOR, CMDLINE_ROW, col);
+}
+
+void cmdl_backspace(struct cmdline *cmdl, struct ringbuf *out)
+{
+    if (cmdl->len == 0) {
+        rbuf_putc(out, '\a');
+    } else {
+        cmdl->buf[cmdl->len--] = '\0';
+        rbuf_print(out, "\b \b");
+    }
+}
+
+/* append printable character to command-line */
+void cmdl_append(struct cmdline *cmdl, char ch, struct ringbuf *out)
+{
+    if (cmdl->len == MAX_CMD_LEN) {
+        rbuf_putc(out, '\a');
+    } else {
+        cmdl->buf[cmdl->len++] = ch;
+        cmdl->buf[cmdl->len] = '\0';
+        rbuf_putc(out, ch);
+    }
+}
+
+void cmdl_accept(struct cmdline *cmdl, struct ringbuf *out)
+{
+    cmdl->len = 0;
+    cmdl_set_cursor(cmdl, out);
+    rbuf_printf(out, ERASE_EOL MOVE_CURSOR ERASE_EOL, CMDLINE_ROW + 2, 3);
+    rbuf_print(out, cmdl->buf);
+    cmdl_set_cursor(cmdl, out);
+}
+
+static inline bool isprintable(char c)
+{
+    return c >= ' ' && c <= '~';
 }
 
 /* Cursor should be as set by cmdl_set_cursor */
 void cmdl_process(struct cmdline *cmdl, char ch, struct ringbuf *out)
 {
-    int i, newlen;
-    switch (ch) {
-    case '\b':
-        /* delete previous character */
-        if (cmdl->cur == 0) {
-            rbuf_putc(out, '\a');
-            return; /* can't backspace from position 0 */
-        }
-        cmdl->cur--;
-        newlen = cmdl->len - 1;
-        for (i = cmdl->cur; i < newlen; i++)
-            cmdl->buf[i] = cmdl->buf[i + 1];
-        cmdl->buf[newlen] = '\0';
-        cmdl->len = newlen;
-        rbuf_print(out, "$" CURSOR_LEFT1);
-        break;
-
-    case 'L':
-        if (cmdl->cur > 0) {
-            cmdl->cur--;
-            cmdl_set_cursor(cmdl, out);
-        }
-        return;
-
-    case 'R':
-        if (cmdl->cur < cmdl->len) {
-            cmdl->cur++;
-            cmdl_set_cursor(cmdl, out);
-        }
-        return;
-
-    default:
-        /* append character to command-line */
-        if (cmdl->len == MAX_CMD_LEN) {
-            rbuf_putc(out, '\a');
-            return;
-        }
-        for (i = cmdl->len++; i > cmdl->cur; i--)
-            cmdl->buf[i] = cmdl->buf[i - 1];
-        cmdl->buf[cmdl->cur] = ch;
-        cmdl->buf[cmdl->len] = '\0';
-        rbuf_alignl(out, cmdl->len - cmdl->cur, ' ', &cmdl->buf[cmdl->cur]);
-        cmdl->cur++;
-        if (cmdl->cur != cmdl->len)
-            cmdl_set_cursor(cmdl, out);
-        break;
+    if (ch == '\b') {
+        cmdl_backspace(cmdl, out);
+    } else if (ch == '\r' || ch == '\n') {
+        cmdl_accept(cmdl, out);
+    } else if (isprintable(ch)) {
+        cmdl_append(cmdl, ch, out);
+    } else {
+        rbuf_putc(out, '\a');
     }
 }
 

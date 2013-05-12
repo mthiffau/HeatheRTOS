@@ -2,14 +2,11 @@ HOST    = arm-elf-
 CC      = $(HOST)gcc
 AS      = $(HOST)as
 LD      = $(HOST)gcc
-CFLAGS  = -I. -Wall -Wextra -Werror
-CFLAGS += -fPIC -mcpu=arm920t -msoft-float
+CFLAGS  = -nostdinc -I. -Wall -Wextra -Werror -fPIC -mcpu=arm920t -msoft-float
 ASFLAGS = -mcpu=arm920t -mapcs-32 # always use full stack frames
 LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc
 BUILD   = build
-
-#CFLAGS += -DNDEBUG
 
 # Files
 MAIN    = $(BUILD)/rt.elf
