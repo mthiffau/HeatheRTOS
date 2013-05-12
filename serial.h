@@ -4,7 +4,7 @@
 
 #define SERIAL_H
 
-UTIL_H;
+XBOOL_H;
 TS7200_H;
 
 /*

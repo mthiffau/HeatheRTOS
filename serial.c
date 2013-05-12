@@ -1,6 +1,10 @@
-#include "util.h"
+#include "xbool.h"
 #include "ts7200.h"
 #include "serial.h"
+
+#include "xint.h"
+#include "xdef.h"
+#include "static_assert.h"
 
 struct Port {
     uint32_t data;

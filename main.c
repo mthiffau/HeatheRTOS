@@ -1,7 +1,9 @@
 /* #include "bwio.h" */
 /* #include "ts7200.h" */
 
-#include "util.h"
+#include "xbool.h"
+#include "xint.h"
+#include "xarg.h"
 #include "ts7200.h"
 #include "serial.h"
 #include "clock.h"
@@ -158,7 +160,7 @@ void tty_send(struct state *st)
 void clock_print(struct state *st)
 {
     uint32_t ticks, tenths, seconds, minutes;
-    ticks   = clock_ticks(&st->clock);
+    ticks   = st->clock.ticks;
     tenths  = ticks % 10;
     ticks   = ticks / 10;
     seconds = ticks % 60;

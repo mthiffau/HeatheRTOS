@@ -1,4 +1,5 @@
-#include "util.h"
+#include "xbool.h"
+#include "xint.h"
 #include "clock.h"
 
 #include "timer.h"
@@ -9,7 +10,7 @@ int clock_init(struct clock *clock, int freq_Hz)
         return -1;
 
     /* Initialize the clock data. */
-    clock->_ticks  = 0;
+    clock->ticks   = 0;
     clock->_reload = HWCLOCK_Hz / freq_Hz;
     clock->_last   = clock->_reload + 1; /* impossible value for none */
 
@@ -36,12 +37,7 @@ bool clock_update(struct clock *clock)
     /* Update clock data */
     clock->_last = now;
     if (tick)
-        clock->_ticks++;
+        clock->ticks++;
 
     return tick;
-}
-
-uint32_t clock_ticks(struct clock *clock)
-{
-    return clock->_ticks;
 }

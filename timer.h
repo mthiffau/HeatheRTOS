@@ -4,7 +4,8 @@
 
 #define TIMER_H
 
-UTIL_H;
+XBOOL_H;
+XINT_H;
 
 /*
  * Timer control

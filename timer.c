@@ -1,6 +1,9 @@
-#include "util.h"
+#include "xbool.h"
+#include "xint.h"
 #include "timer.h"
 
+#include "xdef.h"
+#include "static_assert.h"
 #include "ts7200.h"
 
 struct tmr32 {

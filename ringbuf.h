@@ -4,7 +4,8 @@
 
 #define RINGBUF_H
 
-UTIL_H;
+XBOOL_H;
+XARG_H;
 
 /*
  * Ring buffer

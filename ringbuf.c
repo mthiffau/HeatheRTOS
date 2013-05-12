@@ -1,4 +1,5 @@
-#include "util.h"
+#include "xbool.h"
+#include "xarg.h"
 #include "ringbuf.h"
 #include "bwio.h" /* for debug print */
 

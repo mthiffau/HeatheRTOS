@@ -5,9 +5,9 @@
  *
  */
 
-#include "util.h"
-#include <ts7200.h>
-#include <bwio.h>
+#include "bwio.h"
+#include "ts7200.h"
+#include "xarg.h"
 
 /*
  * The UARTs are initialized by RedBoot to the following state

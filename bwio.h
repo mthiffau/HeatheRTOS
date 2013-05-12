@@ -8,8 +8,6 @@
 
 #define BWIO_H
 
-UTIL_H;
-
 #define COM1	0
 #define COM2	1
 
