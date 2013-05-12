@@ -45,6 +45,11 @@
 #define TERM_SAVE_CURSOR            "\e[s"
 #define TERM_RESTORE_CURSOR         "\e[u"
 
+/* Train commands */
+#define TRCMD_SWITCH_STRAIGHT  34
+#define TRCMD_SWITCH_CURVE     33
+#define TRCMD_SWITCH_OFF       32
+
 /* Program state. */
 #define TTYOUT_BUFSIZE   1024
 #define TROUT_BUFSIZE    128
@@ -173,6 +178,7 @@ void runcmd_q(struct state *st, int argc, char *argv[])
 void runcmd_tr(struct state *st, int argc, char *argv[])
 {
     uint8_t train, speed;
+    /* Parse arguments */
     if (argc != 2) {
         cmd_msg_printf(st, "usage: tr TRAIN SPEED");
         return;
@@ -188,6 +194,7 @@ void runcmd_tr(struct state *st, int argc, char *argv[])
         return;
     }
 
+    /* Send command */
     rbuf_putc(&st->trout, (char)speed);
     rbuf_putc(&st->trout, (char)train);
 }
@@ -195,7 +202,8 @@ void runcmd_tr(struct state *st, int argc, char *argv[])
 void runcmd_sw(struct state *st, int argc, char *argv[])
 {
     uint8_t sw;
-    bool    straight, dir_err;
+    uint8_t dir, dir_err;
+    /* Parse arguments */
     if (argc != 2) {
         cmd_msg_printf(st, "usage: sw SWITCH [SC]");
         return;
@@ -213,11 +221,11 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
         switch (argv[1][0]) {
             case 's':
             case 'S':
-                straight = true;
+                dir = TRCMD_SWITCH_STRAIGHT;
                 break;
             case 'c':
             case 'C':
-                straight = false;
+                dir = TRCMD_SWITCH_CURVE;
                 break;
             default:
                 dir_err = true;
@@ -229,10 +237,11 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
         return;
     }
 
-    cmd_msg_printf(st,
-        "set switch %u to %s",
-        sw,
-        straight ? "straight" : "curved");
+    /* Send command */
+
+    rbuf_putc(&st->trout, dir);
+    rbuf_putc(&st->trout, sw);
+    rbuf_putc(&st->trout, TRCMD_SWITCH_OFF);
 }
 
 void runcmd(struct state *st)

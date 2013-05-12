@@ -55,7 +55,7 @@ void p_enable_2stop(Port p, bool enable)
 
 bool p_cts(Port p)
 {
-    return !(p->flag & CTS_MASK);
+    return (bool)(p->flag & CTS_MASK);
 }
 
 bool p_tryputc(Port p, char c)
