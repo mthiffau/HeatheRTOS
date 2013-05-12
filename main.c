@@ -47,6 +47,7 @@ struct state {
     struct clock   clock;       /* Clock state    */
     int  cmdlen;                /* Command length */
     char cmd[CMD_MAXLEN + 1];   /* Command string */
+    bool quit;
 };
 
 int init(struct state *st)
@@ -54,6 +55,7 @@ int init(struct state *st)
     int rc;
     rbuf_init(&st->out);
     st->cmdlen = 0;
+    st->quit   = false;
     rc = clock_init(&st->clock, CLOCK_Hz);
     if (rc != 0) {
         bwputstr(COM2, "failed to initialize clock at " STR(CLOCK_Hz) " Hz");
@@ -73,19 +75,45 @@ void draw_init(struct state *st)
         PROMPT);
 }
 
+/* FIXME */
+int tokenize(char *cmd, char *ts[CMD_MAXLEN / 2])
+{
+    while (*cmd == ' ')
+        cmd++;
+
+    int n = 0;
+    while (*cmd != '\0') {
+        ts[n++] = cmd;
+        while (*cmd != '\0') {
+            if (*cmd == ' ') {
+                *cmd++ = '\0';
+                break;
+            }
+        }
+        while (*cmd == ' ')
+            cmd++;
+    }
+
+    return n;
+}
+
+void runcmd(struct state *st)
+{
+    char *cmd = st->cmd;
+    while (*cmd == ' ') cmd++;
+    if (*cmd == 'q')
+        st->quit = true;
+}
+
 void tty_recv(struct state *st, char c)
 {
     switch (c) {
     case '\r':
     case '\n':
+        runcmd(st);
         rbuf_print(&st->out,
             TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(CMD_COL))
-            TERM_ERASE_EOL
-            TERM_SAVE_CURSOR
-            TERM_FORCE_CURSOR("3", "1")
-            TERM_ERASE_DOWN);
-        rbuf_print(&st->out, st->cmd);
-        rbuf_print(&st->out, TERM_RESTORE_CURSOR);
+            TERM_ERASE_EOL);
         st->cmdlen = 0;
         st->cmd[0] = '\0';
         break;
@@ -167,7 +195,7 @@ int main(int argc, char* argv[])
     draw_init(&st);
 
     /* main loop */
-    for (;;) {
+    while (!st.quit) {
         tty_check(&st);
         clock_check(&st);
         tty_send(&st);
