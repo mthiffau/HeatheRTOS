@@ -1,5 +1,6 @@
 #include "util.h"
 #include "ringbuf.h"
+#include "bwio.h" /* for debug print */
 
 /* FIXME HACK */
 void bwui2a(unsigned int num, unsigned int base, char *bf);
@@ -21,8 +22,10 @@ void rbuf_init(struct ringbuf *r)
 
 int rbuf_putc(struct ringbuf *r, char c)
 {
-    if (r->len == RINGBUFSIZ)
+    if (r->len == RINGBUFSIZ) {
+        bwprintf(COM2, "\e[s\e[20;1j buffer full! \e[u"); /* FIXME */
         return -1; /* full */
+    }
 
     r->buf[r->wr++] = c;
     r->wr %= RINGBUFSIZ;

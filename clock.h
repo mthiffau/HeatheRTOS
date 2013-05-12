@@ -25,6 +25,7 @@ uint32_t clock_ticks(struct clock *clock);
 /* Struct definition */
 struct clock {
     uint32_t _ticks;  /* number of full clock ticks observed */
+    uint32_t _tickLen;/* the weight assigned to a tick */
     uint32_t _reload; /* clock wraps around to this */
     uint32_t _last;   /* previously read clock value */
 };
