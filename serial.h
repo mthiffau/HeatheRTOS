@@ -5,27 +5,17 @@
 #define SERIAL_H
 
 UTIL_H;
-
-/*
- * Available serial ports
- */
-
-enum Port_ {
-    P_COM1_ = 0,
-    P_COM2_ = 1,
-};
-
-NEWTYPE(Port, enum Port_);
-#define P_COM1       NTLIT(Port, P_COM1_) /* Typed constants */
-#define P_COM2       NTLIT(Port, P_COM2_)
-
-#define P_TRAIN      P_COM1               /* Semantic names */
-#define P_TTY        P_COM2
-
+TS7200_H;
 
 /*
  * Serial port operations.
  */
+
+struct Port; /* opaque */
+typedef volatile struct Port *Port;
+
+#define P_TRAIN ((Port)UART1_BASE)
+#define P_TTY   ((Port)UART2_BASE)
 
 /* Enable or disable FIFOs. */
 void p_enablefifo(Port p, bool enabled);

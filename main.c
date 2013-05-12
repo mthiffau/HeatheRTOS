@@ -2,6 +2,7 @@
 /* #include "ts7200.h" */
 
 #include "util.h"
+#include "ts7200.h"
 #include "serial.h"
 #include "clock.h"
 #include "ringbuf.h"

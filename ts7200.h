@@ -5,6 +5,12 @@
  *
  */
 
+#ifdef TS7200_H
+#error "double-included TS7200_H"
+#endif
+
+#define TS7200_H
+
 #define	TIMER1_BASE	0x80810000
 #define	TIMER2_BASE	0x80810020
 #define	TIMER3_BASE	0x80810080
