@@ -4,6 +4,7 @@
 #include "xarg.h"
 #include "xstring.h"
 #include "ts7200.h"
+#include "static_assert.h"
 #include "serial.h"
 #include "clock.h"
 #include "ringbuf.h"
@@ -46,20 +47,35 @@
 
 /* Program state. */
 #define TTYOUT_BUFSIZE   1024
+#define TROUT_BUFSIZE    128
 
 struct state {
-    struct ringbuf out;         /* Output buffer  */
+    struct ringbuf ttyout;      /* Output buffers */
+    struct ringbuf trout;       /* Output buffers */
     struct clock   clock;       /* Clock state    */
     int  cmdlen;                /* Command length */
     char cmd[CMD_MAXLEN + 1];   /* Command string */
     bool quit;
+    char trout_mem [TROUT_BUFSIZE];  /* Buffer memory */
     char ttyout_mem[TTYOUT_BUFSIZE]; /* Buffer memory */
 };
 
 int init(struct state *st)
 {
     int rc;
-    rbuf_init(&st->out, st->ttyout_mem, TTYOUT_BUFSIZE);
+
+    /* Console setup */
+    p_enable_fifo(P_TTY, false);
+
+    /* Train setup */
+    p_enable_fifo(P_TRAIN, false);
+    p_set_baudrate(P_TRAIN, 2400);
+    p_enable_parity(P_TRAIN, false);
+    p_enable_2stop(P_TRAIN, true);
+
+    /* Set up data */
+    rbuf_init(&st->ttyout, st->ttyout_mem, TTYOUT_BUFSIZE);
+    rbuf_init(&st->trout,  st->trout_mem,  TROUT_BUFSIZE);
     st->cmdlen = 0;
     st->quit   = false;
     rc = clock_init(&st->clock, CLOCK_Hz);
@@ -67,18 +83,17 @@ int init(struct state *st)
         bwputstr(COM2, "failed to initialize clock at " STR(CLOCK_Hz) " Hz");
         return rc;
     }
-    return 0;
-}
 
-void draw_init(struct state *st)
-{
-    rbuf_print(&st->out,
+    /* Print initial output - reset terminal, clear screen, etc */
+    rbuf_print(&st->ttyout,
         TERM_RESET_DEVICE
         TERM_ERASE_ALL
         TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(CLOCK_COL))
         TIME_MSG
         TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(PROMPT_COL))
         PROMPT);
+
+    return 0;
 }
 
 /* FIXME */
@@ -134,16 +149,16 @@ void cmd_msg_printf(struct state *st, const char *fmt, ...)
 void cmd_msg_printf(struct state *st, const char *fmt, ...)
 {
     va_list args;
-    rbuf_print(&st->out,
+    rbuf_print(&st->ttyout,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(CMD_MSG_ROW), STR(CMD_MSG_COL))
         TERM_ERASE_EOL);
 
     va_start(args, fmt);
-    rbuf_vprintf(&st->out, fmt, args);
+    rbuf_vprintf(&st->ttyout, fmt, args);
     va_end(args);
 
-    rbuf_print(&st->out, TERM_RESTORE_CURSOR);
+    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
 
 void runcmd_q(struct state *st, int argc, char *argv[])
@@ -173,7 +188,8 @@ void runcmd_tr(struct state *st, int argc, char *argv[])
         return;
     }
 
-    cmd_msg_printf(st, "set train %u speed to %u", train, speed);
+    rbuf_putc(&st->trout, (char)speed);
+    rbuf_putc(&st->trout, (char)train);
 }
 
 void runcmd(struct state *st)
@@ -207,7 +223,7 @@ void tty_recv(struct state *st, char c)
     case '\r':
     case '\n':
         runcmd(st);
-        rbuf_print(&st->out,
+        rbuf_print(&st->ttyout,
             TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(CMD_COL))
             TERM_ERASE_EOL);
         st->cmdlen = 0;
@@ -217,7 +233,7 @@ void tty_recv(struct state *st, char c)
     case '\b':
         if (st->cmdlen > 0) {
             st->cmd[--st->cmdlen] = '\0';
-            rbuf_print(&st->out, "\b \b");
+            rbuf_print(&st->ttyout, "\b \b");
         }
         break;
 
@@ -232,23 +248,9 @@ void tty_recv(struct state *st, char c)
         }
         st->cmd[st->cmdlen] = c;
         st->cmd[++st->cmdlen] = '\0';
-        rbuf_putc(&st->out, c);
+        rbuf_putc(&st->ttyout, c);
         break;
     }
-}
-
-void tty_check(struct state *st)
-{
-    char c;
-    if (p_trygetc(P_TTY, &c))
-        tty_recv(st, c);
-}
-
-void tty_send(struct state *st)
-{
-    char c;
-    if (rbuf_peekc(&st->out, &c) && p_tryputc(P_TTY, c))
-        rbuf_getc(&st->out, &c); /* remove the peeked character */
 }
 
 void clock_print(struct state *st)
@@ -260,18 +262,12 @@ void clock_print(struct state *st)
     seconds = ticks % 60;
     ticks   = ticks / 60;
     minutes = ticks;
-    rbuf_printf(&st->out,
+    rbuf_printf(&st->ttyout,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(TIME_COL))
         "%02u:%02u.%u"
         TERM_RESTORE_CURSOR,
         minutes, seconds, tenths);
-}
-
-void clock_check(struct state *st)
-{
-    if (clock_update(&st->clock))
-        clock_print(st);
 }
 
 int main(int argc, char* argv[])
@@ -282,19 +278,25 @@ int main(int argc, char* argv[])
     (void)argc;
     (void)argv;
 
-    /* disable FIFOs */
-    p_enablefifo(P_TTY,   false);
-    p_enablefifo(P_TRAIN, false);
-
     /* initialize */
     init(&st);
-    draw_init(&st);
 
     /* main loop */
     while (!st.quit) {
-        tty_check(&st);
-        clock_check(&st);
-        tty_send(&st);
+        char c;
+        if (p_trygetc(P_TTY, &c))
+            tty_recv(&st, c);
+
+        if (clock_update(&st.clock))
+            clock_print(&st);
+
+        /* send the first queued byte to TTY if possible */
+        if (rbuf_peekc(&st.ttyout, &c) && p_tryputc(P_TTY, c))
+            rbuf_getc(&st.ttyout, &c);
+
+        /* and to the train */
+        if (rbuf_peekc(&st.trout, &c) && p_tryputc(P_TRAIN, c))
+            rbuf_getc(&st.trout, &c);
     }
 
     return 0;

@@ -1,35 +1,11 @@
 #include "xbool.h"
-#include "ts7200.h"
-#include "serial.h"
-
 #include "xint.h"
 #include "xdef.h"
+#include "ts7200.h"
 #include "static_assert.h"
+#include "serial.h"
 
-struct Port {
-    uint32_t data;
-    uint32_t rsr;
-    uint32_t lcrh;
-    uint32_t lcrm;
-    uint32_t lcrl;
-    uint32_t ctrl;
-    uint32_t flag;
-    uint32_t intr;
-    uint32_t reserved[2];
-    uint32_t dmar;
-};
-
-STATIC_ASSERT(data_offs, offsetof (struct Port, data) == UART_DATA_OFFSET);
-STATIC_ASSERT(rsr_offs,  offsetof (struct Port, rsr)  == UART_RSR_OFFSET);
-STATIC_ASSERT(lcrh_offs, offsetof (struct Port, lcrh) == UART_LCRH_OFFSET);
-STATIC_ASSERT(lcrm_offs, offsetof (struct Port, lcrm) == UART_LCRM_OFFSET);
-STATIC_ASSERT(lcrl_offs, offsetof (struct Port, lcrl) == UART_LCRL_OFFSET);
-STATIC_ASSERT(ctrl_offs, offsetof (struct Port, ctrl) == UART_CTLR_OFFSET);
-STATIC_ASSERT(flag_offs, offsetof (struct Port, flag) == UART_FLAG_OFFSET);
-STATIC_ASSERT(intr_offs, offsetof (struct Port, intr) == UART_INTR_OFFSET);
-STATIC_ASSERT(dmar_offs, offsetof (struct Port, dmar) == UART_DMAR_OFFSET);
-
-void p_enablefifo(Port p, bool enabled)
+void p_enable_fifo(Port p, bool enabled)
 {
     if (enabled)
         p->lcrh |= FEN_MASK;
@@ -37,7 +13,7 @@ void p_enablefifo(Port p, bool enabled)
         p->lcrh &= ~FEN_MASK;
 }
 
-int p_setbaudrate(Port p, int baudrate)
+int p_set_baudrate(Port p, int baudrate)
 {
     switch (baudrate) {
     case 115200:
@@ -46,11 +22,35 @@ int p_setbaudrate(Port p, int baudrate)
         return 0;
     case 2400:
         p->lcrm = 0x0;
-        p->lcrl = 0x90;
+        p->lcrl = 0xbf;
         return 0;
     default:
         return -1;
     }
+}
+
+void p_enable_parity(Port p, bool enable)
+{
+    if (enable)
+        p->lcrh |= PEN_MASK;
+    else
+        p->lcrh &= ~PEN_MASK;
+}
+
+void p_select_parity(Port p, bool even)
+{
+    if (even)
+        p->lcrh |= EPS_MASK;
+    else
+        p->lcrh &= ~EPS_MASK;
+}
+
+void p_enable_2stop(Port p, bool enable)
+{
+    if (enable)
+        p->lcrh |= STP2_MASK;
+    else
+        p->lcrh &= ~STP2_MASK;
 }
 
 bool p_cts(Port p)
@@ -60,7 +60,8 @@ bool p_cts(Port p)
 
 bool p_tryputc(Port p, char c)
 {
-    if (p->flag & TXFF_MASK)
+    uint32_t flag = p->flag;
+    if ((flag & TXFF_MASK) || (flag & TXBUSY_MASK))
         return false;
 
     p->data = c;
