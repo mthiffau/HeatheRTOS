@@ -32,6 +32,8 @@
 #define CMD_COL          3
 #define CMD_MAXLEN       72
 #define CMD_MAXTOKS      3
+#define CMD_MSG_ROW      3
+#define CMD_MSG_COL      1
 
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
@@ -82,21 +84,26 @@ void draw_init(struct state *st)
 /* FIXME */
 int tokenize(char *cmd, char **ts, int max_ts)
 {
+    int n = 0;
     while (*cmd == ' ')
         cmd++;
 
-    int n = 0;
     while (*cmd != '\0') {
+        char c;
         if (n >= max_ts)
             return -1; /* too many tokens */
 
-        ts[n++] = cmd;
-        while (*cmd != '\0') {
-            if (*cmd == ' ') {
-                *cmd++ = '\0';
+        ts[n++] = cmd++;
+        for (;;) {
+            c = *cmd;
+            if (c == '\0' || c == ' ')
                 break;
-            }
+            cmd++;
         }
+
+        if (*cmd == ' ')
+            *cmd++ = '\0';
+
         while (*cmd == ' ')
             cmd++;
     }
@@ -104,13 +111,51 @@ int tokenize(char *cmd, char **ts, int max_ts)
     return n;
 }
 
+void cmd_msg_printf(struct state *st, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+
+void cmd_msg_printf(struct state *st, const char *fmt, ...)
+{
+    va_list args;
+    rbuf_print(&st->out,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(CMD_MSG_ROW), STR(CMD_MSG_COL))
+        TERM_ERASE_EOL);
+
+    va_start(args, fmt);
+    rbuf_vprintf(&st->out, fmt, args);
+    va_end(args);
+
+    rbuf_print(&st->out, TERM_RESTORE_CURSOR);
+}
+
+void badcmd(struct state *st)
+{
+    cmd_msg_printf(st, "bad command");
+}
+
 void runcmd(struct state *st)
 {
-    char *cmd = st->cmd;
-    /*char *ts[CMD_MAXTOKS]; */
-    while (*cmd == ' ') cmd++;
-    if (*cmd == 'q')
+    int   nts;
+    char *cmd, *ts[CMD_MAXTOKS];
+
+    nts = tokenize(st->cmd, ts, CMD_MAXTOKS);
+    if (nts <= 0) {
+        badcmd(st);
+        return;
+    }
+
+    cmd = ts[0];
+    if (!strcmp(cmd, "q")) {
         st->quit = true;
+    } else if (!strcmp(cmd, "echo")) {
+        if (nts == 2)
+            cmd_msg_printf(st, "%s", ts[1]);
+        else
+            badcmd(st);
+    } else {
+        badcmd(st);
+    }
 }
 
 void tty_recv(struct state *st, char c)
@@ -186,31 +231,6 @@ void clock_check(struct state *st)
         clock_print(st);
 }
 
-void test_strcmp1(struct state *st, const char *s1, const char *s2)
-{
-    int  cmp = strcmp(s1, s2);
-    char rel = cmp == 0 ? '=' : cmp < 0 ? '<' : '>';
-    rbuf_printf(&st->out, "\"%s\" %c \"%s\"\n", s1, rel, s2);
-}
-
-void test_strcmp(struct state *st)
-{
-    rbuf_print(&st->out,
-        TERM_SAVE_CURSOR
-        TERM_FORCE_CURSOR("4", "1"));
-
-    test_strcmp1(st, "", "");             /* = */
-    test_strcmp1(st, "xyzzy", "xyzzy");   /* = */
-    test_strcmp1(st, "xyzz", "xyzzy");    /* < */
-    test_strcmp1(st, "abcd",  "abce");    /* < */
-    test_strcmp1(st, "abcd",  "abd");     /* < */
-    test_strcmp1(st, "xyzzy", "xyzz");    /* > */
-    test_strcmp1(st, "abce",  "abcd");    /* > */
-    test_strcmp1(st, "abd",  "abcd");     /* > */
-
-    rbuf_print(&st->out, TERM_RESTORE_CURSOR);
-}
-
 int main(int argc, char* argv[])
 {
     struct state st;
@@ -226,7 +246,6 @@ int main(int argc, char* argv[])
     /* initialize */
     init(&st);
     draw_init(&st);
-    test_strcmp(&st);
 
     /* main loop */
     while (!st.quit) {

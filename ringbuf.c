@@ -94,7 +94,7 @@ int rbuf_print(struct ringbuf *r, const char *s)
     return 0;
 }
 
-int rbuf_printf(struct ringbuf *r, char *fmt, ...)
+int rbuf_printf(struct ringbuf *r, const char *fmt, ...)
 {
     va_list args;
     int rc;
@@ -179,7 +179,7 @@ int rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s)
 }
 
 /* Much the same as bwformat() */
-int rbuf_vprintf(struct ringbuf *r, char *fmt, va_list args)
+int rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args)
 {
     struct rbufsav sav;
     char ch, pad, buf[16];

@@ -42,8 +42,8 @@ int rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s);
 int rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s);
 
 /* Formatted printing. Returns 0 for success, unlike real printf! */
-int rbuf_vprintf(struct ringbuf *r, char *fmt, va_list args);
-int rbuf_printf(struct ringbuf *r, char *fmt, ...)
+int rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args);
+int rbuf_printf(struct ringbuf *r, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 
 /* Struct definition */
