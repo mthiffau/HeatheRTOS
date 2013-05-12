@@ -111,6 +111,23 @@ int tokenize(char *cmd, char **ts, int max_ts)
     return n;
 }
 
+int atou8(const char *s, uint8_t *ret)
+{
+    unsigned n = 0;
+    char c;
+    while ((c = *s++) != '\0') {
+        if (c < '0' || c > '9')
+            return -1;
+
+        n = n * 10 + c - '0';
+        if (n > 255)
+            return -1;
+    }
+
+    *ret = (uint8_t)n;
+    return 0;
+}
+
 void cmd_msg_printf(struct state *st, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 
@@ -129,9 +146,34 @@ void cmd_msg_printf(struct state *st, const char *fmt, ...)
     rbuf_print(&st->out, TERM_RESTORE_CURSOR);
 }
 
-void badcmd(struct state *st)
+void runcmd_q(struct state *st, int argc, char *argv[])
 {
-    cmd_msg_printf(st, "bad command");
+    (void)argv; /* ignore */
+    if (argc == 0)
+        st->quit = true;
+    else
+        cmd_msg_printf(st, "usage: q");
+}
+
+void runcmd_tr(struct state *st, int argc, char *argv[])
+{
+    uint8_t train, speed;
+    if (argc != 2) {
+        cmd_msg_printf(st, "usage: tr TRAIN SPEED");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        cmd_msg_printf(st, "bad train %s", argv[0]);
+        return;
+    }
+
+    if (atou8(argv[1], &speed) != 0 || speed > 15) {
+        cmd_msg_printf(st, "bad speed %s", argv[1]);
+        return;
+    }
+
+    cmd_msg_printf(st, "set train %u speed to %u", train, speed);
 }
 
 void runcmd(struct state *st)
@@ -141,20 +183,21 @@ void runcmd(struct state *st)
 
     nts = tokenize(st->cmd, ts, CMD_MAXTOKS);
     if (nts <= 0) {
-        badcmd(st);
+        /* ignore */
         return;
     }
 
     cmd = ts[0];
     if (!strcmp(cmd, "q")) {
-        st->quit = true;
-    } else if (!strcmp(cmd, "echo")) {
-        if (nts == 2)
-            cmd_msg_printf(st, "%s", ts[1]);
-        else
-            badcmd(st);
+        runcmd_q(st, nts - 1, ts + 1);
+    } else if (!strcmp(cmd, "tr")) {
+        runcmd_tr(st, nts - 1, ts + 1);
     } else {
-        badcmd(st);
+        uint8_t x;
+        if (atou8(cmd, &x) == 0)
+            cmd_msg_printf(st, "atou8: %u", x);
+        else
+            cmd_msg_printf(st, "unrecognized command");
     }
 }
 
