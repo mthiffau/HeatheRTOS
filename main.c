@@ -1,15 +1,12 @@
-/* #include "bwio.h" */
-/* #include "ts7200.h" */
-
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
 #include "xarg.h"
+#include "xstring.h"
 #include "ts7200.h"
 #include "serial.h"
 #include "clock.h"
 #include "ringbuf.h"
-
 #include "bwio.h"  /* bwputstr if clock initialization failed */
 
 #define STR(x)  STR1(x)
@@ -34,6 +31,7 @@
 #define PROMPT_COL       1
 #define CMD_COL          3
 #define CMD_MAXLEN       72
+#define CMD_MAXTOKS      3
 
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
@@ -82,13 +80,16 @@ void draw_init(struct state *st)
 }
 
 /* FIXME */
-int tokenize(char *cmd, char *ts[CMD_MAXLEN / 2])
+int tokenize(char *cmd, char **ts, int max_ts)
 {
     while (*cmd == ' ')
         cmd++;
 
     int n = 0;
     while (*cmd != '\0') {
+        if (n >= max_ts)
+            return -1; /* too many tokens */
+
         ts[n++] = cmd;
         while (*cmd != '\0') {
             if (*cmd == ' ') {
@@ -106,6 +107,7 @@ int tokenize(char *cmd, char *ts[CMD_MAXLEN / 2])
 void runcmd(struct state *st)
 {
     char *cmd = st->cmd;
+    /*char *ts[CMD_MAXTOKS]; */
     while (*cmd == ' ') cmd++;
     if (*cmd == 'q')
         st->quit = true;
@@ -184,6 +186,31 @@ void clock_check(struct state *st)
         clock_print(st);
 }
 
+void test_strcmp1(struct state *st, const char *s1, const char *s2)
+{
+    int  cmp = strcmp(s1, s2);
+    char rel = cmp == 0 ? '=' : cmp < 0 ? '<' : '>';
+    rbuf_printf(&st->out, "\"%s\" %c \"%s\"\n", s1, rel, s2);
+}
+
+void test_strcmp(struct state *st)
+{
+    rbuf_print(&st->out,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR("4", "1"));
+
+    test_strcmp1(st, "", "");             /* = */
+    test_strcmp1(st, "xyzzy", "xyzzy");   /* = */
+    test_strcmp1(st, "xyzz", "xyzzy");    /* < */
+    test_strcmp1(st, "abcd",  "abce");    /* < */
+    test_strcmp1(st, "abcd",  "abd");     /* < */
+    test_strcmp1(st, "xyzzy", "xyzz");    /* > */
+    test_strcmp1(st, "abce",  "abcd");    /* > */
+    test_strcmp1(st, "abd",  "abcd");     /* > */
+
+    rbuf_print(&st->out, TERM_RESTORE_CURSOR);
+}
+
 int main(int argc, char* argv[])
 {
     struct state st;
@@ -199,6 +226,7 @@ int main(int argc, char* argv[])
     /* initialize */
     init(&st);
     draw_init(&st);
+    test_strcmp(&st);
 
     /* main loop */
     while (!st.quit) {
