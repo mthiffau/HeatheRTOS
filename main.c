@@ -273,13 +273,19 @@ void runcmd_rv(struct state *st, int argc, char *argv[])
         return;
     }
 
-    /* Start reversing the train. Issue stop */
+    /* Reject trains that are already reversing */
+    train = &st->trains[which];
+    if (train->rev) {
+        cmd_msg_printf(st, "train %u already reversing", which);
+        return;
+    }
+
+    /* Start reversing the train. */
     cmd_msg_clear(st);
     rbuf_putc(&st->trout, TRCMD_STOP);
     rbuf_putc(&st->trout, (char)which);
 
-    /* Take note of reversing train */
-    train = &st->trains[which];
+    /* Enqueue this train. */
     train->rev       = true;
     train->rvstart   = st->clock.ticks;
     train->rvhasnext = false;
@@ -321,7 +327,6 @@ void rv_continue(struct state *st)
      * and clear its reversing state */
     train->rev   = false;
     st->trv_head = train->rvhasnext ? train->rvnext : -1;
-
     rbuf_putc(&st->trout, TRCMD_REVERSE);
     rbuf_putc(&st->trout, (char)id);
     rbuf_putc(&st->trout, (char)train->speed);
