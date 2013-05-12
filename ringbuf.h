@@ -5,18 +5,17 @@
 #define RINGBUF_H
 
 XBOOL_H;
+XDEF_H;
 XARG_H;
 
 /*
  * Ring buffer
  */
 
-#define RINGBUFSIZ 1024
-
 struct ringbuf;
 
 /* Initialize a new ring buffer. */
-void rbuf_init(struct ringbuf *r);
+void rbuf_init(struct ringbuf *r, char *mem, size_t size);
 
 /* Enqueue a single character. */
 int rbuf_putc(struct ringbuf *r, char c);
@@ -49,6 +48,9 @@ int rbuf_printf(struct ringbuf *r, char *fmt, ...)
 
 /* Struct definition */
 struct ringbuf {
-    int  rd, wr, len;
-    char buf[RINGBUFSIZ];
+    char  *mem;
+    size_t size;
+    size_t rd;
+    size_t wr;
+    size_t len;
 };

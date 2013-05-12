@@ -3,6 +3,7 @@
 
 #include "xbool.h"
 #include "xint.h"
+#include "xdef.h"
 #include "xarg.h"
 #include "ts7200.h"
 #include "serial.h"
@@ -44,18 +45,21 @@
 #define TERM_RESTORE_CURSOR         "\e[u"
 
 /* Program state. */
+#define TTYOUT_BUFSIZE   1024
+
 struct state {
     struct ringbuf out;         /* Output buffer  */
     struct clock   clock;       /* Clock state    */
     int  cmdlen;                /* Command length */
     char cmd[CMD_MAXLEN + 1];   /* Command string */
     bool quit;
+    char ttyout_mem[TTYOUT_BUFSIZE]; /* Buffer memory */
 };
 
 int init(struct state *st)
 {
     int rc;
-    rbuf_init(&st->out);
+    rbuf_init(&st->out, st->ttyout_mem, TTYOUT_BUFSIZE);
     st->cmdlen = 0;
     st->quit   = false;
     rc = clock_init(&st->clock, CLOCK_Hz);

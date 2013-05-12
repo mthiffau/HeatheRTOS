@@ -1,6 +1,8 @@
 #include "xbool.h"
+#include "xdef.h"
 #include "xarg.h"
 #include "ringbuf.h"
+
 #include "bwio.h" /* for debug print */
 
 /* FIXME HACK */
@@ -9,27 +11,31 @@ void bwi2a(int num, char *bf);
 
 /* Save/restore bookkeeping data, to avoid partially writing a string. */
 struct rbufsav {
-    int rd, wr, len;
+    size_t rd;
+    size_t wr;
+    size_t len;
 };
 static void rbuf_save(struct ringbuf *r, struct rbufsav *sav);
 static void rbuf_load(struct ringbuf *r, struct rbufsav *sav);
 
-void rbuf_init(struct ringbuf *r)
+void rbuf_init(struct ringbuf *r, char *mem, size_t size)
 {
-    r->rd  = 0;
-    r->wr  = 0;
-    r->len = 0;
+    r->mem  = mem;
+    r->size = size;
+    r->rd   = 0;
+    r->wr   = 0;
+    r->len  = 0;
 }
 
 int rbuf_putc(struct ringbuf *r, char c)
 {
-    if (r->len == RINGBUFSIZ) {
+    if (r->len == r->size) {
         bwprintf(COM2, "\e[s\e[20;1j buffer full! \e[u"); /* FIXME */
         return -1; /* full */
     }
 
-    r->buf[r->wr++] = c;
-    r->wr %= RINGBUFSIZ;
+    r->mem[r->wr++] = c;
+    r->wr %= r->size;
     r->len++;
     return 0;
 }
@@ -39,7 +45,7 @@ bool rbuf_peekc(struct ringbuf *r, char *c_out)
     if (r->len == 0)
         return false;
 
-    *c_out = r->buf[r->rd];
+    *c_out = r->mem[r->rd];
     return true;
 }
 
@@ -48,8 +54,8 @@ bool rbuf_getc(struct ringbuf *r, char *c_out)
     if (r->len == 0)
         return false;
 
-    *c_out = r->buf[r->rd++];
-    r->rd %= RINGBUFSIZ;
+    *c_out = r->mem[r->rd++];
+    r->rd %= r->size;
     r->len--;
     return true;
 }
