@@ -179,17 +179,60 @@ void runcmd_tr(struct state *st, int argc, char *argv[])
     }
 
     if (atou8(argv[0], &train) != 0) {
-        cmd_msg_printf(st, "bad train %s", argv[0]);
+        cmd_msg_printf(st, "bad train '%s'", argv[0]);
         return;
     }
 
     if (atou8(argv[1], &speed) != 0 || speed > 15) {
-        cmd_msg_printf(st, "bad speed %s", argv[1]);
+        cmd_msg_printf(st, "bad speed '%s'", argv[1]);
         return;
     }
 
     rbuf_putc(&st->trout, (char)speed);
     rbuf_putc(&st->trout, (char)train);
+}
+
+void runcmd_sw(struct state *st, int argc, char *argv[])
+{
+    uint8_t sw;
+    bool    straight, dir_err;
+    if (argc != 2) {
+        cmd_msg_printf(st, "usage: sw SWITCH [SC]");
+        return;
+    }
+
+    if (atou8(argv[0], &sw) != 0) {
+        cmd_msg_printf(st, "bad switch '%s'", argv[0]);
+        return;
+    }
+
+    dir_err = false;
+    if (argv[1][1] != '\0') {
+        dir_err = true;
+    } else {
+        switch (argv[1][0]) {
+            case 's':
+            case 'S':
+                straight = true;
+                break;
+            case 'c':
+            case 'C':
+                straight = false;
+                break;
+            default:
+                dir_err = true;
+        }
+    }
+
+    if (dir_err) {
+        cmd_msg_printf(st, "bad direction '%s'", argv[1]);
+        return;
+    }
+
+    cmd_msg_printf(st,
+        "set switch %u to %s",
+        sw,
+        straight ? "straight" : "curved");
 }
 
 void runcmd(struct state *st)
@@ -204,17 +247,14 @@ void runcmd(struct state *st)
     }
 
     cmd = ts[0];
-    if (!strcmp(cmd, "q")) {
+    if (!strcmp(cmd, "q"))
         runcmd_q(st, nts - 1, ts + 1);
-    } else if (!strcmp(cmd, "tr")) {
+    else if (!strcmp(cmd, "tr"))
         runcmd_tr(st, nts - 1, ts + 1);
-    } else {
-        uint8_t x;
-        if (atou8(cmd, &x) == 0)
-            cmd_msg_printf(st, "atou8: %u", x);
-        else
-            cmd_msg_printf(st, "unrecognized command");
-    }
+    else if (!strcmp(cmd, "sw"))
+        runcmd_sw(st, nts - 1, ts + 1);
+    else
+        cmd_msg_printf(st, "unrecognized command");
 }
 
 void tty_recv(struct state *st, char c)
@@ -295,8 +335,10 @@ int main(int argc, char* argv[])
             rbuf_getc(&st.ttyout, &c);
 
         /* and to the train */
-        if (rbuf_peekc(&st.trout, &c) && p_tryputc(P_TRAIN, c))
-            rbuf_getc(&st.trout, &c);
+        if (rbuf_peekc(&st.trout, &c)) {
+            if (p_cts(P_TRAIN) && p_tryputc(P_TRAIN, c))
+                rbuf_getc(&st.trout, &c);
+        }
     }
 
     return 0;
