@@ -18,7 +18,7 @@ struct ringbuf;
 void rbuf_init(struct ringbuf *r, char *mem, size_t size);
 
 /* Enqueue a single character. */
-int rbuf_putc(struct ringbuf *r, char c);
+void rbuf_putc(struct ringbuf *r, char c);
 
 /* Get the first character from a ring buffer.
  * Returns true if a character was peeked at. */
@@ -29,21 +29,25 @@ bool rbuf_peekc(struct ringbuf *r, char *c_out);
 bool rbuf_getc(struct ringbuf *r, char *c_out);
 
 /* Write many characters to ring buffer. */
-int rbuf_write(struct ringbuf *r, int n, const char *s);
+void rbuf_write(struct ringbuf *r, int n, const char *s);
 
 /* Print a NUL-terminated string verbatim. */
-int rbuf_print(struct ringbuf *r, const char *s);
+void rbuf_print(struct ringbuf *r, const char *s);
 
 /* Repeat a character */
-int rbuf_nputc(struct ringbuf *r, int n, char ch);
+void rbuf_nputc(struct ringbuf *r, int n, char ch);
+
+/* Print an signed integer in decimal */
+void rbuf_dec(struct ringbuf *r, int n);
+void rbuf_decw(struct ringbuf *r, int n, int width, char pad);
 
 /* Print aligned strings */
-int rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s);
-int rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s);
+void rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s);
+void rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s);
 
 /* Formatted printing. Returns 0 for success, unlike real printf! */
-int rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args);
-int rbuf_printf(struct ringbuf *r, const char *fmt, ...)
+void rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args);
+void rbuf_printf(struct ringbuf *r, const char *fmt, ...)
     __attribute__((format(printf, 2, 3)));
 
 /* Struct definition */

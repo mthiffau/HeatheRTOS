@@ -27,6 +27,9 @@
  *     Switches:
  *     1  2  3  4  5 ...
  *     S  S  C  S  C ...
+ *
+ *     1.500ms poll loop max
+ *     8.000ms sensor max
  */
 #define CLOCK_ROW        1          /* Clock */
 #define CLOCK_COL        1
@@ -62,6 +65,11 @@
                          "  S  S  S  S"
 #define SWITCHES_ROW     9
 #define SWITCHES_COL     1
+
+#define LOOP_TIME_ROW    11
+#define LOOP_TIME_COL    1
+#define SENSOR_TIME_ROW  12
+#define SENSOR_TIME_COL  1
 
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
@@ -169,7 +177,7 @@ int init(struct state *st)
     st->sens_poll_high = false;
 
     /* Initial output: reset terminal, clear screen, print static text. */
-    rbuf_print(&st->ttyout,
+    bwputstr(COM2,
         TERM_RESET_DEVICE
         TERM_ERASE_ALL
         TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(CLOCK_COL))
@@ -184,20 +192,26 @@ int init(struct state *st)
         PROMPT);
 
     for (sw = 1; sw <= 18; sw++) {
-        rbuf_putc(&st->trout, TRCMD_SWITCH_STRAIGHT);
-        rbuf_putc(&st->trout, sw);
+        while (!p_cts(P_TRAIN)) { }
+        bwputc(COM1, TRCMD_SWITCH_STRAIGHT);
+        while (!p_cts(P_TRAIN)) { }
+        bwputc(COM1, sw);
     }
     for (sw = 0x99; sw <= 0x9c; sw++) {
-        rbuf_putc(&st->trout, TRCMD_SWITCH_STRAIGHT);
-        rbuf_putc(&st->trout, sw);
+        while (!p_cts(P_TRAIN)) { }
+        bwputc(COM1, TRCMD_SWITCH_STRAIGHT);
+        while (!p_cts(P_TRAIN)) { }
+        bwputc(COM1, sw);
     }
-    rbuf_putc(&st->trout, TRCMD_SWITCH_OFF);
+    while (!p_cts(P_TRAIN)) { }
+    bwputc(COM1, TRCMD_SWITCH_OFF);
+    while (!p_cts(P_TRAIN)) { }
 
     /* Clock setup */
     rc = clock_init(&st->clock, CLOCK_Hz);
     if (rc != 0) {
         bwputstr(COM2, "failed to initialize clock at " STR(CLOCK_Hz) " Hz");
-        return rc;
+        for (;;) { }
     }
 
     return 0;
@@ -416,13 +430,13 @@ int print_switch(struct state *st, int sw, char desc)
     if (sw > 18)
         sw += 19 - 0x99;
 
-    rbuf_printf(&st->ttyout,
+    rbuf_print(&st->ttyout,
         TERM_SAVE_CURSOR
-        TERM_FORCE_CURSOR(STR(SWITCHES_ROW), "%d")
-        "%c"
-        TERM_RESTORE_CURSOR,
-        3 * sw, /* column */
-        desc);
+        TERM_FORCE_CURSOR_START STR(SWITCHES_ROW) TERM_FORCE_CURSOR_MID);
+    rbuf_dec(&st->ttyout, 3 * sw);
+    rbuf_print(&st->ttyout, TERM_FORCE_CURSOR_END);
+    rbuf_putc(&st->ttyout, desc);
+    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 
     return 0;
 }
@@ -523,10 +537,10 @@ void tty_recv(struct state *st, char c)
     switch (c) {
     case '\r':
     case '\n':
+        runcmd(st);
         rbuf_print(&st->ttyout,
             TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(CMD_COL))
             TERM_ERASE_EOL);
-        runcmd(st);
         st->cmdlen = 0;
         st->cmd[0] = '\0';
         break;
@@ -563,12 +577,15 @@ void clock_print(struct state *st)
     seconds = ticks % 60;
     ticks   = ticks / 60;
     minutes = ticks;
-    rbuf_printf(&st->ttyout,
+    rbuf_print(&st->ttyout,
         TERM_SAVE_CURSOR
-        TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(TIME_COL))
-        "%02u:%02u.%u"
-        TERM_RESTORE_CURSOR,
-        minutes, seconds, tenths);
+        TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(TIME_COL)));
+    rbuf_decw(&st->ttyout, minutes, 2, '0');
+    rbuf_putc(&st->ttyout, ':');
+    rbuf_decw(&st->ttyout, seconds, 2, '0');
+    rbuf_putc(&st->ttyout, '.');
+    rbuf_dec(&st->ttyout, tenths);
+    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
 
 void sensor_recv(struct state *st, uint8_t c)
@@ -620,12 +637,29 @@ void sensor_recv(struct state *st, uint8_t c)
         uint8_t mod  = sens >> 4;
         sens         = sens & 0xf;
         rbuf_putc(&st->ttyout, 'A' + mod);
-        rbuf_putc(&st->ttyout, sens < 10 ? '0' + sens : 'a' + sens - 10);
+        rbuf_dec(&st->ttyout, sens + 1);
         rbuf_putc(&st->ttyout, ' ');
-        /*rbuf_printf(&st->ttyout, "%c%u ", 'A' + mod, sens + 1);*/
         if (--j < 0)
             j += SENSOR_HISTORY_MAX;
     }
+    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
+}
+
+void print_ticks40(struct state *st, uint32_t ticks, int row, int col, char *suff)
+{
+    uint32_t msec10 = ticks * 10 / 983;
+    uint32_t msec   = msec10 / 10;
+    msec10 %= 10;
+    rbuf_print(&st->ttyout, TERM_SAVE_CURSOR TERM_FORCE_CURSOR_START);
+    rbuf_dec(&st->ttyout, row);
+    rbuf_print(&st->ttyout, TERM_FORCE_CURSOR_MID);
+    rbuf_dec(&st->ttyout, col);
+    rbuf_print(&st->ttyout, TERM_FORCE_CURSOR_END TERM_ERASE_EOL);
+    rbuf_dec(&st->ttyout, msec);
+    rbuf_putc(&st->ttyout, '.');
+    rbuf_dec(&st->ttyout, msec10);
+    rbuf_print(&st->ttyout, "ms ");
+    rbuf_print(&st->ttyout, suff);
     rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
 
@@ -635,6 +669,8 @@ int main(int argc, char* argv[])
     bool     train_drain;
     uint32_t prev_time;
     uint32_t max_loop_time;
+    uint32_t sensreq_time;
+    uint32_t max_sensresp;
 
     /* ignore arguments */
     (void)argc;
@@ -646,6 +682,9 @@ int main(int argc, char* argv[])
     /* main loop */
     train_drain   = true; /* ignoring initial bytes from train */
     max_loop_time = 0;
+    max_sensresp  = 0;
+    sensreq_time  = 983;
+
     tmr40_reset();
     prev_time = tmr40_get();
     while (!st.quit) {
@@ -657,29 +696,33 @@ int main(int argc, char* argv[])
         loop_time = now - prev_time;
         prev_time = now;
         if (loop_time > max_loop_time) {
-            uint32_t usec = loop_time * 1000000 / 983040;
-            uint32_t msec = usec / 1000;
-            usec = usec % 1000;
-            rbuf_print(&st.ttyout,
-                TERM_SAVE_CURSOR
-                TERM_FORCE_CURSOR("11", "1")
-                TERM_ERASE_EOL);
-            rbuf_printf(&st.ttyout, "%u.%03u ms", msec, usec);
-            rbuf_print(&st.ttyout, TERM_RESTORE_CURSOR);
             max_loop_time = loop_time;
+            print_ticks40(&st, loop_time,
+                LOOP_TIME_ROW, LOOP_TIME_COL, "loop time max");
         }
 
         if (p_trygetc(P_TTY, &c))
             tty_recv(&st, c);
 
         if (p_trygetc(P_TRAIN, &c)) {
-            if (!train_drain)
+            if (!train_drain) {
+                if (sensreq_time < now) {
+                    uint32_t sensresp = tmr40_get() - sensreq_time;
+                    if (sensresp > max_sensresp) {
+                        max_sensresp = sensresp;
+                        print_ticks40(&st, sensresp,
+                            SENSOR_TIME_ROW, SENSOR_TIME_COL,
+                            "sensor response time max");
+                    }
+                }
                 sensor_recv(&st, (uint8_t)c);
+            }
         }
 
         if (clock_update(&st.clock)) {
             clock_print(&st);
             rv_continue(&st);
+            sensreq_time = tmr40_get();
             rbuf_putc(&st.trout, TRCMD_SENSOR_POLL_ALL);
             train_drain = false;
         }

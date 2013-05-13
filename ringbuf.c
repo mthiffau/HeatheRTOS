@@ -9,15 +9,6 @@
 void bwui2a(unsigned int num, unsigned int base, char *bf);
 void bwi2a(int num, char *bf);
 
-/* Save/restore bookkeeping data, to avoid partially writing a string. */
-struct rbufsav {
-    size_t rd;
-    size_t wr;
-    size_t len;
-};
-static void rbuf_save(struct ringbuf *r, struct rbufsav *sav);
-static void rbuf_load(struct ringbuf *r, struct rbufsav *sav);
-
 void rbuf_init(struct ringbuf *r, char *mem, size_t size)
 {
     r->mem  = mem;
@@ -27,17 +18,17 @@ void rbuf_init(struct ringbuf *r, char *mem, size_t size)
     r->len  = 0;
 }
 
-int rbuf_putc(struct ringbuf *r, char c)
+void rbuf_putc(struct ringbuf *r, char c)
 {
+    /* FIXME */
     if (r->len == r->size) {
-        bwprintf(COM2, "\e[s\e[20;1j buffer full! \e[u"); /* FIXME */
-        return -1; /* full */
+        bwprintf(COM2, "\e[20;1f buffer full!");
+        for (;;) { /* assertion failure */ }
     }
 
     r->mem[r->wr++] = c;
     r->wr %= r->size;
     r->len++;
-    return 0;
 }
 
 bool rbuf_peekc(struct ringbuf *r, char *c_out)
@@ -60,142 +51,102 @@ bool rbuf_getc(struct ringbuf *r, char *c_out)
     return true;
 }
 
-int rbuf_write(struct ringbuf *r, int n, const char *s)
+void rbuf_write(struct ringbuf *r, int n, const char *s)
 {
     int i;
-    struct rbufsav sav;
-
-    rbuf_save(r, &sav);
-    for (i = 0; i < n; i++) {
-        int rc = rbuf_putc(r, *s++);
-        if (rc != 0) {
-            rbuf_load(r, &sav);
-            return rc;
-        }
-    }
-
-    return 0;
+    for (i = 0; i < n; i++)
+        rbuf_putc(r, *s++);
 }
 
-int rbuf_print(struct ringbuf *r, const char *s)
+void rbuf_print(struct ringbuf *r, const char *s)
 {
     char c;
-    struct rbufsav sav;
-
-    rbuf_save(r, &sav);
-    while ((c = *s++)) {
-        int rc = rbuf_putc(r, c);
-        if (rc != 0) {
-            rbuf_load(r, &sav);
-            return rc;
-        }
-    }
-
-    return 0;
+    while ((c = *s++))
+        rbuf_putc(r, c);
 }
 
-int rbuf_printf(struct ringbuf *r, const char *fmt, ...)
+void rbuf_printf(struct ringbuf *r, const char *fmt, ...)
 {
     va_list args;
-    int rc;
     va_start(args, fmt);
-    rc = rbuf_vprintf(r, fmt, args);
+    rbuf_vprintf(r, fmt, args);
     va_end(args);
-    return rc;
 }
 
-static int rbuf_nputc_x(struct ringbuf *r, int n, char ch)
+void rbuf_nputc(struct ringbuf *r, int n, char ch)
 {
-    while (n-- > 0) {
-        int rc = rbuf_putc(r, ch);
-        if (rc != 0)
-            return rc;
+    while (n-- > 0)
+        rbuf_putc(r, ch);
+}
+
+void rbuf_dec(struct ringbuf *r, int n)
+{
+    rbuf_decw(r, n, 0, ' ');
+}
+
+void rbuf_decw(struct ringbuf *r, int n, int width, char pad)
+{
+    char ds[11]; /* no NUL-terminator */
+    int  len = 0;
+
+    if (n == 0) {
+        ds[len++] = '0';
+    } else {
+        bool neg = n < 0;
+        if (neg)
+            n = -n;
+        while (n > 0) {
+            ds[len++] = '0' + n % 10;
+            n /= 10;
+        }
+        if (neg)
+            ds[len++] = '-';
     }
-    return 0;
+
+    if (width > len)
+        rbuf_nputc(r, width - len, pad);
+    while (len > 0)
+        rbuf_putc(r, ds[--len]);
 }
 
-int rbuf_nputc(struct ringbuf *r, int n, char ch)
-{
-    struct rbufsav sav;
-    int rc;
-    rbuf_save(r, &sav);
-    rc = rbuf_nputc_x(r, n, ch);
-    if (rc != 0)
-        rbuf_load(r, &sav);
-    return rc;
-}
-
-static int rbuf_align_x(
+static void rbuf_align(
     struct ringbuf *r,
     int w,
     char pad,
     bool left,
     const char *buf)
 {
-    int rc;
-
     const char *p = buf;
-
     while (*p++ && w > 0)
         w--;
-
-    if (!left && (rc = rbuf_nputc_x(r, w, pad)) != 0)
-        return rc;
-
-    rc = rbuf_print(r, buf);
-    if (rc != 0)
-        return rc;
-
-    if (left && (rc = rbuf_nputc_x(r, w, pad)) != 0)
-        return rc;
-
-    return 0;
+    if (!left)
+        rbuf_nputc(r, w, pad);
+    rbuf_print(r, buf);
+    if (left)
+        rbuf_nputc(r, w, pad);
 }
 
-static int rbuf_align(
-    struct ringbuf *r,
-    int width,
-    char pad,
-    bool left,
-    const char *buf)
+void rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s)
 {
-    struct rbufsav sav;
-    int rc;
-    rbuf_save(r, &sav);
-    rc = rbuf_align_x(r, width, pad, left, buf);
-    if (rc != 0)
-        rbuf_load(r, &sav);
-    return rc;
+    rbuf_align(r, w, pad, true, s);
 }
 
-int rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s)
+void rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s)
 {
-    return rbuf_align(r, w, pad, true, s);
-}
-
-int rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s)
-{
-    return rbuf_align(r, w, pad, false, s);
+    rbuf_align(r, w, pad, false, s);
 }
 
 /* Much the same as bwformat() */
-int rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args)
+void rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args)
 {
-    struct rbufsav sav;
     char ch, pad, buf[16];
-    int rc, w;
+    int  w;
     bool left;
 
-    rbuf_save(r, &sav);
     while ((ch = *fmt++)) {
         if (ch != '%') {
-            rc = rbuf_putc(r, ch);
-            if (rc == 0)
-                continue;
-            else {
-                rbuf_load(r, &sav);
-                return rc;
-            }
+            rbuf_putc(r, ch);
+            continue;
         }
 
         /* Got a % */
@@ -227,64 +178,40 @@ int rbuf_vprintf(struct ringbuf *r, const char *fmt, va_list args)
         case 'c':
             buf[0] = va_arg(args, char);
             buf[1] = '\0';
-            rc = rbuf_align_x(r, w, pad, left, buf);
+            rbuf_align(r, w, pad, left, buf);
             break;
 
         case 's':
-            rc = rbuf_align_x(r, w, pad, left, va_arg(args, char*));
+            rbuf_align(r, w, pad, left, va_arg(args, char*));
             break;
 
         case 'u':
             bwui2a(va_arg(args, unsigned), 10, buf);
-            rc = rbuf_align_x(r, w, pad, left, buf);
+            rbuf_align(r, w, pad, left, buf);
             break;
 
         case 'd':
             bwi2a(va_arg(args, int), buf);
-            rc = rbuf_align_x(r, w, pad, left, buf);
+            rbuf_align(r, w, pad, left, buf);
             break;
 
         case 'x':
             bwui2a(va_arg(args, unsigned), 16, buf);
-            rc = rbuf_align_x(r, w, pad, left, buf);
+            rbuf_align(r, w, pad, left, buf);
             break;
 
         case 'p':
             buf[0] = '0';
             buf[1] = 'x';
             bwui2a(va_arg(args, unsigned), 16, buf + 2);
-            rc = rbuf_align_x(r, w, pad, left, buf);
+            rbuf_align(r, w, pad, left, buf);
             break;
 
         case '%':
             buf[0] = '%';
             buf[1] = '\0';
-            rc = rbuf_align_x(r, w, pad, left, buf);
+            rbuf_align(r, w, pad, left, buf);
             break;
-
-        default:
-            rc = -1;
-        }
-
-        if (rc != 0) {
-            rbuf_load(r, &sav);
-            return rc;
         }
     }
-
-    return 0;
-}
-
-static void rbuf_save(struct ringbuf *r, struct rbufsav *sav)
-{
-    sav->rd  = r->rd;
-    sav->wr  = r->wr;
-    sav->len = r->len;
-}
-
-static void rbuf_load(struct ringbuf *r, struct rbufsav *sav)
-{
-    r->rd  = sav->rd;
-    r->wr  = sav->wr;
-    r->len = sav->len;
 }
