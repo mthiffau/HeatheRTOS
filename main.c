@@ -20,9 +20,10 @@
  *     Time: 01:23.4
  *     > some command up to CMD_MAXLEN chars
  *     status message
- *     Sensors: A1 B2 ...
- *     Switches
- *     1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
+ *     Sensors: A1 B12 ...
+ *     Switches:
+ *     1  2  3  4  5 ...
+ *     S  S  C  S  C ...
  */
 #define CLOCK_ROW        1          /* Clock */
 #define CLOCK_COL        1
@@ -44,6 +45,20 @@
 #define SENSORS_COL      1
 #define SENSORS_MSG      "Sensors: "
 #define SENSOR_LIST_COL  10
+
+#define SWITCHES_TTL_ROW 5
+#define SWITCHES_TTL_COL 1
+#define SWITCHES_TTL     "Switches:"
+#define SWITCHES_LBL_ROW 6
+#define SWITCHES_LBL_COL 1
+#define SWITCHES_LBL     "  1  2  3  4  5  6  7  8  9" \
+                         " 10 11 12 13 14 15 16 17 18" \
+                         "x99x9Ax9Bx9C\n" \
+                         "  S  S  S  S  S  S  S  S  S" \
+                         "  S  S  S  S  S  S  S  S  S" \
+                         "  S  S  S  S"
+#define SWITCHES_ROW     7
+#define SWITCHES_COL     1
 
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
@@ -113,7 +128,7 @@ struct state {
 
 int init(struct state *st)
 {
-    int i, rc;
+    int i, rc, sw;
 
     /* Console port setup */
     p_enable_fifo(P_TTY, false);
@@ -154,8 +169,22 @@ int init(struct state *st)
         TIME_MSG
         TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSORS_COL))
         SENSORS_MSG
+        TERM_FORCE_CURSOR(STR(SWITCHES_TTL_ROW), STR(SWITCHES_TTL_COL))
+        SWITCHES_TTL
+        TERM_FORCE_CURSOR(STR(SWITCHES_LBL_ROW), STR(SWITCHES_LBL_COL))
+        SWITCHES_LBL
         TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(PROMPT_COL))
         PROMPT);
+
+    for (sw = 1; sw <= 18; sw++) {
+        rbuf_putc(&st->trout, TRCMD_SWITCH_STRAIGHT);
+        rbuf_putc(&st->trout, sw);
+    }
+    for (sw = 0x99; sw <= 0x9c; sw++) {
+        rbuf_putc(&st->trout, TRCMD_SWITCH_STRAIGHT);
+        rbuf_putc(&st->trout, sw);
+    }
+    rbuf_putc(&st->trout, TRCMD_SWITCH_OFF);
 
     /* Clock setup */
     rc = clock_init(&st->clock, CLOCK_Hz);
@@ -199,13 +228,23 @@ int tokenize(char *cmd, char **ts, int max_ts)
 
 int atou8(const char *s, uint8_t *ret)
 {
-    unsigned n = 0;
+    unsigned n = 0, base = 10;
     char c;
+    if (s[0] == '0' && s[1] == 'x') {
+        base = 16;
+        s += 2;
+    }
     while ((c = *s++) != '\0') {
-        if (c < '0' || c > '9')
+        if (c >= '0' && c <= '9') {
+            n = n * base + c - '0';
+        } else if (base == 16 && c >= 'a' && c <= 'f') {
+            n = n * base + c - 'a' + 10;
+        } else if (base == 16 && c >= 'A' && c <= 'F') {
+            n = n * base + c - 'A' + 10;
+        } else {
             return -1;
+        }
 
-        n = n * 10 + c - '0';
         if (n > 255)
             return -1;
     }
@@ -359,11 +398,31 @@ void rv_continue(struct state *st)
     rbuf_putc(&st->trout, (char)id);
 }
 
+int print_switch(struct state *st, int sw, char desc)
+{
+    if (sw < 1 || (sw > 18 && sw < 0x99) || sw > 0x9c)
+        return -1; /* unknown switch */
+
+    if (sw > 18)
+        sw += 19 - 0x99;
+
+    rbuf_printf(&st->ttyout,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(SWITCHES_ROW), "%d")
+        "%c"
+        TERM_RESTORE_CURSOR,
+        3 * sw, /* column */
+        desc);
+
+    return 0;
+}
+
 void runcmd_sw(struct state *st, int argc, char *argv[])
 {
     /* Parse arguments */
     uint8_t sw;
     uint8_t dir, dir_err;
+    char    desc;
     if (argc != 2) {
         cmd_msg_printf(st, "usage: sw SWITCH [SC]");
         return;
@@ -381,11 +440,13 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
         switch (argv[1][0]) {
             case 's':
             case 'S':
-                dir = TRCMD_SWITCH_STRAIGHT;
+                desc = 'S';
+                dir  = TRCMD_SWITCH_STRAIGHT;
                 break;
             case 'c':
             case 'C':
-                dir = TRCMD_SWITCH_CURVE;
+                desc = 'C';
+                dir  = TRCMD_SWITCH_CURVE;
                 break;
             default:
                 dir_err = true;
@@ -398,6 +459,11 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
     }
 
     /* Send command */
+    if (print_switch(st, sw, desc) != 0) {
+        cmd_msg_printf(st, "unrecognized switch '%s'", argv[0]);
+        return;
+    }
+
     cmd_msg_clear(st);
     rbuf_putc(&st->trout, dir);
     rbuf_putc(&st->trout, (char)sw);
