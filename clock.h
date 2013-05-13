@@ -7,13 +7,12 @@
 XBOOL_H;
 XINT_H;
 
-#define HWCLOCK_kHz 508
-#define HWCLOCK_Hz  (HWCLOCK_kHz * 1000)
+#define HWCLOCK_Hz  508469
 
 struct clock;
 
-/* Initialize the clock so that it ticks at freq_Hz, which must evenly
- * divide HWCLOCK_Hz. This invalidates any previously initialized clocks. */
+/* Initialize the clock so that it ticks at freq_Hz.
+ * This invalidates any previously initialized clocks. */
 int clock_init(struct clock *clock, int freq_Hz);
 
 /* Update the clock state based on current timer values.

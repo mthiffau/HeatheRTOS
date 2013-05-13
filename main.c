@@ -20,7 +20,9 @@
  *     Time: 01:23.4
  *     > some command up to CMD_MAXLEN chars
  *     status message
+ *
  *     Sensors: A1 B12 ...
+ *
  *     Switches:
  *     1  2  3  4  5 ...
  *     S  S  C  S  C ...
@@ -41,15 +43,15 @@
 #define CMD_MSG_ROW      3
 #define CMD_MSG_COL      1
 
-#define SENSORS_ROW      4          /* Sensor list */
+#define SENSORS_ROW      5          /* Sensor list */
 #define SENSORS_COL      1
 #define SENSORS_MSG      "Sensors: "
 #define SENSOR_LIST_COL  10
 
-#define SWITCHES_TTL_ROW 5
+#define SWITCHES_TTL_ROW 7
 #define SWITCHES_TTL_COL 1
 #define SWITCHES_TTL     "Switches:"
-#define SWITCHES_LBL_ROW 6
+#define SWITCHES_LBL_ROW 8
 #define SWITCHES_LBL_COL 1
 #define SWITCHES_LBL     "  1  2  3  4  5  6  7  8  9" \
                          " 10 11 12 13 14 15 16 17 18" \
@@ -57,7 +59,7 @@
                          "  S  S  S  S  S  S  S  S  S" \
                          "  S  S  S  S  S  S  S  S  S" \
                          "  S  S  S  S"
-#define SWITCHES_ROW     7
+#define SWITCHES_ROW     9
 #define SWITCHES_COL     1
 
 /* Escape sequences */
@@ -71,7 +73,7 @@
 
 /* Trains and train commands */
 #define NTRAINS                256
-#define TRAIN_STOP_TICKS       20 /* 2 seconds */
+#define TRAIN_STOP_TICKS       25 /* 2.5 seconds */
 #define SENSOR_HISTORY_MAX     10
 #define SENSOR_NMODULES        5
 
@@ -628,6 +630,8 @@ int main(int argc, char* argv[])
                 rbuf_getc(&st.trout, &c);
         }
     }
+
+    bwputstr(COM2, TERM_RESET_DEVICE TERM_ERASE_ALL); /* FIXME */
 
     return 0;
 }
