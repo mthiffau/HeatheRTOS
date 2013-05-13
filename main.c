@@ -8,6 +8,7 @@
 #include "serial.h"
 #include "clock.h"
 #include "ringbuf.h"
+#include "timer.h"
 #include "bwio.h"  /* bwputstr if clock initialization failed */
 
 #define STR(x)  STR1(x)
@@ -597,7 +598,10 @@ void sensor_recv(struct state *st, uint8_t c)
         uint8_t sens = st->sensors[j];
         uint8_t mod  = sens >> 4;
         sens         = sens & 0xf;
-        rbuf_printf(&st->ttyout, "%c%u ", 'A' + mod, sens + 1);
+        rbuf_putc(&st->ttyout, 'A' + mod);
+        rbuf_putc(&st->ttyout, sens < 10 ? '0' + sens : 'a' + sens - 10);
+        rbuf_putc(&st->ttyout, ' ');
+        /*rbuf_printf(&st->ttyout, "%c%u ", 'A' + mod, sens + 1);*/
         if (--j < 0)
             j += SENSOR_HISTORY_MAX;
     }
@@ -607,6 +611,9 @@ void sensor_recv(struct state *st, uint8_t c)
 int main(int argc, char* argv[])
 {
     struct state st;
+    bool     train_drain;
+    uint32_t prev_time;
+    uint32_t max_loop_time;
 
     /* ignore arguments */
     (void)argc;
@@ -616,9 +623,31 @@ int main(int argc, char* argv[])
     init(&st);
 
     /* main loop */
-    bool train_drain = true; /* ignoring initial bytes from train */
+    train_drain   = true; /* ignoring initial bytes from train */
+    max_loop_time = 0;
+    tmr40_reset();
+    prev_time = tmr40_get();
     while (!st.quit) {
+        uint32_t now;
+        uint32_t loop_time;
         char c;
+
+        now = tmr40_get();
+        loop_time = now - prev_time;
+        prev_time = now;
+        if (loop_time > max_loop_time) {
+            uint32_t usec = loop_time * 1000000 / 983040;
+            uint32_t msec = usec / 1000;
+            usec = usec % 1000;
+            rbuf_print(&st.ttyout,
+                TERM_SAVE_CURSOR
+                TERM_FORCE_CURSOR("11", "1")
+                TERM_ERASE_EOL);
+            rbuf_printf(&st.ttyout, "%u.%03u ms", msec, usec);
+            rbuf_print(&st.ttyout, TERM_RESTORE_CURSOR);
+            max_loop_time = loop_time;
+        }
+
         if (p_trygetc(P_TTY, &c))
             tty_recv(&st, c);
 
