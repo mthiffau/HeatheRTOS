@@ -181,7 +181,7 @@ int init(struct state *st)
         TERM_RESET_DEVICE
         TERM_ERASE_ALL
         TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(CLOCK_COL))
-        TIME_MSG
+        TIME_MSG "[...]"
         TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSORS_COL))
         SENSORS_MSG
         TERM_FORCE_CURSOR(STR(SWITCHES_TTL_ROW), STR(SWITCHES_TTL_COL))
@@ -722,7 +722,6 @@ int main(int argc, char* argv[])
         if (clock_update(&st.clock)) {
             clock_print(&st);
             rv_continue(&st);
-            sensreq_time = tmr40_get();
             rbuf_putc(&st.trout, TRCMD_SENSOR_POLL_ALL);
             train_drain = false;
         }
@@ -733,8 +732,11 @@ int main(int argc, char* argv[])
 
         /* and to the train */
         if (rbuf_peekc(&st.trout, &c)) {
-            if (p_cts(P_TRAIN) && p_tryputc(P_TRAIN, c))
+            if (p_cts(P_TRAIN) && p_tryputc(P_TRAIN, c)) {
+                if (c == TRCMD_SENSOR_POLL_ALL)
+                    sensreq_time = tmr40_get();
                 rbuf_getc(&st.trout, &c);
+            }
         }
     }
 
