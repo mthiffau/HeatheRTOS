@@ -68,7 +68,11 @@
 #define TERM_ERASE_ALL              "\e[2J"
 #define TERM_ERASE_DOWN             "\e[J"
 #define TERM_ERASE_EOL              "\e[K"
-#define TERM_FORCE_CURSOR(row, col) "\e[" row ";" col "f" /* 1-indexed */
+#define TERM_FORCE_CURSOR_START     "\e["
+#define TERM_FORCE_CURSOR_MID       ";"
+#define TERM_FORCE_CURSOR_END       "f"
+#define TERM_FORCE_CURSOR(row, col) \
+    TERM_FORCE_CURSOR_START row TERM_FORCE_CURSOR_MID col TERM_FORCE_CURSOR_END
 #define TERM_SAVE_CURSOR            "\e[s"
 #define TERM_RESTORE_CURSOR         "\e[u"
 
@@ -256,42 +260,30 @@ int atou8(const char *s, uint8_t *ret)
     return 0;
 }
 
-void cmd_msg_printf(struct state *st, const char *fmt, ...)
-    __attribute__((format(printf, 2, 3)));
-
-void cmd_msg_printf(struct state *st, const char *fmt, ...)
+void cmd_msg_begin(struct state *st)
 {
-    va_list args;
     rbuf_print(&st->ttyout,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(CMD_MSG_ROW), STR(CMD_MSG_COL))
         TERM_ERASE_EOL);
-
-    va_start(args, fmt);
-    rbuf_vprintf(&st->ttyout, fmt, args);
-    va_end(args);
-
-    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
 
-void cmd_msg_clear(struct state *st)
+void cmd_msg_end(struct state *st)
 {
-    rbuf_print(&st->ttyout,
-        TERM_SAVE_CURSOR
-        TERM_FORCE_CURSOR(STR(CMD_MSG_ROW), STR(CMD_MSG_COL))
-        TERM_ERASE_EOL
-        TERM_RESTORE_CURSOR);
+    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
 
 void runcmd_q(struct state *st, int argc, char *argv[])
 {
     (void)argv; /* ignore */
+    cmd_msg_begin(st);
     if (argc != 0) {
-        cmd_msg_printf(st, "usage: q");
+        rbuf_print(&st->ttyout, "usage: q");
+        cmd_msg_end(st);
         return;
     }
 
-    cmd_msg_clear(st);
+    cmd_msg_end(st);
     st->quit = true;
 }
 
@@ -301,23 +293,32 @@ void runcmd_tr(struct state *st, int argc, char *argv[])
     struct train *train;
     trainid which;
     uint8_t speed;
+
+    cmd_msg_begin(st);
     if (argc != 2) {
-        cmd_msg_printf(st, "usage: tr TRAIN SPEED");
+        rbuf_print(&st->ttyout, "usage: tr TRAIN SPEED");
+        cmd_msg_end(st);
         return;
     }
 
     if (atou8(argv[0], &which) != 0) {
-        cmd_msg_printf(st, "bad train '%s'", argv[0]);
+        rbuf_print(&st->ttyout, "bad train '");
+        rbuf_print(&st->ttyout, argv[0]);
+        rbuf_putc(&st->ttyout, '\'');
+        cmd_msg_end(st);
         return;
     }
 
     if (atou8(argv[1], &speed) != 0 || speed > 14) {
-        cmd_msg_printf(st, "bad speed '%s'", argv[1]);
+        rbuf_print(&st->ttyout, "bad speed '");
+        rbuf_print(&st->ttyout, argv[1]);
+        rbuf_putc(&st->ttyout, '\'');
+        cmd_msg_end(st);
         return;
     }
 
     /* Send command */
-    cmd_msg_clear(st);
+    cmd_msg_end(st);
     train = &st->trains[which];
     train->speed = speed;
     if (!train->rev) { /* don't send speed while reversing  */
@@ -331,25 +332,31 @@ void runcmd_rv(struct state *st, int argc, char *argv[])
     /* Parse arguments */
     trainid which;
     struct train *train;
+    cmd_msg_begin(st);
     if (argc != 1) {
-        cmd_msg_printf(st, "usage: rv TRAIN");
+        rbuf_print(&st->ttyout, "usage: rv TRAIN");
+        cmd_msg_end(st);
         return;
     }
 
     if (atou8(argv[0], &which) != 0) {
-        cmd_msg_printf(st, "bad train '%s'", argv[1]);
+        rbuf_print(&st->ttyout, "bad train '");
+        rbuf_print(&st->ttyout, argv[1]);
+        rbuf_putc(&st->ttyout, '\'');
+        cmd_msg_end(st);
         return;
     }
 
     /* Reject trains that are already reversing */
     train = &st->trains[which];
     if (train->rev) {
-        cmd_msg_printf(st, "train %u already reversing", which);
+        rbuf_print(&st->ttyout, "already reversing");
+        cmd_msg_end(st);
         return;
     }
 
     /* Start reversing the train. */
-    cmd_msg_clear(st);
+    cmd_msg_end(st);
     rbuf_putc(&st->trout, TRCMD_SPEED(0));
     rbuf_putc(&st->trout, (char)which);
 
@@ -426,13 +433,18 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
     uint8_t sw;
     uint8_t dir, dir_err;
     char    desc;
+    cmd_msg_begin(st);
     if (argc != 2) {
-        cmd_msg_printf(st, "usage: sw SWITCH [SC]");
+        rbuf_print(&st->ttyout, "usage: sw SWITCH [SC]");
+        cmd_msg_end(st);
         return;
     }
 
     if (atou8(argv[0], &sw) != 0) {
-        cmd_msg_printf(st, "bad switch '%s'", argv[0]);
+        rbuf_print(&st->ttyout, "bad switch '");
+        rbuf_print(&st->ttyout, argv[0]);
+        rbuf_putc(&st->ttyout, '\'');
+        cmd_msg_end(st);
         return;
     }
 
@@ -457,17 +469,23 @@ void runcmd_sw(struct state *st, int argc, char *argv[])
     }
 
     if (dir_err) {
-        cmd_msg_printf(st, "bad direction '%s'", argv[1]);
+        rbuf_print(&st->ttyout, "bad direction '");
+        rbuf_print(&st->ttyout, argv[1]);
+        rbuf_putc(&st->ttyout, '\'');
+        cmd_msg_end(st);
         return;
     }
 
     /* Send command */
     if (print_switch(st, sw, desc) != 0) {
-        cmd_msg_printf(st, "unrecognized switch '%s'", argv[0]);
+        rbuf_print(&st->ttyout, "unrecognized switch '");
+        rbuf_print(&st->ttyout, argv[0]);
+        rbuf_putc(&st->ttyout, '\'');
+        cmd_msg_end(st);
         return;
     }
 
-    cmd_msg_clear(st);
+    cmd_msg_end(st);
     rbuf_putc(&st->trout, dir);
     rbuf_putc(&st->trout, (char)sw);
     rbuf_putc(&st->trout, TRCMD_SWITCH_OFF);
@@ -493,8 +511,11 @@ void runcmd(struct state *st)
         runcmd_sw(st, nts - 1, ts + 1);
     else if (!strcmp(cmd, "rv"))
         runcmd_rv(st, nts - 1, ts + 1);
-    else
-        cmd_msg_printf(st, "unrecognized command");
+    else {
+        cmd_msg_begin(st);
+        rbuf_print(&st->ttyout, "unrecognized command");
+        cmd_msg_end(st);
+    }
 }
 
 void tty_recv(struct state *st, char c)
@@ -502,10 +523,10 @@ void tty_recv(struct state *st, char c)
     switch (c) {
     case '\r':
     case '\n':
-        runcmd(st);
         rbuf_print(&st->ttyout,
             TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(CMD_COL))
             TERM_ERASE_EOL);
+        runcmd(st);
         st->cmdlen = 0;
         st->cmd[0] = '\0';
         break;
