@@ -551,7 +551,7 @@ void clock_print(struct state *st)
 
 void sensor_recv(struct state *st, uint8_t c)
 {
-    int  i, j, bit;
+    int  i, j, bit, sens;
     int  mod  = (st->sens_poll_mod << 4) | (st->sens_poll_high ? 0x8 : 0);
     bool trip = false;
 
@@ -566,9 +566,19 @@ void sensor_recv(struct state *st, uint8_t c)
         if (!(c & bit))
             continue;
 
+        sens = mod | (7 - i);
+        if (st->nsensors > 0) {
+            j = st->sens_ix - 1;
+            if (j < 0)
+                j += SENSOR_HISTORY_MAX;
+            if (st->sensors[j] == sens)
+                continue;
+        }
+
         trip = true;
-        st->sensors[st->sens_ix++] = mod | (7 - i);
-        st->sens_ix &= 0x7;
+        st->sensors[st->sens_ix++] = sens;
+        if (st->sens_ix >= SENSOR_HISTORY_MAX)
+            st->sens_ix -= SENSOR_HISTORY_MAX;
         if (st->nsensors < SENSOR_HISTORY_MAX)
             st->nsensors++;
     }
@@ -580,12 +590,16 @@ void sensor_recv(struct state *st, uint8_t c)
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSOR_LIST_COL))
         TERM_ERASE_EOL);
-    j = (st->sens_ix - 1) & 0x7;
-    for (i = 0; i < st->nsensors; i++, j = (j - 1) & 0x7) {
+    j = st->sens_ix - 1;
+    if (j < 0)
+        j += SENSOR_HISTORY_MAX;
+    for (i = 0; i < st->nsensors; i++) {
         uint8_t sens = st->sensors[j];
         uint8_t mod  = sens >> 4;
         sens         = sens & 0xf;
         rbuf_printf(&st->ttyout, "%c%u ", 'A' + mod, sens + 1);
+        if (--j < 0)
+            j += SENSOR_HISTORY_MAX;
     }
     rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
 }
