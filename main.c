@@ -20,6 +20,9 @@
  *     Time: 01:23.4
  *     > some command up to CMD_MAXLEN chars
  *     status message
+ *     Sensors: A1 B2 ...
+ *     Switches
+ *     1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
  */
 #define CLOCK_ROW        1          /* Clock */
 #define CLOCK_COL        1
@@ -33,8 +36,14 @@
 #define CMD_COL          3
 #define CMD_MAXLEN       72
 #define CMD_MAXTOKS      3
+
 #define CMD_MSG_ROW      3
 #define CMD_MSG_COL      1
+
+#define SENSORS_ROW      4          /* Sensor list */
+#define SENSORS_COL      1
+#define SENSORS_MSG      "Sensors: "
+#define SENSOR_LIST_COL  10
 
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
@@ -48,12 +57,15 @@
 /* Trains and train commands */
 #define NTRAINS                256
 #define TRAIN_STOP_TICKS       20 /* 2 seconds */
+#define SENSOR_HISTORY_MAX     10
+#define SENSOR_NMODULES        5
 
-#define TRCMD_STOP             ((char)0)
+#define TRCMD_SPEED(n)         ((char)n)
 #define TRCMD_REVERSE          ((char)15)
 #define TRCMD_SWITCH_STRAIGHT  ((char)34)
 #define TRCMD_SWITCH_CURVE     ((char)33)
 #define TRCMD_SWITCH_OFF       ((char)32)
+#define TRCMD_SENSOR_POLL_ALL  ((char)133)
 
 typedef uint8_t trainid;
 STATIC_ASSERT(trainid_large_enough, (trainid)(NTRAINS - 1) == NTRAINS - 1);
@@ -90,6 +102,13 @@ struct state {
     struct train trains[NTRAINS];
     int          trv_head; /* negative is invalid */
     int          trv_last;
+
+    /* Sensor state */
+    uint8_t sensors [SENSOR_HISTORY_MAX]; /* mmmmssss - m module, s sensor */
+    int     nsensors;                     /* number of recent sensors */
+    int     sens_ix;                      /* where to write next value */
+    int     sens_poll_mod;                /* module coming next */
+    bool    sens_poll_high;               /* low or high byte */
 };
 
 int init(struct state *st)
@@ -109,13 +128,6 @@ int init(struct state *st)
     rbuf_init(&st->ttyout, st->ttyout_mem, TTYOUT_BUFSIZE);
     rbuf_init(&st->trout,  st->trout_mem,  TROUT_BUFSIZE);
 
-    /* Clock setup */
-    rc = clock_init(&st->clock, CLOCK_Hz);
-    if (rc != 0) {
-        bwputstr(COM2, "failed to initialize clock at " STR(CLOCK_Hz) " Hz");
-        return rc;
-    }
-
     /* Command-line setup */
     st->cmdlen = 0;
     st->quit   = false;
@@ -126,8 +138,13 @@ int init(struct state *st)
         train->speed = 0;
         train->rev   = false;
     }
-
     st->trv_head = st->trv_last = -1;
+
+    /* Sensor history setup */
+    st->sens_ix        = 0;
+    st->nsensors       = 0;
+    st->sens_poll_mod  = 0;
+    st->sens_poll_high = false;
 
     /* Initial output: reset terminal, clear screen, print static text. */
     rbuf_print(&st->ttyout,
@@ -135,8 +152,17 @@ int init(struct state *st)
         TERM_ERASE_ALL
         TERM_FORCE_CURSOR(STR(CLOCK_ROW), STR(CLOCK_COL))
         TIME_MSG
+        TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSORS_COL))
+        SENSORS_MSG
         TERM_FORCE_CURSOR(STR(PROMPT_ROW), STR(PROMPT_COL))
         PROMPT);
+
+    /* Clock setup */
+    rc = clock_init(&st->clock, CLOCK_Hz);
+    if (rc != 0) {
+        bwputstr(COM2, "failed to initialize clock at " STR(CLOCK_Hz) " Hz");
+        return rc;
+    }
 
     return 0;
 }
@@ -282,7 +308,7 @@ void runcmd_rv(struct state *st, int argc, char *argv[])
 
     /* Start reversing the train. */
     cmd_msg_clear(st);
-    rbuf_putc(&st->trout, TRCMD_STOP);
+    rbuf_putc(&st->trout, TRCMD_SPEED(0));
     rbuf_putc(&st->trout, (char)which);
 
     /* Enqueue this train. */
@@ -329,7 +355,7 @@ void rv_continue(struct state *st)
     st->trv_head = train->rvhasnext ? train->rvnext : -1;
     rbuf_putc(&st->trout, TRCMD_REVERSE);
     rbuf_putc(&st->trout, (char)id);
-    rbuf_putc(&st->trout, (char)train->speed);
+    rbuf_putc(&st->trout, TRCMD_SPEED(train->speed));
     rbuf_putc(&st->trout, (char)id);
 }
 
@@ -455,6 +481,47 @@ void clock_print(struct state *st)
         minutes, seconds, tenths);
 }
 
+void sensor_recv(struct state *st, uint8_t c)
+{
+    int  i, j, bit;
+    int  mod  = (st->sens_poll_mod << 4) | (st->sens_poll_high ? 0x8 : 0);
+    bool trip = false;
+
+    if (!st->sens_poll_high)
+        st->sens_poll_high = true;
+    else {
+        st->sens_poll_mod = (st->sens_poll_mod + 1) % SENSOR_NMODULES;
+        st->sens_poll_high = false;
+    }
+
+    for (i = 0, bit = 1; i < 8; i++, bit <<= 1) {
+        if (!(c & bit))
+            continue;
+
+        trip = true;
+        st->sensors[st->sens_ix++] = mod | (7 - i);
+        st->sens_ix &= 0x7;
+        if (st->nsensors < SENSOR_HISTORY_MAX)
+            st->nsensors++;
+    }
+
+    if (!trip)
+        return;
+
+    rbuf_print(&st->ttyout,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSOR_LIST_COL))
+        TERM_ERASE_EOL);
+    j = (st->sens_ix - 1) & 0x7;
+    for (i = 0; i < st->nsensors; i++, j = (j - 1) & 0x7) {
+        uint8_t sens = st->sensors[j];
+        uint8_t mod  = sens >> 4;
+        sens         = sens & 0xf;
+        rbuf_printf(&st->ttyout, "%c%u ", 'A' + mod, sens + 1);
+    }
+    rbuf_print(&st->ttyout, TERM_RESTORE_CURSOR);
+}
+
 int main(int argc, char* argv[])
 {
     struct state st;
@@ -467,14 +534,22 @@ int main(int argc, char* argv[])
     init(&st);
 
     /* main loop */
+    bool train_drain = true; /* ignoring initial bytes from train */
     while (!st.quit) {
         char c;
         if (p_trygetc(P_TTY, &c))
             tty_recv(&st, c);
 
+        if (p_trygetc(P_TRAIN, &c)) {
+            if (!train_drain)
+                sensor_recv(&st, (uint8_t)c);
+        }
+
         if (clock_update(&st.clock)) {
             clock_print(&st);
             rv_continue(&st);
+            rbuf_putc(&st.trout, TRCMD_SENSOR_POLL_ALL);
+            train_drain = false;
         }
 
         /* send the first queued byte to TTY if possible */
