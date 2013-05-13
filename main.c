@@ -77,8 +77,8 @@
 
 #define TRCMD_SPEED(n)         ((char)n)
 #define TRCMD_REVERSE          ((char)15)
-#define TRCMD_SWITCH_STRAIGHT  ((char)34)
-#define TRCMD_SWITCH_CURVE     ((char)33)
+#define TRCMD_SWITCH_STRAIGHT  ((char)33)
+#define TRCMD_SWITCH_CURVE     ((char)34)
 #define TRCMD_SWITCH_OFF       ((char)32)
 #define TRCMD_SENSOR_POLL_ALL  ((char)133)
 
