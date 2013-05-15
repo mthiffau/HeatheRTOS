@@ -40,6 +40,6 @@ clean:
 	rm -rf $(BUILD)
 
 install: $(MAIN)
-	cp $(MAIN) $$tftp
+	cp $(MAIN) $$tftp && chmod a+r $$tftp/$(notdir $(MAIN))
 
 -include $(BUILD)/*.c.d
