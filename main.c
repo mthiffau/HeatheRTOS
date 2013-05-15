@@ -13,13 +13,13 @@ enum {
     MODE_SYS=0x1F
 };
 
-void 
+void
 sub(void)
 {
     return;
 }
 
-unsigned int 
+unsigned int
 determine_mode(void)
 {
     unsigned int cpsr;
@@ -32,8 +32,8 @@ determine_mode(void)
     return cpsr;
 }
 
-int 
-main() 
+int
+main()
 {
     bwsetfifo(COM2, OFF);
     bwprintf(COM2,"foobar!\n");
