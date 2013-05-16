@@ -138,7 +138,7 @@ task_main(void)
     }
 }
 
-void kern_event(void) __attribute__((noreturn));
+void kern_event(uint32_t swi) __attribute__((noreturn));
 
 int
 main()
@@ -158,7 +158,7 @@ main()
     /* longjmp test */
     if (setjmp(kern_exit) == 0) {
         bwprintf(COM2, "starting up\n");
-        kern_event();
+        kern_event(-1);
     }
 
     bwprintf(COM2, "exited\n");
@@ -167,8 +167,8 @@ main()
 }
 
 void
-kern_event(void)
+kern_event(uint32_t swi)
 {
-    bwprintf(COM2, "kern_event(%s)\n", mode_names[cpu_mode()]);
+    bwprintf(COM2, "kern_event %s %x\n", mode_names[cpu_mode()], swi);
     activate_ctx(curtask);
 }
