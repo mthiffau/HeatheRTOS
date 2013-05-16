@@ -9,6 +9,15 @@
 #define EXC_VEC_SWI         ((unsigned int*)0x8)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+struct taskdesc {
+    unsigned int r[16];
+    unsigned int psr;
+} only_task;
+
+struct taskdesc *curtask = &only_task;
+
+void activate_ctx(struct taskdesc *td) __attribute__((noreturn));
+
 typedef uint8_t cpumode_t;
 
 #define DEFMODE(name, bits) MODE_##name,
@@ -67,6 +76,9 @@ static const cpumode_t mode_from_bits[] = {
 void
 swi_test(void);
 
+void
+exch_swi(void);
+
 unsigned int
 get_cpsr(void)
 {
@@ -105,12 +117,6 @@ sub(void)
     bwprintf(COM2, "%s\n", mode_names[cpu_mode()]);
 }
 
-void
-swi_handler(void)
-{
-    sub();
-}
-
 jmp_buf kern_exit;
 
 void
@@ -122,20 +128,47 @@ infinite(void)
     }
 }
 
+void
+task_main(void)
+{
+    for (;;) {
+        char c = bwgetc(COM2);
+        bwprintf(COM2, "%c\n", c);
+        swi_test();
+    }
+}
+
+void kern_event(void) __attribute__((noreturn));
+
 int
 main()
 {
+    int foobar;
+
     *EXC_VEC_SWI = EXC_VEC_INSTR;
-    EXC_VEC_FP(EXC_VEC_SWI) = &swi_handler;
+    EXC_VEC_FP(EXC_VEC_SWI) = &exch_swi;
     bwsetfifo(COM2, OFF);
+
+    bwprintf(COM2, "%x\n", &foobar);
+
+    /* Set up task */
+    only_task.r[13] = 0x1000000; /* stack pointer */
+    only_task.r[15] = (unsigned int)&task_main; /* entry point */
 
     /* longjmp test */
     if (setjmp(kern_exit) == 0) {
         bwprintf(COM2, "starting up\n");
-        infinite();
+        kern_event();
     }
 
     bwprintf(COM2, "exited\n");
 
     return 0;
+}
+
+void
+kern_event(void)
+{
+    bwprintf(COM2, "kern_event\n");
+    activate_ctx(curtask);
 }
