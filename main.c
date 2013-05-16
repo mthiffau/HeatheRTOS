@@ -1,5 +1,6 @@
-#include <bwio.h>
-#include <ts7200.h>
+#include "xint.h"
+#include "bwio.h"
+#include "ts7200.h"
 
 #define PSR_MODE_MASK 0x1F
 
@@ -7,14 +8,59 @@
 #define EXC_VEC_SWI         ((unsigned int*)0x8)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+typedef uint8_t cpumode_t;
+
+#define DEFMODE(name, bits) MODE_##name,
 enum {
-    MODE_USR=0x10,
-    MODE_FIQ=0x11,
-    MODE_IRQ=0x12,
-    MODE_SVC=0x13,
-    MODE_ABT=0x17,
-    MODE_UND=0x1B,
-    MODE_SYS=0x1F
+#include "modes.inc"
+};
+#undef DEFMODE
+
+#define DEFMODE(name, bits) bits,
+static const unsigned int mode_bits[] = {
+#include "modes.inc"
+};
+#undef DEFMODE
+
+#define DEFMODE(name, bits) #name,
+static const char * const mode_names[] = {
+#include "modes.inc"
+};
+#undef DEFMODE
+
+static const cpumode_t mode_from_bits[] = {
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    -1,
+    MODE_USR,
+    MODE_FIQ,
+    MODE_IRQ,
+    MODE_SVC,
+    -1,
+    -1,
+    -1,
+    MODE_ABT,
+    -1,
+    -1,
+    -1,
+    MODE_UND,
+    -1,
+    -1,
+    -1,
+    MODE_SYS
 };
 
 void
@@ -35,7 +81,7 @@ get_cpsr(void)
 unsigned int
 cpu_mode(void)
 {
-    return get_cpsr() & PSR_MODE_MASK;
+    return mode_from_bits[get_cpsr() & PSR_MODE_MASK];
 }
 
 void
@@ -55,7 +101,7 @@ set_cpu_mode(unsigned int mode)
 void
 sub(void)
 {
-    bwprintf(COM2, "%x\n", cpu_mode());
+    bwprintf(COM2, "%s\n", mode_names[cpu_mode()]);
 }
 
 void
