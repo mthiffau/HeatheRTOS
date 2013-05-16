@@ -1,6 +1,7 @@
 #include "xint.h"
 #include "bwio.h"
 #include "ts7200.h"
+#include "xsetjmp.h"
 
 #define PSR_MODE_MASK 0x1F
 
@@ -110,15 +111,31 @@ swi_handler(void)
     sub();
 }
 
+jmp_buf kern_exit;
+
+void
+infinite(void)
+{
+    for (;;) {
+        bwgetc(COM2);
+        longjmp(kern_exit, 1);
+    }
+}
+
 int
 main()
 {
     *EXC_VEC_SWI = EXC_VEC_INSTR;
     EXC_VEC_FP(EXC_VEC_SWI) = &swi_handler;
-
     bwsetfifo(COM2, OFF);
-    sub();
-    swi_test();
+
+    /* longjmp test */
+    if (setjmp(kern_exit) == 0) {
+        bwprintf(COM2, "starting up\n");
+        infinite();
+    }
+
+    bwprintf(COM2, "exited\n");
 
     return 0;
 }
