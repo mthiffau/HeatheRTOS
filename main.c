@@ -133,7 +133,7 @@ task_main(void)
 {
     for (;;) {
         char c = bwgetc(COM2);
-        bwprintf(COM2, "%c\n", c);
+        bwprintf(COM2, "task_main(%s) %c\n", mode_names[cpu_mode()], c);
         swi_test();
     }
 }
@@ -169,6 +169,6 @@ main()
 void
 kern_event(void)
 {
-    bwprintf(COM2, "kern_event\n");
+    bwprintf(COM2, "kern_event(%s)\n", mode_names[cpu_mode()]);
     activate_ctx(curtask);
 }
