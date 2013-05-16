@@ -13,7 +13,8 @@ MAIN    = $(BUILD)/rt.elf
 MAP     = $(BUILD)/rt.map
 LINK    = link.ld
 SRCS    = $(wildcard *.c)
-OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o))
+ASMS    = $(wildcard *.s)
+OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o) $(ASMS:.s=.s.o))
 
 .SUFFIXES:
 .SECONDARY:
@@ -32,6 +33,9 @@ $(BUILD)/%.c.s: $(BUILD)/%.c.i |$(BUILD)
 
 $(BUILD)/%.c.i: %.c |$(BUILD)
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
+
+$(BUILD)/%.s.o: %.s |$(BUILD)
+	$(AS) -o $@ $(ASFLAGS) $<
 
 $(BUILD):
 	mkdir $@
