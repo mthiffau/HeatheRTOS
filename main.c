@@ -1,7 +1,6 @@
 #include "xint.h"
 #include "bwio.h"
 #include "ts7200.h"
-#include "xsetjmp.h"
 #include "xdef.h"
 #include "static_assert.h"
 
@@ -60,12 +59,7 @@ struct task_desc {
     struct task_state *state;
 };
 
-struct event {
-    uint32_t ev;
-    uint32_t args[5];
-};
-
-void ctx_switch(struct task_desc *td, struct event *ev);
+uint32_t ctx_switch(struct task_desc *td);
 
 typedef uint8_t cpumode_t;
 
@@ -151,7 +145,7 @@ task_inner(void)
 {
     int i;
     for (i = 0; i < 2; i++) {
-        bwprintf(COM2, "task_inner %d\n", i);
+        bwprintf(COM2, "%s inner %d\n", mode_names[cpu_mode()], i);
         trigger_swi();
     }
 }
@@ -163,7 +157,7 @@ task_main(void)
     bwputstr(COM2, "task_main start\n");
     for (;;) {
         char c = bwgetc(COM2);
-        bwprintf(COM2, "task_main(%s) %d %c\n", mode_names[cpu_mode()], i++, c);
+        bwprintf(COM2, "%s main %d %c\n", mode_names[cpu_mode()], i++, c);
         trigger_swi();
         task_inner();
     }
@@ -174,7 +168,6 @@ main()
 {
     int i;
     struct task_desc curtask;
-    struct event ev;
 
     *EXC_VEC_SWI = EXC_VEC_INSTR;
     EXC_VEC_FP(EXC_VEC_SWI) = &kern_entry_swi;
@@ -185,12 +178,12 @@ main()
     curtask.state->spsr = 0x10; /* user mode, all interrupts enabled */
     curtask.state->pc   = (uint32_t)&task_main;
 
-    for (i = 0; i < 10; i++) {
-        ctx_switch(&curtask, &ev);
-        bwprintf(COM2, "after ctx_switch(%s) %d\n", mode_names[cpu_mode()], i);
+    for (i = 0; i < 100; i++) {
+        uint32_t ev = ctx_switch(&curtask);
+        const char *mode = mode_names[cpu_mode()];
+        bwprintf(COM2, "%s event = %d\n", mode, ev);
+        bwprintf(COM2, "%s usrsp = %x\n", mode, curtask.state + 1);
     }
-
-    bwprintf(COM2, "exited\n");
 
     return 0;
 }
