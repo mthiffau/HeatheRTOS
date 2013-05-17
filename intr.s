@@ -1,45 +1,35 @@
     .section .text
 
-    .extern curtask
-    .extern kern_exit
-    .extern kern_event
-
     .align 4
-    .global swi_test
-    .type   swi_test, %function
-swi_test:
+    .global trigger_swi
+    .type   trigger_swi, %function
+trigger_swi:
     swi #0xddbeef
     mov pc, lr
 
-    .global activate_ctx
-    .type activate_ctx, %function
-activate_ctx:
-    mov ip, #0x10 @ FIXME restore the correct PSR
-    msr spsr, ip
-    ldmia r0, {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,lr,pc}^
-
-    .global exch_swi
-    .type exch_swi, %function
-exch_swi:
-    @ save user registers
-    ldr sp, [pc, #+28]  @ curtask
-    ldr sp, [sp]
-    stmia sp, {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,lr}^
-
-    @ read swi instruction into r0 (kern_event first instruction)
-    ldr r0, [lr, #-4]
-    bic r0, r0, #0xff000000
-
-    @ save return address
-    str lr, [sp, #+60]
-
-    @ TODO FIXME get SPSR
-
-    @ load fixed kernel stack pointer and handle event
-    ldr sp, [pc, #+8]   @ kern_exit
-    ldr sp, [sp, #+32]
-    b kern_event
-
-    @ global addresses
-    .word curtask
-    .word kern_exit
+    .global ctxswitch
+    .type ctxswitch, %function
+    .global kern_entry_swi
+    .type kern_entry_swi, %function
+ctxswitch:
+    stmfd sp!, {r0, r1, r4, r5, r6, r7, r8, r9, r10, r11, lr}
+    ldr ip, [r0]       @ get user stack pointer
+    ldr r0, [ip], #+4  @ read SPSR from user stack
+    msr spsr, r0
+    msr cpsr_c, #0xdf  @ SYS mode, interrupts off, no thumb
+    add sp, ip, #60
+    msr cpsr_c, #0xd3  @ SVC mode, interrupts off, no thumb
+    ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr, pc}^
+kern_entry_swi:
+kern_entry:
+    msr cpsr_c, #0xdf  @ SYS mode, interrupts off, no thumb
+    sub sp, sp, #4
+    stmfd sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}
+    mov ip, sp
+    msr cpsr_c, #0xd3  @ SVC mode, interrupts off, no thumb
+    str lr, [ip, #+56]
+    mrs r3, spsr
+    str r3, [ip, #-4]!
+    ldmfd sp!, {r0, r1}
+    str ip, [r0]
+    ldmfd sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}

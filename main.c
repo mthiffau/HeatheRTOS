@@ -9,14 +9,20 @@
 #define EXC_VEC_SWI         ((unsigned int*)0x8)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+#define TASK_SP_SPSR_IX     0
+#define TASK_SP_R0_IX       1
+#define TASK_SP_PC_IX       15
+#define TASK_SP_REGSAV_LEN  0x40
+
 struct taskdesc {
-    unsigned int r[16];
-    unsigned int psr;
-} only_task;
+    uint32_t *sp;
+};
 
-struct taskdesc *curtask = &only_task;
+struct event {
+    int syscall;
+};
 
-void activate_ctx(struct taskdesc *td) __attribute__((noreturn));
+void ctxswitch(struct taskdesc *td, struct event *ev);
 
 typedef uint8_t cpumode_t;
 
@@ -74,10 +80,10 @@ static const cpumode_t mode_from_bits[] = {
 };
 
 void
-swi_test(void);
+trigger_swi(void);
 
 void
-exch_swi(void);
+kern_entry_swi(void);
 
 unsigned int
 get_cpsr(void)
@@ -98,77 +104,50 @@ cpu_mode(void)
 }
 
 void
-set_cpu_mode(unsigned int mode)
+task_inner(void)
 {
-    mode &= PSR_MODE_MASK;
-    asm("mrs ip, cpsr\n\t"
-        "bic ip, ip, #31\n\t"
-        "orr ip, ip, %0\n\t"
-        "msr cpsr_c, ip\n\t"
-        :           /* no output */
-        : "r"(mode) /* input */
-        : "ip"      /* clobber */
-        );
-}
-
-void
-sub(void)
-{
-    bwprintf(COM2, "%s\n", mode_names[cpu_mode()]);
-}
-
-jmp_buf kern_exit;
-
-void
-infinite(void)
-{
-    for (;;) {
-        bwgetc(COM2);
-        longjmp(kern_exit, 1);
+    int i;
+    for (i = 0; i < 2; i++) {
+        bwprintf(COM2, "task_inner %d\n", i);
+        trigger_swi();
     }
 }
 
 void
 task_main(void)
 {
+    int i = 0;
+    bwputstr(COM2, "task_main start\n");
     for (;;) {
         char c = bwgetc(COM2);
-        bwprintf(COM2, "task_main(%s) %c\n", mode_names[cpu_mode()], c);
-        swi_test();
+        bwprintf(COM2, "task_main(%s) %d %c\n", mode_names[cpu_mode()], i++, c);
+        trigger_swi();
+        task_inner();
     }
 }
-
-void kern_event(uint32_t swi) __attribute__((noreturn));
 
 int
 main()
 {
-    int foobar;
+    int i;
+    struct taskdesc curtask;
+    struct event ev;
 
     *EXC_VEC_SWI = EXC_VEC_INSTR;
-    EXC_VEC_FP(EXC_VEC_SWI) = &exch_swi;
+    EXC_VEC_FP(EXC_VEC_SWI) = &kern_entry_swi;
     bwsetfifo(COM2, OFF);
 
-    bwprintf(COM2, "%x\n", &foobar);
-
     /* Set up task */
-    only_task.r[13] = 0x1000000; /* stack pointer */
-    only_task.r[15] = (unsigned int)&task_main; /* entry point */
+    curtask.sp = (uint32_t*)(0x01000000 - TASK_SP_REGSAV_LEN);
+    curtask.sp[TASK_SP_SPSR_IX] = 0x10; /* user mode, interrupts enabled */
+    curtask.sp[TASK_SP_PC_IX]   = (unsigned int)&task_main;
 
-    /* longjmp test */
-    if (setjmp(kern_exit) == 0) {
-        bwprintf(COM2, "starting up\n");
-        kern_event(-1);
+    for (i = 0; i < 10; i++) {
+        ctxswitch(&curtask, &ev);
+        bwprintf(COM2, "after ctxswitch(%s) %d\n", mode_names[cpu_mode()], i);
     }
 
     bwprintf(COM2, "exited\n");
 
     return 0;
-}
-
-void
-kern_event(uint32_t swi)
-{
-    bwprintf(COM2, "kern_event %s %x\n", mode_names[cpu_mode()], swi);
-    activate_ctx(curtask);
 }
