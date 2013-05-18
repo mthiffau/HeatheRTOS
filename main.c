@@ -6,6 +6,7 @@
 #include "cpumode.h"
 #include "task.h"
 #include "ctx_switch.h"
+#include "u_init.h"
 
 #include "ts7200.h"
 #include "bwio.h"
@@ -27,29 +28,6 @@ panic(const char *fmt, ...)
     for (;;) { }
 }
 
-void
-task_inner(void)
-{
-    int i;
-    for (i = 0; i < 2; i++) {
-        bwprintf(COM2, "%s inner %d\n", cpumode_name(cur_cpumode()), i);
-        trigger_swi();
-    }
-}
-
-void
-task_main(void)
-{
-    int i = 0;
-    bwputstr(COM2, "task_main start\n");
-    for (;;) {
-        char c = bwgetc(COM2);
-        bwprintf(COM2, "%s main %d %c\n", cpumode_name(cur_cpumode()), i++, c);
-        trigger_swi();
-        task_inner();
-    }
-}
-
 int
 main()
 {
@@ -64,7 +42,7 @@ main()
     /* Set up task */
     curtask.state = (struct task_state*)0x01000000 - 1;
     curtask.state->spsr = cpumode_bits(MODE_USR); /* all interrupts enabled */
-    curtask.state->pc   = (uint32_t)&task_main;
+    curtask.state->pc   = (uint32_t)&u_init_main;
 
     for (i = 0; i < 100; i++) {
         uint32_t ev = ctx_switch(&curtask);

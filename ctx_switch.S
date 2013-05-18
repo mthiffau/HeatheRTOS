@@ -1,11 +1,6 @@
-    .section .text
+#include "intr.h"
 
-    .align 4
-    .global trigger_swi
-    .type   trigger_swi, %function
-trigger_swi:
-    swi #0xddbeef
-    mov pc, lr
+    .section .text
 
     .global ctx_switch
     .type ctx_switch, %function
@@ -27,7 +22,8 @@ ctx_switch:
     ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr, pc}^
 
 kern_entry_swi:
-    msr cpsr_f, #0xa0000000  @ set flags to 0xa (SWI)
+    @ HACK storing ctx_switch return value in CPSR flag bits
+    msr cpsr_f, #INTR_SWI_FLAGS
     @ b kern_entry  NB. most common interrupt should be last
 
 kern_entry:

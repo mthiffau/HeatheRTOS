@@ -13,8 +13,8 @@ MAIN    = $(BUILD)/rt.elf
 MAP     = $(BUILD)/rt.map
 LINK    = link.ld
 SRCS    = $(wildcard *.c)
-ASMS    = $(wildcard *.s)
-OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o) $(ASMS:.s=.s.o))
+ASMS    = $(wildcard *.S)
+OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o) $(ASMS:.S=.S.o))
 
 .SUFFIXES:
 .SECONDARY:
@@ -34,8 +34,11 @@ $(BUILD)/%.c.s: $(BUILD)/%.c.i |$(BUILD)
 $(BUILD)/%.c.i: %.c |$(BUILD)
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
-$(BUILD)/%.s.o: %.s |$(BUILD)
+$(BUILD)/%.S.o: $(BUILD)/%.S.s |$(BUILD)
 	$(AS) -o $@ $(ASFLAGS) $<
+
+$(BUILD)/%.S.s: %.S |$(BUILD)
+	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD):
 	mkdir $@
@@ -47,3 +50,4 @@ install: $(MAIN)
 	cp $(MAIN) $$tftp && chmod a+r $$tftp/$(notdir $(MAIN))
 
 -include $(BUILD)/*.c.d
+-include $(BUILD)/*.S.d
