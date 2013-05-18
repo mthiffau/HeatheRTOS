@@ -10,11 +10,6 @@
 #define EXC_VEC_SWI         ((unsigned int*)0x8)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
-#define TASK_SP_SPSR_IX     0
-#define TASK_SP_R0_IX       1
-#define TASK_SP_PC_IX       15
-#define TASK_SP_REGSAV_LEN  0x40
-
 struct task_state {
     uint32_t spsr;
     uint32_t r0;

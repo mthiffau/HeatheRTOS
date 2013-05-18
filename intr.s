@@ -13,7 +13,7 @@ trigger_swi:
     .type kern_entry_swi, %function
 ctx_switch:
     @ save kernel registers
-    stmfd sp!, {r0, r1, r4, r5, r6, r7, r8, r9, r10, r11, lr}
+    stmfd sp!, {r0, r4, r5, r6, r7, r8, r9, r10, r11, lr}
     ldr ip, [r0]       @ get user stack pointer
     ldr r0, [ip], #+4  @ read SPSR from user stack
 
@@ -27,6 +27,7 @@ ctx_switch:
     ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr, pc}^
 
 kern_entry_swi:
+    msr cpsr_f, #0xa0000000  @ set flags to 0xa (SWI)
     @ b kern_entry  NB. most common interrupt should be last
 
 kern_entry:
@@ -46,9 +47,11 @@ kern_entry:
 
     @ restore ctx_switch function arguments,
     @ and write task state pointer into task descriptor
-    ldmfd sp!, {r0, r1}
+    ldr r0, [sp], #+4
     str ip, [r0]
 
+    @ return value is stored in cpsr flags
+    mrs r0, cpsr
+    mov r0, r0, lsr #28
     @ restore other kernel registers and return
-    mov r0, #0x42
     ldmfd sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}
