@@ -4,6 +4,7 @@
 
 #include "timer.h"
 
+#include "xarg.h"
 #include "bwio.h"
 
 int clock_init(struct clock *clock, int freq_Hz)

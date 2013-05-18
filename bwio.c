@@ -5,9 +5,9 @@
  *
  */
 
+#include "xarg.h"
 #include "bwio.h"
 #include "ts7200.h"
-#include "xarg.h"
 
 /*
  * The UARTs are initialized by RedBoot to the following state
@@ -152,9 +152,9 @@ int bwa2d( char ch ) {
 	return -1;
 }
 
-char bwa2i( char ch, char **src, int base, int *nump ) {
+char bwa2i( char ch, const char **src, int base, int *nump ) {
 	int num, digit;
-	char *p;
+	const char *p;
 
 	p = *src; num = 0;
 	while( ( digit = bwa2d( ch ) ) >= 0 ) {
@@ -192,7 +192,7 @@ void bwi2a( int num, char *bf ) {
 	bwui2a( num, 10, bf );
 }
 
-void bwformat ( int channel, char *fmt, va_list va ) {
+void bwformat ( int channel, const char *fmt, va_list va ) {
 	char bf[12];
 	char ch, lz;
 	int w;
@@ -248,7 +248,7 @@ void bwformat ( int channel, char *fmt, va_list va ) {
 	}
 }
 
-void bwprintf( int channel, char *fmt, ... ) {
+void bwprintf( int channel, const char *fmt, ... ) {
         va_list va;
 
         va_start(va,fmt);

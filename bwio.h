@@ -8,6 +8,8 @@
 
 #define BWIO_H
 
+XARG_H;
+
 #define COM1	0
 #define COM2	1
 
@@ -30,4 +32,6 @@ int bwputr( int channel, unsigned int reg );
 
 void bwputw( int channel, int n, char fc, char *bf );
 
-void bwprintf( int channel, char *format, ... );
+void bwformat( int channel, const char *format, va_list args );
+
+void bwprintf( int channel, const char *format, ... );
