@@ -5,6 +5,7 @@
 
 #include "cpumode.h"
 #include "task.h"
+#include "intr.h"
 #include "ctx_switch.h"
 #include "u_init.h"
 
@@ -48,7 +49,12 @@ main()
         uint32_t ev = ctx_switch(&curtask);
         const char *mode = cpumode_name(cur_cpumode());
         bwprintf(COM2, "%s event = %d\n", mode, ev);
-        bwprintf(COM2, "%s usrsp = %x\n", mode, curtask.state + 1);
+        if (ev == INTR_SWI) {
+            uint32_t syscall_no = *((uint32_t*)curtask.state->pc - 1);
+            syscall_no &= 0x00ffffff;
+            bwprintf(COM2, "%s swi#  = 0x%x\n", mode, syscall_no);
+        }
+        bwprintf(COM2, "%s usrsp = 0x%x\n", mode, curtask.state + 1);
     }
 
     return 0;
