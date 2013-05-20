@@ -19,7 +19,9 @@ ctx_switch:
     msr cpsr_c, #0xd3  @ SVC mode, interrupts off, no thumb
 
     @ load remaining user registers and return to user mode
-    ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr, pc}^
+    ldr lr, [ip, #+56]
+    ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}^
+    movs pc, lr
 
 kern_entry_swi:
     @ HACK storing ctx_switch return value in CPSR flag bits
