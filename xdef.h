@@ -4,6 +4,8 @@
 
 #define XDEF_H
 
+#define NULL ((void*)0)
+
 typedef long          ssize_t;
 typedef unsigned long size_t;
 

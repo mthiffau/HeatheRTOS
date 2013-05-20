@@ -35,4 +35,9 @@ SECTIONS
         *(.bss)
         _BssEnd = . ;
     }
+
+    _ProgramEnd = . ;
+
+    . = 0x2000000;
+    _MemoryEnd = . ;
 }
