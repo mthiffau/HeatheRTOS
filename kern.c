@@ -36,9 +36,8 @@ main(void)
     /* Set up kernel state and create initial user task */
     kern_init(&kern);
 
-    /* Create some test tasks */
-    task_create(&kern, -1, 8, &u_init_main);
-    task_create(&kern, -1, 8, &u_init_main);
+    /* Run init */
+    task_create(&kern, -1, U_INIT_PRIORITY, &u_init_main);
 
     /* Main loop */
     for (;;) {
@@ -50,7 +49,7 @@ main(void)
             if (kern.ntasks == 0)
                 break;
             else
-                continue; /* TODO idle better */
+                continue; /* FIXME this won't do once IRQs are in use */
         }
 
         intr = ctx_switch(active);

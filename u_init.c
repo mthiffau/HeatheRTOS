@@ -8,25 +8,54 @@
 #include "xarg.h"
 #include "bwio.h"
 
-static void
-inner(void)
-{
-    int i;
-    for (i = 0; i < 2; i++) {
-        bwprintf(COM2, "%s inner %d\n", cpumode_name(cur_cpumode()), i);
-        Pass();
-    }
-}
+static void spawn_test(int priority);
+static void u_test_main(void);
 
 void
 u_init_main(void)
 {
-    int i = 0;
-    bwputstr(COM2, "u_init_main start\n");
-    for (;;) {
-        char c = bwgetc(COM2);
-        bwprintf(COM2, "%s main %d %c\n", cpumode_name(cur_cpumode()), i++, c);
-        Pass();
-        inner();
+    /* Spawn two tasks at lower priority than init. */
+    spawn_test(U_INIT_PRIORITY + 1);
+    spawn_test(U_INIT_PRIORITY + 1);
+
+    /* Spawn two tasks at higher priority than init. */
+    spawn_test(U_INIT_PRIORITY - 1);
+    spawn_test(U_INIT_PRIORITY - 1);
+
+    /* Print and exit */
+    bwputstr(COM2, "First: exiting\n");
+}
+
+static void
+spawn_test(int priority)
+{
+    tid_t tid = Create(priority, &u_test_main);
+    if (tid >= 0) {
+        bwprintf(COM2, "Created: %d\n", tid);
+        return;
     }
+
+    switch (tid) {
+    case -1:
+        bwputstr(COM2, "error: Create: bad priority\n");
+        return;
+    case -2:
+        bwputstr(COM2, "error: Create: no more task descriptors\n");
+        return;
+    default:
+        bwputstr(COM2, "error: Create: unknown error\n");
+        return;
+    }
+}
+
+static void
+u_test_main(void)
+{
+    tid_t self, parent;
+    self   = MyTid();
+    parent = MyParentTid();
+    bwprintf(COM2, "MyTid:%d MyParentTid:%d\n", self, parent);
+    Pass();
+    bwprintf(COM2, "MyTid:%d MyParentTid:%d\n", self, parent);
+    Exit();
 }

@@ -10,4 +10,4 @@ tid_t Create(int priority, void (*task_entry)(void));
 tid_t MyTid(void);
 tid_t MyParentTid(void);
 void  Pass(void);
-void  Exit(void);
+void  Exit(void) __attribute__((noreturn));

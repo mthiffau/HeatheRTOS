@@ -4,4 +4,7 @@
 
 #define U_INIT_H
 
+enum { U_INIT_PRIORITY = 8 };
+
+/* Entry point for init */
 void u_init_main(void);
