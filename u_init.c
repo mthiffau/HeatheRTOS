@@ -24,6 +24,7 @@ u_init_main(void)
 
     /* Print and exit */
     bwputstr(COM2, "First: exiting\n");
+    Exit();
 }
 
 static void
