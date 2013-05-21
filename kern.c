@@ -1,6 +1,7 @@
 #include "xint.h"
 #include "xdef.h"
 #include "static_assert.h"
+#include "u_tid.h"
 #include "task.h"
 #include "kern.h"
 
@@ -13,6 +14,7 @@
 #include "syscall.h"
 #include "link.h"
 
+#include "u_syscall.h"
 #include "u_init.h"
 
 #include "cpumode.h"
@@ -29,7 +31,6 @@ static struct task_desc *task_dequeue(struct task_desc **q);
 int
 main(void)
 {
-    int i;
     struct kern kern;
 
     /* Set up kernel state and create initial user task */
@@ -40,13 +41,17 @@ main(void)
     task_create(&kern, -1, 8, &u_init_main);
 
     /* Main loop */
-    for (i = 0; i < 100; i++) {
+    for (;;) {
         struct task_desc *active;
         uint32_t          intr;
 
         active = task_schedule(&kern);
-        if (active == NULL)
-            continue;
+        if (active == NULL) {
+            if (kern.ntasks == 0)
+                break;
+            else
+                continue; /* TODO idle better */
+        }
 
         intr = ctx_switch(active);
         kern_handle_intr(&kern, active, intr);
@@ -108,8 +113,28 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
 {
     uint32_t syscall = *((uint32_t*)active->regs->pc - 1) & 0x00ffffff;
     switch (syscall) {
+    case SYSCALL_CREATE:
+        active->regs->r0 = (uint32_t)task_create(
+            kern,
+            active->tid,
+            (int)active->regs->r0,
+            (void(*)(void))active->regs->r1);
+        task_ready(kern, active);
+        break;
+    case SYSCALL_MYTID:
+        active->regs->r0 = (uint32_t)active->tid;
+        task_ready(kern, active);
+        break;
+    case SYSCALL_MYPARENTTID:
+        active->regs->r0 = (uint32_t)active->parent_tid;
+        task_ready(kern, active);
+        break;
     case SYSCALL_PASS:
         task_ready(kern, active);
+        break;
+    case SYSCALL_EXIT:
+        active->state = TASK_STATE_ZOMBIE; /* leave off ready queue */
+        kern->ntasks--;
         break;
     default:
         panic("received unknown syscall 0x%x\n", syscall);
@@ -145,6 +170,7 @@ task_create(
     stack          = kern->stack_mem_top - ix * kern->stack_size;
     td->regs       = (struct task_regs*)(stack) - 1; /* leave room */
     td->regs->spsr = cpumode_bits(MODE_USR);         /* interrupts enabled */
+    td->regs->lr   = (uint32_t)&Exit; /* call Exit on return of task_entry */
     td->regs->pc   = (uint32_t)task_entry;
 
     td->tid        = ix; /* FIXME */

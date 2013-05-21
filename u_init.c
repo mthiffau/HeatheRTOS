@@ -1,3 +1,4 @@
+#include "u_tid.h"
 #include "u_init.h"
 #include "u_syscall.h"
 

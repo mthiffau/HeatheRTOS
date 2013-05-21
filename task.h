@@ -5,11 +5,10 @@
 #define TASK_H
 
 XINT_H;
+U_TID_H; /* for tid_t */
 STATIC_ASSERT_H;
 
 struct task_regs;
-
-typedef int tid_t; /* task id, must be non-negative */
 
 enum {
     TASK_STATE_READY,               /* Ready to run; is in ready queue */
