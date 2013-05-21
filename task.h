@@ -4,6 +4,7 @@
 
 #define TASK_H
 
+XINT_H;
 STATIC_ASSERT_H;
 
 struct task_regs;
