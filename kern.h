@@ -4,6 +4,8 @@
 
 #define KERN_H
 
+XINT_H;
+
 #define MAX_TASKS           128  /* must be <= 255 */
 #define N_PRIORITIES        16
 
@@ -15,6 +17,7 @@ struct kern {
     size_t            stack_size;
     int               ntasks;
     struct task_desc  tasks[MAX_TASKS];
+    uint16_t          rdy_queue_ne; /* bit i set if queue i nonempty */
     struct task_queue rdy_queues[N_PRIORITIES];
     struct task_queue free_tasks;
 };

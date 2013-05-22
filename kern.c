@@ -28,6 +28,26 @@
 static void task_enqueue(struct kern*, struct task_desc*, struct task_queue*);
 static struct task_desc *task_dequeue(struct kern*, struct task_queue*);
 
+static inline int
+ctz16(uint16_t x)
+{
+    int tz = 1;
+    if ((x & 0xff) == 0) {
+        x >>= 8;
+        tz += 8;
+    }
+    if ((x & 0xf) == 0) {
+        x >>= 4;
+        tz += 4;
+    }
+    if ((x & 0x3) == 0) {
+        x >>= 2;
+        tz += 2;
+    }
+    tz -= x & 0x1;
+    return tz;
+}
+
 int
 main(void)
 {
@@ -91,6 +111,7 @@ kern_init(struct kern *kern)
     }
 
     /* All ready queues are empty */
+    kern->rdy_queue_ne = 0;
     for (i = 0; i < N_PRIORITIES; i++) {
         struct task_queue *q = &kern->rdy_queues[i];
         q->head_ix = TASK_IX_NULL;
@@ -189,23 +210,33 @@ task_create(
 void
 task_ready(struct kern *kern, struct task_desc *td)
 {
+    int prio = TASK_PRIO(td);
     TASK_SET_STATE(td, TASK_STATE_READY);
-    task_enqueue(kern, td, &kern->rdy_queues[TASK_PRIO(td)]);
+    task_enqueue(kern, td, &kern->rdy_queues[prio]);
+    kern->rdy_queue_ne |= 1 << prio;
 }
 
 /* NB. lower numbers are higher priority! */
 struct task_desc*
 task_schedule(struct kern *kern)
 {
-    int i;
-    for (i = 0; i < N_PRIORITIES; i++) {
-        struct task_desc *next = task_dequeue(kern, &kern->rdy_queues[i]);
-        if (next != NULL) {
-            TASK_SET_STATE(next, TASK_STATE_ACTIVE);
-            return next;
-        }
-    }
-    return NULL;
+    int prio;
+    struct task_queue *q;
+    struct task_desc  *td;
+
+    if (kern->rdy_queue_ne == 0)
+        return NULL;
+
+    prio = ctz16(kern->rdy_queue_ne);
+    q    = &kern->rdy_queues[prio];
+    td   = task_dequeue(kern, q);
+    assert(td != NULL); /* if not, rdy_queue_ne was inconsistent */
+
+    if (q->head_ix == TASK_IX_NULL)
+        kern->rdy_queue_ne &= ~(1 << prio);
+
+    TASK_SET_STATE(td, TASK_STATE_ACTIVE);
+    return td;
 }
 
 static void
