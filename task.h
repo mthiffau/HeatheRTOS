@@ -45,6 +45,7 @@ struct task_desc {
 /* Context switch assumes this memory layout */
 struct task_regs {
     uint32_t spsr;
+    uint32_t pc;
     uint32_t r0;
     uint32_t r1;
     uint32_t r2;
@@ -58,26 +59,26 @@ struct task_regs {
     uint32_t r10;
     uint32_t r11;
     uint32_t r12;
-    /* no sp */
+    uint32_t sp;
     uint32_t lr;
-    uint32_t pc;
 };
 
 /* Check memory layout is as assumed by context switch */
 STATIC_ASSERT(task_regs_spsr, offsetof (struct task_regs, spsr) == 0x0);
-STATIC_ASSERT(task_regs_r0,   offsetof (struct task_regs, r0)   == 0x4);
-STATIC_ASSERT(task_regs_r1,   offsetof (struct task_regs, r1)   == 0x8);
-STATIC_ASSERT(task_regs_r2,   offsetof (struct task_regs, r2)   == 0xc);
-STATIC_ASSERT(task_regs_r3,   offsetof (struct task_regs, r3)   == 0x10);
-STATIC_ASSERT(task_regs_r4,   offsetof (struct task_regs, r4)   == 0x14);
-STATIC_ASSERT(task_regs_r5,   offsetof (struct task_regs, r5)   == 0x18);
-STATIC_ASSERT(task_regs_r6,   offsetof (struct task_regs, r6)   == 0x1c);
-STATIC_ASSERT(task_regs_r7,   offsetof (struct task_regs, r7)   == 0x20);
-STATIC_ASSERT(task_regs_r8,   offsetof (struct task_regs, r8)   == 0x24);
-STATIC_ASSERT(task_regs_r9,   offsetof (struct task_regs, r9)   == 0x28);
-STATIC_ASSERT(task_regs_r10,  offsetof (struct task_regs, r10)  == 0x2c);
-STATIC_ASSERT(task_regs_r11,  offsetof (struct task_regs, r11)  == 0x30);
-STATIC_ASSERT(task_regs_r12,  offsetof (struct task_regs, r12)  == 0x34);
-STATIC_ASSERT(task_regs_lr,   offsetof (struct task_regs, lr)   == 0x38);
-STATIC_ASSERT(task_regs_pc,   offsetof (struct task_regs, pc)   == 0x3c);
-STATIC_ASSERT(task_regs_size, sizeof   (struct task_regs)       == 0x40);
+STATIC_ASSERT(task_regs_pc,   offsetof (struct task_regs, pc)   == 0x4);
+STATIC_ASSERT(task_regs_r0,   offsetof (struct task_regs, r0)   == 0x8);
+STATIC_ASSERT(task_regs_r1,   offsetof (struct task_regs, r1)   == 0xc);
+STATIC_ASSERT(task_regs_r2,   offsetof (struct task_regs, r2)   == 0x10);
+STATIC_ASSERT(task_regs_r3,   offsetof (struct task_regs, r3)   == 0x14);
+STATIC_ASSERT(task_regs_r4,   offsetof (struct task_regs, r4)   == 0x18);
+STATIC_ASSERT(task_regs_r5,   offsetof (struct task_regs, r5)   == 0x1c);
+STATIC_ASSERT(task_regs_r6,   offsetof (struct task_regs, r6)   == 0x20);
+STATIC_ASSERT(task_regs_r7,   offsetof (struct task_regs, r7)   == 0x24);
+STATIC_ASSERT(task_regs_r8,   offsetof (struct task_regs, r8)   == 0x28);
+STATIC_ASSERT(task_regs_r9,   offsetof (struct task_regs, r9)   == 0x2c);
+STATIC_ASSERT(task_regs_r10,  offsetof (struct task_regs, r10)  == 0x30);
+STATIC_ASSERT(task_regs_r11,  offsetof (struct task_regs, r11)  == 0x34);
+STATIC_ASSERT(task_regs_r12,  offsetof (struct task_regs, r12)  == 0x38);
+STATIC_ASSERT(task_regs_sp,   offsetof (struct task_regs, sp)   == 0x3c);
+STATIC_ASSERT(task_regs_lr,   offsetof (struct task_regs, lr)   == 0x40);
+STATIC_ASSERT(task_regs_size, sizeof   (struct task_regs)       == 0x44);

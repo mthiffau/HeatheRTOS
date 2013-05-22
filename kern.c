@@ -167,8 +167,9 @@ task_create(
     /* Initialize task */
     ix             = td - kern->tasks;
     stack          = kern->stack_mem_top - ix * kern->stack_size;
-    td->regs       = (struct task_regs*)(stack) - 1; /* leave room */
-    td->regs->spsr = cpumode_bits(MODE_USR);         /* interrupts enabled */
+    td->regs       = (struct task_regs*)stack - 1; /* leave room for regs */
+    td->regs->spsr = cpumode_bits(MODE_USR);       /* interrupts enabled */
+    td->regs->sp   = (uint32_t)stack;
     td->regs->lr   = (uint32_t)&Exit; /* call Exit on return of task_entry */
     td->regs->pc   = (uint32_t)task_entry;
 

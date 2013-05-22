@@ -10,38 +10,32 @@ ctx_switch:
     @ save kernel registers
     stmfd sp!, {r0, r4, r5, r6, r7, r8, r9, r10, r11, lr}
     ldr ip, [r0]       @ get user stack pointer
-    ldr r0, [ip], #+4  @ read SPSR from user stack
 
-    @ set user sp register
-    msr spsr, r0
-    msr cpsr_c, #0xdf  @ SYS mode, interrupts off, no thumb
-    add sp, ip, #60
-    msr cpsr_c, #0xd3  @ SVC mode, interrupts off, no thumb
+    @ pop SPSR and return address from user stack
+    ldmfd ip!, {r3, lr}
+    msr spsr_cxsf, r3
 
     @ load remaining user registers and return to user mode
-    ldr lr, [ip, #+56]
-    ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}^
+    ldmfd ip, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, sp, lr}^
+    @ NB. may need a nop here - ARM manual says that ldm Rn, {...}^
+    @ shouldn't be followed by instructions that access banked registers.
     movs pc, lr
 
 kern_entry_swi:
-    @ HACK storing ctx_switch return value in CPSR flag bits
+    @ store ctx_switch return value in CPSR flag bits
     msr cpsr_f, #INTR_SWI_FLAGS
-    @ b kern_entry  NB. most common interrupt should be last
+    @ b kern_entry  NB. add irq after this one
 
 kern_entry:
-    @ save user-mode registers on user stack, except for sp
+    @ save user-mode registers on user stack
     msr cpsr_c, #0xdf  @ SYS mode, interrupts off, no thumb
-    sub sp, sp, #4     @ space for PC, need to write it in SVC mode
-    stmfd sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, lr}
-    mov ip, sp         @ take note of task stack pointer
+    stmfd sp, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, sp, lr}
+    sub ip, sp, #60    @ take note of task stack pointer
     msr cpsr_c, #0xd3  @ SVC mode, interrupts off, no thumb
 
-    @ store return address in reserved PC space
-    str lr, [ip, #+56]
-
-    @ push SPSR onto user stack
+    @ save spsr and return address to user stack
     mrs r3, spsr
-    str r3, [ip, #-4]!
+    stmfd ip!, {r3, lr}
 
     @ restore ctx_switch function arguments,
     @ and write task state pointer into task descriptor
