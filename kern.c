@@ -25,8 +25,8 @@
 #define EXC_VEC_SWI         ((unsigned int*)0x8)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
-static void task_enqueue(struct task_desc *td, struct task_desc **q);
-static struct task_desc *task_dequeue(struct task_desc **q);
+static void task_enqueue(struct kern*, struct task_desc*, struct task_queue*);
+static struct task_desc *task_dequeue(struct kern*, struct task_queue*);
 
 int
 main(void)
@@ -36,8 +36,8 @@ main(void)
     /* Set up kernel state and create initial user task */
     kern_init(&kern);
 
-    /* Run init */
-    task_create(&kern, -1, U_INIT_PRIORITY, &u_init_main);
+    /* Run init - it's its own parent! */
+    task_create(&kern, 0, U_INIT_PRIORITY, &u_init_main);
 
     /* Main loop */
     for (;;) {
@@ -81,18 +81,21 @@ kern_init(struct kern *kern)
 
     /* All tasks are free to begin with */
     kern->ntasks = 0;
-    kern->free_tasks = &kern->tasks[0];
+    kern->free_tasks.head_ix = 0;
+    kern->free_tasks.tail_ix = MAX_TASKS - 1;
     for (i = 0; i < MAX_TASKS; i++) {
         struct task_desc *td = &kern->tasks[i];
-        td->tid  = -1;
-        td->next = &kern->tasks[i + 1];
+        td->state_prio = TASK_STATE_FREE; /* prio is arbitrary on init */
+        td->tid_seq    = 0;
+        td->next_ix    = (i + 1 == MAX_TASKS) ? TASK_IX_NULL : (i + 1);
     }
 
-    kern->tasks[MAX_TASKS - 1].next = NULL;
-
     /* All ready queues are empty */
-    for (i = 0; i < N_PRIORITIES; i++)
-        kern->rdy_queues[i] = NULL;
+    for (i = 0; i < N_PRIORITIES; i++) {
+        struct task_queue *q = &kern->rdy_queues[i];
+        q->head_ix = TASK_IX_NULL;
+        q->tail_ix = TASK_IX_NULL;
+    }
 }
 
 void
@@ -115,24 +118,26 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
     case SYSCALL_CREATE:
         active->regs->r0 = (uint32_t)task_create(
             kern,
-            active->tid,
+            TASK_PTR2IX(kern, active),
             (int)active->regs->r0,
             (void(*)(void))active->regs->r1);
         task_ready(kern, active);
         break;
     case SYSCALL_MYTID:
-        active->regs->r0 = (uint32_t)active->tid;
+        active->regs->r0 = (uint32_t)TASK_TID(kern, active);
         task_ready(kern, active);
         break;
     case SYSCALL_MYPARENTTID:
-        active->regs->r0 = (uint32_t)active->parent_tid;
+        active->regs->r0 = (uint32_t)TASK_TID(
+            kern,
+            TASK_IX2PTR(kern, active->parent_ix));
         task_ready(kern, active);
         break;
     case SYSCALL_PASS:
         task_ready(kern, active);
         break;
     case SYSCALL_EXIT:
-        active->state = TASK_STATE_ZOMBIE; /* leave off ready queue */
+        TASK_SET_STATE(active, TASK_STATE_ZOMBIE); /* leave off ready queue */
         kern->ntasks--;
         break;
     default:
@@ -143,7 +148,7 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
 tid_t
 task_create(
     struct kern *kern,
-    tid_t parent_tid,
+    uint8_t parent_ix,
     int priority,
     void (*task_entry)(void))
 {
@@ -154,18 +159,20 @@ task_create(
     if (priority < 0 || priority >= N_PRIORITIES)
         return -1; /* invalid priority */
 
-    td = kern->free_tasks;
+    td = task_dequeue(kern, &kern->free_tasks);
     if (td == NULL)
         return -2; /* no more task descriptors */
 
-    assert(td->tid < 0);
-    kern->free_tasks = td->next;
+    assert((td->state_prio & TASK_STATE_MASK) == TASK_STATE_FREE);
 
     /* Guaranteed to succeed from this point */
     kern->ntasks++;
 
-    /* Initialize task */
-    ix             = td - kern->tasks;
+    /* Initialize task. */
+    ix             = TASK_PTR2IX(kern, td);
+    td->parent_ix  = parent_ix;
+    TASK_SET_PRIO(td, priority); /* task_ready() will set state */
+
     stack          = kern->stack_mem_top - ix * kern->stack_size;
     td->regs       = (struct task_regs*)stack - 1; /* leave room for regs */
     td->regs->spsr = cpumode_bits(MODE_USR);       /* interrupts enabled */
@@ -173,19 +180,15 @@ task_create(
     td->regs->lr   = (uint32_t)&Exit; /* call Exit on return of task_entry */
     td->regs->pc   = (uint32_t)task_entry;
 
-    td->tid        = ix; /* FIXME */
-    td->parent_tid = parent_tid;
-    td->priority   = priority;
-
     task_ready(kern, td);
-    return td->tid;
+    return TASK_TID(kern, td);
 }
 
 void
 task_ready(struct kern *kern, struct task_desc *td)
 {
-    td->state = TASK_STATE_READY;
-    task_enqueue(td, &kern->rdy_queues[td->priority]);
+    TASK_SET_STATE(td, TASK_STATE_READY);
+    task_enqueue(kern, td, &kern->rdy_queues[TASK_PRIO(td)]);
 }
 
 /* NB. lower numbers are higher priority! */
@@ -194,9 +197,9 @@ task_schedule(struct kern *kern)
 {
     int i;
     for (i = 0; i < N_PRIORITIES; i++) {
-        struct task_desc *next = task_dequeue(&kern->rdy_queues[i]);
+        struct task_desc *next = task_dequeue(kern, &kern->rdy_queues[i]);
         if (next != NULL) {
-            next->state = TASK_STATE_ACTIVE;
+            TASK_SET_STATE(next, TASK_STATE_ACTIVE);
             return next;
         }
     }
@@ -204,40 +207,27 @@ task_schedule(struct kern *kern)
 }
 
 static void
-task_enqueue(struct task_desc *td, struct task_desc **q)
+task_enqueue(struct kern *kern, struct task_desc *td, struct task_queue *q)
 {
-    if (*q == NULL) {
-        *q = td;
-        td->next = td;
-        td->prev = td;
+    uint8_t ix = TASK_PTR2IX(kern, td);
+    td->next_ix = TASK_IX_NULL;
+    if (q->head_ix == TASK_IX_NULL) {
+        q->head_ix = ix;
+        q->tail_ix = ix;
     } else {
-        struct task_desc *first, *last;
-        first = *q;
-        last  = first->prev;
-        td->next = first;
-        td->prev = last;
-        last->next  = td;
-        first->prev = td;
+        TASK_IX2PTR(kern, q->tail_ix)->next_ix = ix;
+        q->tail_ix = ix;
     }
 }
 
 static struct task_desc*
-task_dequeue(struct task_desc **q)
+task_dequeue(struct kern *kern, struct task_queue *q)
 {
-    struct task_desc *result, *newfirst, *last;
-    result = *q;
-    if (result == NULL)
+    struct task_desc *td;
+    if (q->head_ix == TASK_IX_NULL)
         return NULL;
 
-    newfirst = result->next;
-    last     = result->prev;
-    if (newfirst == result) {
-        *q = NULL;
-    } else {
-        *q = newfirst;
-        newfirst->prev = last;
-        last->next     = newfirst;
-    }
-
-    return result;
+    td = TASK_IX2PTR(kern, q->head_ix);
+    q->head_ix = td->next_ix;
+    return td;
 }

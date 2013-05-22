@@ -5,20 +5,50 @@
 #define TASK_H
 
 XINT_H;
-U_TID_H; /* for tid_t */
 STATIC_ASSERT_H;
 
 struct task_regs;
 
+/* Conversion to/from  */
+#define TASK_IX2PTR(kern, tix) (&(kern)->tasks[(tix)])
+#define TASK_PTR2IX(kern, tdp) ((tdp) - (kern)->tasks)
+#define TASK_IX_NULL           0xff  /* invalid index value */
+
+/* Task ID is 16 bits:
+ * - low byte is task descriptor index, high byte is a sequence number */
+#define TID_SEQ_OFFS    8
+#define TID_IX_MASK     0xff
+#define TASK_TID(kern, tdp)    \
+    ((tdp)->tid_seq << TID_SEQ_OFFS) | TASK_PTR2IX(kern, tdp)
+
+/* Task descriptor stores state and priority in a single byte */
+#define TASK_STATE_MASK 0xf0
+#define TASK_PRIO_MASK  0x0f
+#define TASK_STATE(tdp) ((tdp)->state_prio & TASK_STATE_MASK)
+#define TASK_PRIO(tdp)  ((tdp)->state_prio & TASK_PRIO_MASK)
+#define TASK_SET_STATE(tdp, state) \
+    ((tdp)->state_prio = ((tdp)->state_prio & ~TASK_STATE_MASK) | (state))
+#define TASK_SET_PRIO(tdp, prio)   \
+    ((tdp)->state_prio = ((tdp)->state_prio & ~TASK_PRIO_MASK) | (prio))
+
+/* Task state constants */
 enum {
-    TASK_STATE_READY,               /* Ready to run; is in ready queue */
-    TASK_STATE_ACTIVE,              /* 'Currently' running. */
-    TASK_STATE_ZOMBIE,              /* Exited. */
-    TASK_STATE_SEND_BLOCKED,        /* Blocked in Receive, waiting for Send. */
-    TASK_STATE_RECEIVE_BLOCKED,     /* Blocked in Send, waiting for Receive. */
-    TASK_STATE_REPLY_BLOCKED,       /* Blocked in Send, waiting for Reply. */
-    TASK_STATE_EVENT_BLOCKED        /* Blocked in AwaitEvent */
+    TASK_STATE_FREE            = 0x00, /* Unused task descriptor */
+    TASK_STATE_READY           = 0x10, /* Ready to run; is in ready queue */
+    TASK_STATE_ACTIVE          = 0x20, /* 'Currently' running */
+    TASK_STATE_ZOMBIE          = 0x30, /* Exited */
+    TASK_STATE_SEND_BLOCKED    = 0x40, /* Blocked: Receive waiting for Send */
+    TASK_STATE_RECEIVE_BLOCKED = 0x50, /* Blocked: Send waiting for Receive */
+    TASK_STATE_REPLY_BLOCKED   = 0x60, /* Blocked: Send waiting for Reply */
+    TASK_STATE_EVENT_BLOCKED   = 0x70  /* Blocked: AwaitEvent */
 };
+
+/* Singly-linked task queue */
+struct task_queue {
+    uint8_t head_ix;
+    uint8_t tail_ix;
+};
+STATIC_ASSERT(task_queue_size, sizeof (struct task_queue) == 4);
 
 struct task_desc {
     /* Points into the task's stack. The task's stack pointer is
@@ -27,20 +57,14 @@ struct task_desc {
     struct task_regs *regs;
 
     /* Task info */
-    tid_t tid;         /* invalid if this entry is not in use */
-    tid_t parent_tid;
-    uint8_t priority;
-    uint8_t state;
+    uint8_t state_prio; /* sssspppp : s state, p priority */
+    uint8_t tid_seq;    /* high byte of tid */
+    uint8_t parent_ix;  /* parent task descriptor index */
+    uint8_t next_ix;    /* next pointer task descriptor index */
     /* NB. no spsr         - use regs->spsr
      *     no return value - use regs->r0. */
-
-    /* Participation in ready queue or other list as per state.
-     *  - ready queue: doubly-linked
-     *  - free list:   singly-linked */
-
-    struct task_desc *next;
-    struct task_desc *prev;
 };
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 8);
 
 /* Context switch assumes this memory layout */
 struct task_regs {

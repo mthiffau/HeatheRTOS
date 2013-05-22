@@ -15,8 +15,8 @@ struct kern {
     size_t            stack_size;
     int               ntasks;
     struct task_desc  tasks[MAX_TASKS];
-    struct task_desc *rdy_queues[N_PRIORITIES];
-    struct task_desc *free_tasks;
+    struct task_queue rdy_queues[N_PRIORITIES];
+    struct task_queue free_tasks;
 };
 
 /* Initialize kernel. */
@@ -36,7 +36,7 @@ void kern_handle_swi(struct kern *k, struct task_desc *active);
  * indicate higher priority. */
 tid_t task_create(
     struct kern *k,
-    tid_t parent,
+    uint8_t parent_ix,
     int priority,
     void (*task_entry)(void));
 
