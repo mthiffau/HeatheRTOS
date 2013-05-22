@@ -137,7 +137,9 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         task_ready(kern, active);
         break;
     case SYSCALL_EXIT:
-        TASK_SET_STATE(active, TASK_STATE_ZOMBIE); /* leave off ready queue */
+        TASK_SET_STATE(active, TASK_STATE_FREE);
+        active->tid_seq++;
+        task_enqueue(kern, active, &kern->free_tasks);
         kern->ntasks--;
         break;
     default:
