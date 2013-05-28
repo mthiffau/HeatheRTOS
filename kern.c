@@ -8,6 +8,7 @@
 #include "xbool.h"
 #include "xarg.h"
 #include "xassert.h"
+#include "xmemcpy.h"
 
 #include "ctx_switch.h"
 #include "intr.h"
