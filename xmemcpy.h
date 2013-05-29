@@ -4,5 +4,7 @@
 
 #define MEMCPY_H
 
+XDEF_H;
+
 void* xmemcpy(void* dest, void* src, size_t size);
 

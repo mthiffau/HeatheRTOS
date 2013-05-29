@@ -8,6 +8,7 @@ xmemcpy:
     bne check_saveable
     ands r3, r1, #0x00000003
     bne copy_rest
+    b burst_cpy40
 
 check_saveable:
     and r4, r1, #0x00000003
