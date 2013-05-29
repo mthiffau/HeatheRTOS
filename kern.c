@@ -19,7 +19,6 @@
 #include "u_init.h"
 
 #include "cpumode.h"
-#include "ts7200.h"
 #include "bwio.h"
 
 #define EXC_VEC_INSTR       0xe59ff018 /* ldr pc, [pc, #+0x18] */
