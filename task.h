@@ -10,7 +10,7 @@ STATIC_ASSERT_H;
 U_TID_H;
 
 /* Maxima pertaining to task descriptors */
-#define MAX_TASKS           128  /* must be <= 255 */
+#define MAX_TASKS           128  /* must be <= 254 to make room for sentinels */
 #define N_PRIORITIES        16
 
 struct kern;
@@ -20,6 +20,7 @@ struct task_regs;
 #define TASK_IX2PTR(kern, tix) (&(kern)->tasks[(tix)])
 #define TASK_PTR2IX(kern, tdp) ((tdp) - (kern)->tasks)
 #define TASK_IX_NULL           0xff  /* invalid index value */
+#define TASK_IX_NOTINQUEUE     0xfe  /* invalid index value */
 
 /* Task ID is 16 bits:
  * - low byte is task descriptor index, high byte is a sequence number */
@@ -134,5 +135,16 @@ void task_ready(struct kern *k, struct task_desc *td);
  * If no tasks are ready, returns NULL. */
 struct task_desc *task_schedule(struct kern *k);
 
+/* Initialize a task queue to be empty. */
+void taskq_init(struct task_queue *q);
+
 /* Free a task descriptor so that it can be reused later. */
 void task_free(struct kern *k, struct task_desc *td);
+
+/* Enqueue a task on a task queue.
+ * A task can only be on one task queue at once.
+ * Do not enqueue tasks that are still part of another queue! */
+void task_enqueue(struct kern*, struct task_desc*, struct task_queue*);
+
+/* Attempt to dequeue a task from a task queue. Returns NULL if empty. */
+struct task_desc *task_dequeue(struct kern*, struct task_queue*);

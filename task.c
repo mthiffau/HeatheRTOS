@@ -11,8 +11,6 @@
 #include "cpumode.h"
 #include "u_syscall.h"
 
-static void task_enqueue(struct kern*, struct task_desc*, struct task_queue*);
-static struct task_desc *task_dequeue(struct kern*, struct task_queue*);
 static inline int ctz16(uint16_t x);
 
 tid_t
@@ -95,10 +93,18 @@ task_free(struct kern *kern, struct task_desc *td)
     kern->ntasks--;
 }
 
-static void
+void
+taskq_init(struct task_queue *q)
+{
+    q->head_ix = TASK_IX_NULL;
+    q->tail_ix = TASK_IX_NULL;
+}
+
+void
 task_enqueue(struct kern *kern, struct task_desc *td, struct task_queue *q)
 {
     uint8_t ix = TASK_PTR2IX(kern, td);
+    assert(td->next_ix == TASK_IX_NOTINQUEUE);
     td->next_ix = TASK_IX_NULL;
     if (q->head_ix == TASK_IX_NULL) {
         q->head_ix = ix;
@@ -109,7 +115,7 @@ task_enqueue(struct kern *kern, struct task_desc *td, struct task_queue *q)
     }
 }
 
-static struct task_desc*
+struct task_desc*
 task_dequeue(struct kern *kern, struct task_queue *q)
 {
     struct task_desc *td;
@@ -118,6 +124,7 @@ task_dequeue(struct kern *kern, struct task_queue *q)
 
     td = TASK_IX2PTR(kern, q->head_ix);
     q->head_ix = td->next_ix;
+    td->next_ix = TASK_IX_NOTINQUEUE;
     return td;
 }
 

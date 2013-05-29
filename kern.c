@@ -78,22 +78,19 @@ kern_init(struct kern *kern)
 
     /* All tasks are free to begin with */
     kern->ntasks = 0;
-    kern->free_tasks.head_ix = 0;
-    kern->free_tasks.tail_ix = MAX_TASKS - 1;
+    taskq_init(&kern->free_tasks);
     for (i = 0; i < MAX_TASKS; i++) {
         struct task_desc *td = &kern->tasks[i];
         td->state_prio = TASK_STATE_FREE; /* prio is arbitrary on init */
         td->tid_seq    = 0;
-        td->next_ix    = (i + 1 == MAX_TASKS) ? TASK_IX_NULL : (i + 1);
+        td->next_ix    = TASK_IX_NOTINQUEUE;
+        task_enqueue(kern, td, &kern->free_tasks);
     }
 
     /* All ready queues are empty */
     kern->rdy_queue_ne = 0;
-    for (i = 0; i < N_PRIORITIES; i++) {
-        struct task_queue *q = &kern->rdy_queues[i];
-        q->head_ix = TASK_IX_NULL;
-        q->tail_ix = TASK_IX_NULL;
-    }
+    for (i = 0; i < N_PRIORITIES; i++)
+        taskq_init(&kern->rdy_queues[i]);
 }
 
 void
