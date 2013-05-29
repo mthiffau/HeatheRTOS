@@ -137,7 +137,7 @@ test_xmemcpy_large_unalign(void)
         dest[i] = 0xff;
     }
 
-    result = xmemcpy(dest + 1, src + 1, 118);
+    result = xmemcpy(dest + 1, src + 1, 117);
     assert(result == dest + 1);
 
     for (i = 1; i < 118; i++)
