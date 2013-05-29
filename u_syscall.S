@@ -32,3 +32,21 @@ Pass:
 Exit:
     swi #SYSCALL_EXIT
     mov pc, lr
+
+    .global Send
+    .type   Send, %function
+Send:
+    swi #SYSCALL_SEND
+    mov pc, lr
+
+    .global Receive
+    .type   Receive, %function
+Receive:
+    swi #SYSCALL_RECEIVE
+    mov pc, lr
+
+    .global Reply
+    .type   Reply, %function
+Reply:
+    swi #SYSCALL_REPLY
+    mov pc, lr
