@@ -26,7 +26,7 @@
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
 int
-main(void)
+kern_main(void)
 {
     struct kern kern;
 

@@ -18,6 +18,9 @@ struct kern {
     struct task_queue free_tasks;
 };
 
+/* Kernel entry point */
+int kern_main(void);
+
 /* Initialize kernel. */
 void kern_init(struct kern *k);
 
