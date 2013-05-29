@@ -2,7 +2,7 @@ HOST    = arm-elf-
 CC      = $(HOST)gcc
 AS      = $(HOST)as
 LD      = $(HOST)gcc
-CFLAGS  = -nostdinc -I. -Wall -Wextra -Werror -fPIC -mcpu=arm920t -msoft-float
+CFLAGS  = -nostdinc -I. -Wall -Wextra -Werror -fPIC -mcpu=arm920t -msoft-float -O2
 ASFLAGS = -mcpu=arm920t -mapcs-32 # always use full stack frames
 LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc

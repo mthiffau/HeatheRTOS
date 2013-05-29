@@ -18,6 +18,7 @@ SECTIONS
         *(.got)
         *(.got.plt)
         *(.rodata)
+        *(.rodata.*)
         *(.glue_7)
         *(.glue_7t)
     }

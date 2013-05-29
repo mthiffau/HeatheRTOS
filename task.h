@@ -54,7 +54,7 @@ struct task_desc {
     /* Points into the task's stack. The task's stack pointer is
      * state + sizeof (task_regs). Context switch assumes this is
      * the first member of struct task_desc. */
-    struct task_regs *regs;
+    volatile struct task_regs *regs;
 
     /* Task info */
     uint8_t state_prio; /* sssspppp : s state, p priority */

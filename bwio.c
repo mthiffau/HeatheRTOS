@@ -17,7 +17,8 @@
  * 	fifos enabled
  */
 int bwsetfifo( int channel, int state ) {
-	int *line, buf;
+        int *line;
+        int buf;
 	switch( channel ) {
 	case COM1:
 		line = (int *)( UART1_BASE + UART_LCRH_OFFSET );
@@ -36,7 +37,7 @@ int bwsetfifo( int channel, int state ) {
 }
 
 int bwsetspeed( int channel, int speed ) {
-	int *high, *low;
+        int *high, *low;
 	switch( channel ) {
 	case COM1:
 		high = (int *)( UART1_BASE + UART_LCRM_OFFSET );
@@ -65,7 +66,8 @@ int bwsetspeed( int channel, int speed ) {
 }
 
 int bwputc( int channel, char c ) {
-	int *flags, *data;
+        volatile int* flags;
+        int* data;
 	switch( channel ) {
 	case COM1:
 		flags = (int *)( UART1_BASE + UART_FLAG_OFFSET );
@@ -124,7 +126,7 @@ void bwputw( int channel, int n, char fc, char *bf ) {
 }
 
 int bwgetc( int channel ) {
-	int *flags, *data;
+	volatile int *flags, *data;
 	unsigned char c;
 
 	switch( channel ) {
