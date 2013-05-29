@@ -5,8 +5,15 @@
 #define TASK_H
 
 XINT_H;
+XDEF_H;
 STATIC_ASSERT_H;
+U_TID_H;
 
+/* Maxima pertaining to task descriptors */
+#define MAX_TASKS           128  /* must be <= 255 */
+#define N_PRIORITIES        16
+
+struct kern;
 struct task_regs;
 
 /* Conversion to/from  */
@@ -106,3 +113,26 @@ STATIC_ASSERT(task_regs_r12,  offsetof (struct task_regs, r12)  == 0x38);
 STATIC_ASSERT(task_regs_sp,   offsetof (struct task_regs, sp)   == 0x3c);
 STATIC_ASSERT(task_regs_lr,   offsetof (struct task_regs, lr)   == 0x40);
 STATIC_ASSERT(task_regs_size, sizeof   (struct task_regs)       == 0x44);
+
+/* Create a new task. Returns the TID of the newly created task,
+ * or an error code: -1 for invalid priority, -2 if out of task
+ * descriptors.
+ *
+ * Valid priorities are 0 <= p < N_PRIORITIES, where lower numbers
+ * indicate higher priority. */
+tid_t task_create(
+    struct kern *k,
+    uint8_t parent_ix,
+    int priority,
+    void (*task_entry)(void));
+
+/* Add a task to the ready queue for its priority. */
+void task_ready(struct kern *k, struct task_desc *td);
+
+/* Schedule the highest priority ready task.
+ * The scheduled task is marked active and removed from ready queue.
+ * If no tasks are ready, returns NULL. */
+struct task_desc *task_schedule(struct kern *k);
+
+/* Free a task descriptor so that it can be reused later. */
+void task_free(struct kern *k, struct task_desc *td);

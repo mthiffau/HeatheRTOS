@@ -5,10 +5,6 @@
 #define KERN_H
 
 XINT_H;
-
-#define MAX_TASKS           128  /* must be <= 255 */
-#define N_PRIORITIES        16
-
 XDEF_H;
 TASK_H;
 
@@ -30,23 +26,3 @@ void kern_handle_intr(struct kern *k, struct task_desc *active, uint32_t intr);
 
 /* Handle a system call. */
 void kern_handle_swi(struct kern *k, struct task_desc *active);
-
-/* Create a new task. Returns the TID of the newly created task,
- * or an error code: -1 for invalid priority, -2 if out of task
- * descriptors.
- *
- * Valid priorities are 0 <= p < N_PRIORITIES, where lower numbers
- * indicate higher priority. */
-tid_t task_create(
-    struct kern *k,
-    uint8_t parent_ix,
-    int priority,
-    void (*task_entry)(void));
-
-/* Add a task to the ready queue for its priority. */
-void task_ready(struct kern *k, struct task_desc *td);
-
-/* Schedule the highest priority ready task.
- * The scheduled task is marked active and removed from ready queue.
- * If no tasks are ready, returns NULL. */
-struct task_desc *task_schedule(struct kern *k);
