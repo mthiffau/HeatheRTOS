@@ -1,0 +1,23 @@
+    .section .text
+    .align   4
+
+    .global l1cache_enable
+    .type l1cache_enable, %function
+l1cache_enable:
+    mov r0, #0
+    mcr p15, 0, r0, c7, c5     @ invalidate I-cache
+    mcr p15, 0, r0, c7, c6     @ invalidate D-cache
+    mrc p15, 0, r0, c1, c0     @ read control register
+    orr r0, r0, #0x1000        @ enable I-cache
+    orr r0, r0, #0x4           @ enable D-cache
+    mcr p15, 0, r0, c1, c0     @ write back control register
+    mov pc, lr
+
+    .global l1cache_disable
+    .type l1cache_disable, %function
+l1cache_disable:
+    mrc p15, 0, r0, c1, c0
+    bic r0, r0, #0x1000        @ disable I-cache
+    bic r0, r0, #0x4           @ disable D-cache
+    mcr p15, 0, r0, c1, c0     @ write back control register
+    mov pc, lr
