@@ -27,8 +27,14 @@
 #define EXC_VEC_SWI         ((unsigned int*)0x8)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+/* Default kernel parameters */
+struct kparam def_kparam = {
+    .init      = &u_init_main,
+    .init_prio = U_INIT_PRIORITY
+};
+
 int
-kern_main(void)
+kern_main(struct kparam *kp)
 {
     struct kern kern;
 
@@ -36,7 +42,7 @@ kern_main(void)
     kern_init(&kern);
 
     /* Run init - it's its own parent! */
-    task_create(&kern, 0, U_INIT_PRIORITY, &u_init_main);
+    task_create(&kern, 0, kp->init_prio, kp->init);
 
     /* Main loop */
     for (;;) {

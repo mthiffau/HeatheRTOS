@@ -8,5 +8,5 @@
 int
 main(void)
 {
-    return kern_main();
+    return kern_main(&def_kparam);
 }

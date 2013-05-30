@@ -18,8 +18,17 @@ struct kern {
     struct task_queue free_tasks;
 };
 
+/* TODO: cache, IRQ settings. Maybe a hook run every kernel loop */
+struct kparam {
+    /* Initial user task entry point and priority. */
+    void (*init)(void);
+    int  init_prio;
+};
+
+extern struct kparam def_kparam;
+
 /* Kernel entry point */
-int kern_main(void);
+int kern_main(struct kparam*);
 
 /* Initialize kernel. */
 void kern_init(struct kern *k);
