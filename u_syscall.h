@@ -30,3 +30,6 @@ int RegisterAs(const char *name);
  * The name must fit into NS_NAME_MAXLEN characters,
  * including the trailing NUL. */
 tid_t WhoIs(const char *name);
+
+/* Instruct the kernel to shut down immediately. */
+void Shutdown(void) __attribute__((noreturn));

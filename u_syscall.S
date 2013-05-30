@@ -50,3 +50,9 @@ Receive:
 Reply:
     swi #SYSCALL_REPLY
     mov pc, lr
+
+    .global Shutdown
+    .type   Shutdown, %function
+Shutdown:
+    swi #SYSCALL_SHUTDOWN
+    mov pc, lr

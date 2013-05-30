@@ -4,6 +4,7 @@
 
 #define KERN_H
 
+XBOOL_H;
 XINT_H;
 XDEF_H;
 TASK_H;
@@ -16,6 +17,7 @@ struct kern {
     uint16_t          rdy_queue_ne; /* bit i set if queue i nonempty */
     struct task_queue rdy_queues[N_PRIORITIES];
     struct task_queue free_tasks;
+    bool              shutdown;
 };
 
 /* TODO: cache, IRQ settings. Maybe a hook run every kernel loop */

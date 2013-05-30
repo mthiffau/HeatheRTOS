@@ -39,7 +39,8 @@ u_init_main(void)
     bwputstr(COM2, "sending\n");
     int rplylen = Send(child_tid, "The quick brown fox jumped over the lazy dog.", 46, rply, sizeof (rply));
     bwprintf(COM2, "got reply: %d: %s\n", rplylen, rply);
-    bwputstr(COM2, "parent quitting\n");
+    bwputstr(COM2, "init quitting\n");
+    Shutdown();
 }
 
 static void

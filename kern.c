@@ -1,3 +1,4 @@
+#include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
 #include "static_assert.h"
@@ -7,7 +8,6 @@
 
 #include "ipc.h"
 
-#include "xbool.h"
 #include "xarg.h"
 #include "xassert.h"
 #include "xmemcpy.h"
@@ -45,7 +45,7 @@ kern_main(struct kparam *kp)
     task_create(&kern, 0, kp->init_prio, kp->init);
 
     /* Main loop */
-    for (;;) {
+    while (!kern.shutdown) {
         struct task_desc *active;
         uint32_t          intr;
 
@@ -76,6 +76,9 @@ kern_init(struct kern *kern)
     /* Install SWI handler. */
     *EXC_VEC_SWI = EXC_VEC_INSTR;
     EXC_VEC_FP(EXC_VEC_SWI) = &kern_entry_swi;
+
+    /* Kernel hasn't been asked to shut down */
+    kern->shutdown = false;
 
     /* 1MB reserved for kernel stack, move down to next 4k boundary */
     kern->stack_mem_top = (void*)(((uint32_t)&i - 0x100000) & 0xfffff000);
@@ -150,6 +153,9 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         break;
     case SYSCALL_REPLY:
         ipc_reply_start(kern, active);
+        break;
+    case SYSCALL_SHUTDOWN:
+        kern->shutdown = true;
         break;
     default:
         panic("received unknown syscall 0x%x\n", syscall);
