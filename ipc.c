@@ -64,10 +64,45 @@ ipc_receive_start(struct kern *kern, struct task_desc *active)
 void
 ipc_reply_start(struct kern *kern, struct task_desc *active)
 {
-    bwputstr(COM2, "ipc_reply_start\n");
-    bwprintf(COM2, "  tid     = %d\n",   RPLY_ARG_TID(active));
-    bwprintf(COM2, "  rply    = 0x%x\n", RPLY_ARG_RPLY(active));
-    bwprintf(COM2, "  rplylen = %d\n",   RPLY_ARG_RPLYLEN(active));
+    struct task_desc *sender;
+    const char *rply_buf;
+    char *send_buf;
+    int rply_buflen, send_buflen, copy_buflen;
+    int rc;
+
+    rc = get_task(kern, RPLY_ARG_TID(active), &sender);
+    if (rc == GET_TASK_SUCCESS) {
+        if (TASK_STATE(sender) != TASK_STATE_REPLY_BLOCKED)
+            rc = -3;
+    }
+
+    if (rc != GET_TASK_SUCCESS) {
+        active->regs->r0 = rc;
+        task_ready(kern, active);
+        return;
+    }
+
+    rc          = 0;
+    rply_buf    = RPLY_ARG_RPLY(active);
+    send_buf    = SEND_ARG_RPLY(sender);
+    rply_buflen = RPLY_ARG_RPLYLEN(active);
+    send_buflen = SEND_ARG_RPLYLEN(sender);
+
+    copy_buflen = rply_buflen;
+    if (copy_buflen > send_buflen) {
+        copy_buflen = send_buflen;
+        rc = -4;
+    }
+
+    /* Copy message */
+    xmemcpy(send_buf, rply_buf, copy_buflen);
+
+    /* Return from Send */
+    sender->regs->r0 = rply_buflen;
+    task_ready(kern, sender);
+
+    /* Return from Reply */
+    active->regs->r0 = rc;
     task_ready(kern, active);
 }
 
@@ -92,7 +127,7 @@ rendezvous(
     *RECV_ARG_PTID(receiver) = TASK_TID(kern, sender);
     receiver->regs->r0 = send_msglen;
 
-    /*TASK_SET_STATE(sender, TASK_STATE_REPLY_BLOCKED); TODO */
-    task_ready(kern, sender); /* FIXME FIXME FIXME FIXME */
+    /* At this point, sender is reply blocked, and receiver can continue */
+    TASK_SET_STATE(sender, TASK_STATE_REPLY_BLOCKED);
     task_ready(kern, receiver);
 }
