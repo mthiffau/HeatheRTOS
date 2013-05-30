@@ -6,5 +6,4 @@
 
 XDEF_H;
 
-void* xmemcpy(void* dest, void* src, size_t size);
-
+void* xmemcpy(void* dest, const void* src, size_t size);

@@ -71,8 +71,11 @@ struct task_desc {
     uint8_t next_ix;    /* next pointer task descriptor index */
     /* NB. no spsr         - use regs->spsr
      *     no return value - use regs->r0. */
+
+    /* Send queue for this task */
+    struct task_queue senders;
 };
-STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 8);
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 12);
 
 /* Context switch assumes this memory layout */
 struct task_regs {
@@ -114,6 +117,14 @@ STATIC_ASSERT(task_regs_r12,  offsetof (struct task_regs, r12)  == 0x38);
 STATIC_ASSERT(task_regs_sp,   offsetof (struct task_regs, sp)   == 0x3c);
 STATIC_ASSERT(task_regs_lr,   offsetof (struct task_regs, lr)   == 0x40);
 STATIC_ASSERT(task_regs_size, sizeof   (struct task_regs)       == 0x44);
+
+/* Find a task by its TID. Returns one of the following error codes. */
+int get_task(struct kern *k, tid_t tid, struct task_desc **td_out);
+enum {
+    GET_TASK_SUCCESS        =  0,
+    GET_TASK_IMPOSSIBLE_TID = -1,
+    GET_TASK_NO_SUCH_TASK   = -2,
+};
 
 /* Create a new task. Returns the TID of the newly created task,
  * or an error code: -1 for invalid priority, -2 if out of task

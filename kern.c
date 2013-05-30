@@ -5,6 +5,8 @@
 #include "task.h"
 #include "kern.h"
 
+#include "ipc.h"
+
 #include "xbool.h"
 #include "xarg.h"
 #include "xassert.h"
@@ -133,6 +135,15 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         break;
     case SYSCALL_EXIT:
         task_free(kern, active);
+        break;
+    case SYSCALL_SEND:
+        ipc_send_start(kern, active);
+        break;
+    case SYSCALL_RECEIVE:
+        ipc_receive_start(kern, active);
+        break;
+    case SYSCALL_REPLY:
+        ipc_reply_start(kern, active);
         break;
     default:
         panic("received unknown syscall 0x%x\n", syscall);

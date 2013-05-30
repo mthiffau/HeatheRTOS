@@ -13,6 +13,24 @@
 
 static inline int ctz16(uint16_t x);
 
+int
+get_task(struct kern *kern, tid_t tid, struct task_desc **td_out)
+{
+    struct task_desc *td;
+    int ix;
+
+    ix = tid & 0xff;
+    if (ix < 0 || ix >= MAX_TASKS)
+        return GET_TASK_IMPOSSIBLE_TID;
+
+    td = &kern->tasks[ix];
+    if (TASK_STATE(td) == TASK_STATE_FREE || td->tid_seq != (tid >> 8))
+        return GET_TASK_NO_SUCH_TASK;
+
+    *td_out = td;
+    return GET_TASK_SUCCESS;
+}
+
 tid_t
 task_create(
     struct kern *kern,
@@ -47,6 +65,8 @@ task_create(
     td->regs->sp   = (uint32_t)stack;
     td->regs->lr   = (uint32_t)&Exit; /* call Exit on return of task_entry */
     td->regs->pc   = (uint32_t)task_entry;
+
+    taskq_init(&td->senders);
 
     task_ready(kern, td);
     return TASK_TID(kern, td);
