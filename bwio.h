@@ -34,4 +34,5 @@ void bwputw( int channel, int n, char fc, char *bf );
 
 void bwformat( int channel, const char *format, va_list args );
 
-void bwprintf( int channel, const char *format, ... );
+void bwprintf( int channel, const char *format, ... )
+    __attribute__((format(printf, 2, 3)));
