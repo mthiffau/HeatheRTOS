@@ -20,7 +20,7 @@ get_task(struct kern *kern, tid_t tid, struct task_desc **td_out)
     int ix;
 
     ix = tid & 0xff;
-    if (ix < 0 || ix >= MAX_TASKS)
+    if (ix < 0 || ix >= MAX_TASKS || (tid & ~0xffff) != 0)
         return GET_TASK_IMPOSSIBLE_TID;
 
     td = &kern->tasks[ix];
