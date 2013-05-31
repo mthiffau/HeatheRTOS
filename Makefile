@@ -67,3 +67,5 @@ install: $(MAIN) $(TEST)
 
 -include $(BUILD)/*.c.d
 -include $(BUILD)/*.S.d
+-include $(BUILD)/kern/*.c.d
+-include $(BUILD)/test/*.c.d
