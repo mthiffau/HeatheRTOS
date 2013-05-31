@@ -44,6 +44,7 @@ u_rpss_main(void)
 
     /* Register with the nameserver */
     rc = RegisterAs(RPSS_NAME);
+    assert(rc == 0);
 
     for(;;) {
         /* Receive a request */
@@ -160,14 +161,13 @@ static void
 u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
 {
     int rc;
-    char c;
     uint8_t cli_ix = CLI_TID2IX(cli_tid);
     struct rps_msg msg;
     struct rps_client* player1;
     struct rps_client* player2;
     struct rps_client* winner;
     struct rps_match* match;
-    
+
     player1 = &(state->clients[cli_ix]);
     /* Check if it's a valid client */
     if(player1->tid != cli_tid) {
@@ -229,7 +229,7 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
         
         player1->move = RPS_MOVE_NONE;
         player2->move = RPS_MOVE_NONE;
-        c = bwgetc(COM2); /* Wait to continue */
+        bwgetc(COM2); /* Wait to continue */
 
         /* Unblock players to play again */
         msg.type = RPS_MSG_ACK;

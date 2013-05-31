@@ -31,12 +31,17 @@ u_init_main(void)
     assert(ns_tid == NS_TID);
 
     gs_tid = Create(U_INIT_PRIORITY + 1, &u_rpss_main);
-
     cli_tid1 = Create(U_INIT_PRIORITY + 1, &u_rpsc_main);
     cli_tid2 = Create(U_INIT_PRIORITY + 1, &u_rpsc_main);
     cli_tid3 = Create(U_INIT_PRIORITY + 1, &u_rpsc_main);
     cli_tid4 = Create(U_INIT_PRIORITY + 1, &u_rpsc_main);
+    assert(gs_tid >= 0);
+    assert(cli_tid1 >= 0);
+    assert(cli_tid2 >= 0);
+    assert(cli_tid3 >= 0);
+    assert(cli_tid4 >= 0);
 
     sd_tid = Create(U_INIT_PRIORITY + 2, &Shutdown);
+    assert(sd_tid >= 0);
 }
 
