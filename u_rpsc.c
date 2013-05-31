@@ -49,12 +49,6 @@ u_rpsc_main(void)
 
     /* Play randomly some number of times */
     for(i = 0; i < TIMES_TO_PLAY; i++) {
-        bwprintf(COM2, 
-                 "Sending move %d of %d\n",
-                 i + 1,
-                 TIMES_TO_PLAY
-            );
-
         msg.type = RPS_MSG_PLAY;
 
         msg.move = 1 + (get_random_int() % 3);

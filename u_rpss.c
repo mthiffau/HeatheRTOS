@@ -107,8 +107,6 @@ u_rpss_handle_signup(struct rpss_state* state, int cli_tid)
     struct rps_client* waiting_cli;
     struct rps_match* match;
 
-    bwprintf(COM2, "SERVER: Handling signup from %d\n", cli_tid);
-
     /* Check if we've already had a signup from this client */
     if(state->clients[cli_ix].tid != RPS_CLIENT_NONE) {
         msg.type = RPS_MSG_NACK;
