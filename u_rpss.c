@@ -51,7 +51,7 @@ u_rpss_main(void)
         msglen = Receive(&sender, &msg, sizeof(msg));
         assert(msglen == sizeof(msg));
 
-        /* Decide what to do */ 
+        /* Decide what to do */
         switch(msg.type) {
         case RPS_MSG_SIGNUP:
             u_rpss_handle_signup(&srv_state, sender);
@@ -68,11 +68,11 @@ u_rpss_main(void)
     }
 }
 
-static void 
+static void
 u_rpss_init(struct rpss_state* state)
 {
     int i;
-    
+
     /* Init the queue */
     state->client_queue.count = 0;
     state->client_queue.head = RPS_CLIENT_NONE;
@@ -98,7 +98,7 @@ u_rpss_init(struct rpss_state* state)
     }
 }
 
-static void 
+static void
 u_rpss_handle_signup(struct rpss_state* state, int cli_tid)
 {
     int rc;
@@ -126,7 +126,7 @@ u_rpss_handle_signup(struct rpss_state* state, int cli_tid)
         u_rpss_cli_enqueue(state, new_cli);
         return;
     }
-    
+
     /* Try and allocate a match.
        If we fail, send both clients a nack */
     match = u_rpss_match_alloc(state);
@@ -140,7 +140,7 @@ u_rpss_handle_signup(struct rpss_state* state, int cli_tid)
         waiting_cli->tid = RPS_CLIENT_NONE;
         return;
     }
-    
+
     new_cli->tid = cli_tid;
 
     /* Set up the match */
@@ -157,7 +157,7 @@ u_rpss_handle_signup(struct rpss_state* state, int cli_tid)
     assert(rc == 0);
 }
 
-static void 
+static void
 u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
 {
     int rc;
@@ -185,12 +185,12 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
     match = &(state->matches[player1->match]);
     player1 = &(state->clients[match->player1]);
     player2 = &(state->clients[match->player2]);
-    
-    /* If both clients made their move, 
+
+    /* If both clients made their move,
        resolve the match */
     if (player1->move != RPS_MOVE_NONE &&
         player2->move != RPS_MOVE_NONE) {
-        
+
         /* Was it a draw? */
         if (player1->move == player2->move) {
             bwprintf(COM2,
@@ -213,8 +213,8 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
             default:
                 assert(false);
             }
-            
-            bwprintf(COM2, 
+
+            bwprintf(COM2,
                      "Player 1 (TID: %d) played %s\n"
                      "Player 2 (TID: %d) played %s\n"
                      "Player %d (TID: %d) was victorious\n\n",
@@ -226,7 +226,7 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
                      winner->tid
                 );
         }
-        
+
         player1->move = RPS_MOVE_NONE;
         player2->move = RPS_MOVE_NONE;
         bwgetc(COM2); /* Wait to continue */
@@ -240,7 +240,7 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
     }
 }
 
-static void 
+static void
 u_rpss_handle_quit(struct rpss_state* state, int cli_tid)
 {
     int rc;
@@ -249,7 +249,7 @@ u_rpss_handle_quit(struct rpss_state* state, int cli_tid)
     struct rps_client* player1;
     struct rps_client* player2;
     struct rps_match* match;
-    
+
     player1 = &(state->clients[cli_ix]);
     /* Check if it's a valid client */
     if(player1->tid != cli_tid) {
@@ -258,7 +258,7 @@ u_rpss_handle_quit(struct rpss_state* state, int cli_tid)
         assert(rc == 0);
         return;
     }
-    
+
     /* If the tid is valid but there's no assigned
        match, that means that this client is still
        in the queue waiting for an opponent */
@@ -268,7 +268,7 @@ u_rpss_handle_quit(struct rpss_state* state, int cli_tid)
         player1->tid = RPS_CLIENT_NONE;
     } else {
         /* Otherwise free up both client handles and the match.
-           If the other guy made a move, send him nack, 
+           If the other guy made a move, send him nack,
            otherwise don't worry about it, he'll get one when
            he plays */
         match = &(state->matches[player1->match]);
@@ -296,7 +296,7 @@ u_rpss_handle_quit(struct rpss_state* state, int cli_tid)
 }
 
 /* Enqueue a client */
-static void 
+static void
 u_rpss_cli_enqueue(struct rpss_state* state, struct rps_client* cli)
 {
     int old_tail;
@@ -319,7 +319,7 @@ u_rpss_cli_enqueue(struct rpss_state* state, struct rps_client* cli)
 }
 
 /* Dequeue a client */
-static struct rps_client* 
+static struct rps_client*
 u_rpss_cli_dequeue(struct rpss_state* state)
 {
     int old_head, new_head;
@@ -332,8 +332,8 @@ u_rpss_cli_dequeue(struct rpss_state* state)
     if (new_head == RPS_CLIENT_NONE) {
         assert(state->client_queue.count == 1);
         state->client_queue.tail = RPS_CLIENT_NONE;
-    } 
-    
+    }
+
     state->client_queue.head = new_head;
     state->client_queue.count--;
 
@@ -341,8 +341,8 @@ u_rpss_cli_dequeue(struct rpss_state* state)
 }
 
 /* Free a match descriptor */
-static void 
-u_rpss_match_free(struct rpss_state* state, struct rps_match* match) 
+static void
+u_rpss_match_free(struct rpss_state* state, struct rps_match* match)
 {
     match->player1 = RPS_CLIENT_NONE;
     match->player2 = RPS_CLIENT_NONE;
@@ -358,8 +358,8 @@ u_rpss_match_free(struct rpss_state* state, struct rps_match* match)
 }
 
 /* Grab an unused match descriptor */
-static struct rps_match* 
-u_rpss_match_alloc(struct rpss_state* state) 
+static struct rps_match*
+u_rpss_match_alloc(struct rpss_state* state)
 {
     int old_head, new_head;
 

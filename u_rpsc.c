@@ -32,7 +32,7 @@ u_rpsc_main(void)
     /* Find out who the RPS server is */
     rpss_tid = WhoIs(RPSS_NAME);
 
-    bwprintf(COM2, 
+    bwprintf(COM2,
              "TID=%d found the game server at %d, signing up...\n",
              me,
              rpss_tid
@@ -61,7 +61,7 @@ u_rpsc_main(void)
     }
 
     bwprintf(COM2, "TID=%d Played all my games, quitting...\n", me);
-    
+
     /* Quit */
     msg.type = RPS_MSG_QUIT;
     rc = Send(rpss_tid, &msg, sizeof(msg), &rply, sizeof(rply));
@@ -80,7 +80,7 @@ set_seed(int seed)
     random_seed = seed;
 }
 
-static int 
+static int
 get_random_int()
 {
     int m  = 65000;
