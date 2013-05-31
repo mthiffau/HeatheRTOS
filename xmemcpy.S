@@ -1,8 +1,8 @@
     .section .text
 
-    .global xmemcpy
-    .type xmemcpy, %function
-xmemcpy:
+    .global memcpy
+    .type memcpy, %function
+memcpy:
     stmfd sp!, {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12}
     ands r3, r0, #0x00000003
     bne check_saveable

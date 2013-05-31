@@ -27,7 +27,7 @@ test_xmemcpy_small(void)
 
     bwputstr(COM2, "test_xmemcpy_small...");
 
-    result = xmemcpy(dest, src, 12);
+    result = memcpy(dest, src, 12);
     assert(result == dest);
 
     assert(src[0]  == 'f' && dest[0]  == 'f');
@@ -55,7 +55,7 @@ test_xmemcpy_unalign(void)
 
     bwputstr(COM2, "test_xmemcpy_unalign...");
 
-    result = xmemcpy(dest + 2, src + 2, 10);
+    result = memcpy(dest + 2, src + 2, 10);
     assert(result == dest + 2);
 
     assert(src[0]  == 'f');
@@ -83,7 +83,7 @@ test_xmemcpy_mismatch(void)
 
     bwputstr(COM2, "test_xmemcpy_mismatch...");
 
-    result = xmemcpy(dest + 1, src, 11);
+    result = memcpy(dest + 1, src, 11);
     assert(result == dest + 1);
 
     assert(src[0]  == 'f' && dest[1]  == 'f');
@@ -115,7 +115,7 @@ test_xmemcpy_large(void)
         dest[i] = 0xff;
     }
 
-    result = xmemcpy(dest, src, 118);
+    result = memcpy(dest, src, 118);
     assert(result == dest);
 
     for (i = 0; i < 118; i++)
@@ -137,7 +137,7 @@ test_xmemcpy_large_unalign(void)
         dest[i] = 0xff;
     }
 
-    result = xmemcpy(dest + 1, src + 1, 117);
+    result = memcpy(dest + 1, src + 1, 117);
     assert(result == dest + 1);
 
     for (i = 1; i < 118; i++)

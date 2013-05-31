@@ -1,9 +1,9 @@
-#ifdef MEMCPY_H
-#error "double-included memcpy.h"
+#ifdef XMEMCPY_H
+#error "double-included xmemcpy.h"
 #endif
 
-#define MEMCPY_H
+#define XMEMCPY_H
 
 XDEF_H;
 
-void* xmemcpy(void* dest, const void* src, size_t size);
+void *memcpy(void* dest, const void* src, size_t size);

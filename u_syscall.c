@@ -16,7 +16,7 @@ RegisterAs(const char *name)
     namesize = strnlen(name, NS_NAME_MAXLEN) + 1;
     assert(namesize <= NS_NAME_MAXLEN);
     msg.type = NS_MSG_REGISTER;
-    xmemcpy(msg.name, name, namesize);
+    memcpy(msg.name, name, namesize);
     rplylen = Send(NS_TID, &msg, sizeof (msg), &rc, sizeof (rc));
     assert(rplylen == sizeof (rc));
     return rc;
@@ -30,7 +30,7 @@ WhoIs(const char *name)
     namesize = strnlen(name, NS_NAME_MAXLEN) + 1;
     assert(namesize <= NS_NAME_MAXLEN);
     msg.type = NS_MSG_WHOIS;
-    xmemcpy(msg.name, name, namesize);
+    memcpy(msg.name, name, namesize);
     rplylen = Send(NS_TID, &msg, sizeof (msg), &tid, sizeof (tid));
     assert(rplylen == sizeof (tid));
     return tid;

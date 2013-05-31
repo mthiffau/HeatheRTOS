@@ -166,7 +166,7 @@ ns_find_create(struct nsdb *db, const char name[NS_NAME_MAXLEN], tid_t tid)
         return NULL;
 
     rec = &db->records[db->count++];
-    xmemcpy(rec->name, name, NS_NAME_MAXLEN);
+    memcpy(rec->name, name, NS_NAME_MAXLEN);
     rec->tid   = tid;
     rec->waitq = NULL;
     return rec;

@@ -95,7 +95,7 @@ ipc_reply_start(struct kern *kern, struct task_desc *active)
     }
 
     /* Copy message */
-    xmemcpy(send_buf, rply_buf, copy_buflen);
+    memcpy(send_buf, rply_buf, copy_buflen);
 
     /* Return from Send */
     sender->regs->r0 = rply_buflen;
@@ -123,7 +123,7 @@ rendezvous(
     copy_msglen = (recv_msglen < send_msglen) ? recv_msglen : send_msglen;
 
     /* Prepare for returning from Receive() */
-    xmemcpy(recv_msg, send_msg, copy_msglen);
+    memcpy(recv_msg, send_msg, copy_msglen);
     *RECV_ARG_PTID(receiver) = TASK_TID(kern, sender);
     receiver->regs->r0 = send_msglen;
 
