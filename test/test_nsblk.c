@@ -1,5 +1,6 @@
 #include "test/test_nsblk.h"
 
+#include "config.h"
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"

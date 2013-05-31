@@ -1,5 +1,6 @@
 #include "test/test_ipc_perf.h"
 
+#include "config.h"
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"

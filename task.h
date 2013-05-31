@@ -8,10 +8,7 @@ XINT_H;
 XDEF_H;
 STATIC_ASSERT_H;
 U_TID_H;
-
-/* Maxima pertaining to task descriptors */
-#define MAX_TASKS           128  /* must be <= 254 to make room for sentinels */
-#define N_PRIORITIES        16
+CONFIG_H;
 
 struct kern;
 struct task_regs;

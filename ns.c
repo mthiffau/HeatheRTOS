@@ -7,9 +7,9 @@
 #include "xmemcpy.h"
 #include "u_tid.h"
 #include "u_syscall.h"
+#include "config.h"
 
 #define MAX_NAMES       MAX_TASKS
-#define MAX_TASKS       128  /* FIXME!!!!! */
 #define NS_TID_UNKNOWN  (-1) /* sentinel tid for unregistered names */
 
 /* Name record. This keeps a TID if any, and a queue of waiting tasks. */

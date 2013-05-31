@@ -12,7 +12,10 @@ XBOOL_H;
 #define assert(x)                                      \
     do {                                               \
         if (!(x))                                      \
-            panic("%s", "assertion (" #x ") failed!"); \
+            panic("%s:%d: %s",                         \
+                  __FILE__,                            \
+                  __LINE__,                            \
+                  "assertion (" #x ") failed!");       \
     } while (0)
 #endif
 

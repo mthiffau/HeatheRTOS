@@ -1,3 +1,4 @@
+#include "config.h"
 #include "xint.h"
 #include "xdef.h"
 #include "static_assert.h"

@@ -1,3 +1,4 @@
+#include "config.h"
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
