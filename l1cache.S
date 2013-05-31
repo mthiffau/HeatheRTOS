@@ -5,8 +5,8 @@
     .type l1cache_enable, %function
 l1cache_enable:
     mov r0, #0
-    mcr p15, 0, r0, c7, c5     @ invalidate I-cache
-    mcr p15, 0, r0, c7, c6     @ invalidate D-cache
+    mcr p15, 0, r0, c7, c5     @ invalidate entire I-cache
+    mcr p15, 0, r0, c7, c6     @ invalidate entire D-cache
     mrc p15, 0, r0, c1, c0     @ read control register
     orr r0, r0, #0x1000        @ enable I-cache
     orr r0, r0, #0x4           @ enable D-cache
@@ -20,4 +20,12 @@ l1cache_disable:
     bic r0, r0, #0x1000        @ disable I-cache
     bic r0, r0, #0x4           @ disable D-cache
     mcr p15, 0, r0, c1, c0     @ write back control register
+    mov r0, #0
+    mcr p15, 0, r0, c7, c10    @ clean entire D-cache
+    mov pc, lr
+
+    .global l1cache_typereg
+    .type l1cache_typereg, %function
+l1cache_typereg:
+    mrc p15, 0, R0, c0, c0, 1
     mov pc, lr
