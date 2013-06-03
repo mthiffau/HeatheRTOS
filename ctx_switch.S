@@ -1,4 +1,4 @@
-#include "intr.h"
+#include "intr_type.h"
 
     .section .text
 

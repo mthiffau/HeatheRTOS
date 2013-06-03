@@ -14,7 +14,7 @@
 #include "xmemcpy.h"
 
 #include "ctx_switch.h"
-#include "intr.h"
+#include "intr_type.h"
 #include "syscall.h"
 #include "link.h"
 
