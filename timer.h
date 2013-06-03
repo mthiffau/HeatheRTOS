@@ -20,6 +20,9 @@ uint32_t tmr40_get(void);
 /* Enable or disable the 32-bit timer. */
 void tmr32_enable(bool enable);
 
+/* Clear the interrupt set by the 32-bit timer */
+void tmr32_intr_clear(void);
+
 /* Set the clock for the 32-bit timer. Valid kHz values are 508 and 2. */
 int tmr32_set_kHz(int kHz);
 

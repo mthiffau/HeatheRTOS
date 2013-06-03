@@ -21,6 +21,7 @@ struct tmr32 {
     uint32_t load;
     uint32_t val;
     uint32_t ctrl;
+    uint32_t clr;
 };
 
 STATIC_ASSERT(t32_load_offs, offsetof(struct tmr32, load) == TIMER_LDR_OFFSET);
@@ -49,6 +50,11 @@ void tmr32_enable(bool enable)
         ctrl &= ~TIMER_ENABLE_MASK;
 
     TMR32->ctrl = ctrl;
+}
+
+void tmr32_intr_clear(void)
+{
+    TMR32->clr = 0x1;
 }
 
 int tmr32_set_kHz(int kHz)
