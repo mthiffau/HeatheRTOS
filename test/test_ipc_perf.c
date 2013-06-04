@@ -40,8 +40,9 @@ static void
 measure_send_recv_reply(int msglen, bool send_first)
 {
     struct kparam kp = {
-        .init      = &ipc_perf_sender,
-        .init_prio = send_first ? 4 : 12
+        .init       = &ipc_perf_sender,
+        .init_prio  = send_first ? 4 : 12,
+        .irq_enable = false
     };
     g_msglen = msglen;
 

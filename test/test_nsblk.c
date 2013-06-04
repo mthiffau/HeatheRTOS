@@ -111,11 +111,6 @@ static void nsblk_spam_reg5(void) { nsblk_spam_reg(5); }
 static void nsblk_eggs_who6(void) { nsblk_eggs_who(6); }
 static void nsblk_spam_who7(void) { nsblk_spam_who(7); }
 
-static struct kparam nsblk_kparam = {
-    .init      = &nsblk_init_main,
-    .init_prio = 0
-};
-
 static bool nsblk_low_prio; /* HACK FIXME? */
 static void test_nsblk(bool low_prio);
 
@@ -129,10 +124,16 @@ test_nsblk_all(void)
 static void
 test_nsblk(bool low_prio)
 {
+    static struct kparam kp = {
+        .init       = &nsblk_init_main,
+        .init_prio  = 0,
+        .irq_enable = false
+    };
+
     bwprintf(COM2, "test_nsblk%s...", low_prio ? "_low_prio" : "");
     nsblk_log_init();
     nsblk_low_prio = low_prio;
-    kern_main(&nsblk_kparam);
+    kern_main(&kp);
     nsblk_log_char('\0');
     assert(strcmp(nsblk_log_data, nsblk_log_expected[low_prio ? 1 : 0]) == 0);
     bwputstr(COM2, "ok\n");

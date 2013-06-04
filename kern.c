@@ -15,6 +15,9 @@
 
 #include "ctx_switch.h"
 #include "intr_type.h"
+#include "intr.h"
+#include "clock.h"
+#include "timer.h"
 #include "syscall.h"
 #include "link.h"
 
@@ -25,13 +28,18 @@
 #include "bwio.h"
 
 #define EXC_VEC_INSTR       0xe59ff018 /* ldr pc, [pc, #+0x18] */
-#define EXC_VEC_SWI         ((unsigned int*)0x8)
+#define EXC_VEC_SWI         ((unsigned int*)0x08)
+#define EXC_VEC_IRQ         ((unsigned int*)0x18)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
+
+#define TC3UI_VIC           VIC2
+#define TC3UI_INTR          19
 
 /* Default kernel parameters */
 struct kparam def_kparam = {
-    .init      = &u_init_main,
-    .init_prio = U_INIT_PRIORITY
+    .init       = &u_init_main,
+    .init_prio  = U_INIT_PRIORITY,
+    .irq_enable = true
 };
 
 int
@@ -40,7 +48,7 @@ kern_main(struct kparam *kp)
     struct kern kern;
 
     /* Set up kernel state and create initial user task */
-    kern_init(&kern);
+    kern_init(&kern, kp);
 
     /* Run init - it's its own parent! */
     task_create(&kern, 0, kp->init_prio, kp->init);
@@ -62,11 +70,12 @@ kern_main(struct kparam *kp)
         kern_handle_intr(&kern, active, intr);
     }
 
+    kern_cleanup();
     return 0;
 }
 
 void
-kern_init(struct kern *kern)
+kern_init(struct kern *kern, struct kparam *kp)
 {
     uint32_t i, mem_avail;
 
@@ -74,9 +83,19 @@ kern_init(struct kern *kern)
     bwsetfifo(COM1, OFF);
     bwsetfifo(COM2, OFF);
 
-    /* Install SWI handler. */
+    /* Install SWI and IRQ handlers. */
     *EXC_VEC_SWI = EXC_VEC_INSTR;
+    *EXC_VEC_IRQ = EXC_VEC_INSTR;
     EXC_VEC_FP(EXC_VEC_SWI) = &kern_entry_swi;
+    EXC_VEC_FP(EXC_VEC_IRQ) = &kern_entry_irq;
+
+    /* Enable IRQs */
+    if (kp->irq_enable) {
+        struct clock clock;
+        clock_init(&clock, 1);
+        intr_setfiq(TC3UI_VIC, TC3UI_INTR, false);
+        intr_enable(TC3UI_VIC, TC3UI_INTR, true);
+    }
 
     /* Kernel hasn't been asked to shut down */
     kern->shutdown = false;
@@ -111,6 +130,11 @@ kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
     switch (intr) {
     case INTR_SWI:
         kern_handle_swi(kern, active);
+        break;
+    case INTR_IRQ:
+        tmr32_intr_clear();
+        bwputstr(COM2, "tick\n");
+        task_ready(kern, active);
         break;
     default:
         panic("received unknown interrupt 0x%x\n", intr);
@@ -161,4 +185,12 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
     default:
         panic("received unknown syscall 0x%x\n", syscall);
     }
+}
+
+void
+kern_cleanup(void)
+{
+    /* TODO? disable 40-bit timer as well */
+    tmr32_enable(false);
+    intr_reset_all();
 }

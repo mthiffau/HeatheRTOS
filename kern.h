@@ -25,6 +25,7 @@ struct kparam {
     /* Initial user task entry point and priority. */
     void (*init)(void);
     int  init_prio;
+    bool irq_enable;
 };
 
 extern struct kparam def_kparam;
@@ -33,10 +34,13 @@ extern struct kparam def_kparam;
 int kern_main(struct kparam*);
 
 /* Initialize kernel. */
-void kern_init(struct kern *k);
+void kern_init(struct kern *k, struct kparam *kp);
 
 /* Handle an interrupt. */
 void kern_handle_intr(struct kern *k, struct task_desc *active, uint32_t intr);
 
 /* Handle a system call. */
 void kern_handle_swi(struct kern *k, struct task_desc *active);
+
+/* Reset hardware state before returning to RedBoot. */
+void kern_cleanup(void);
