@@ -40,6 +40,20 @@ STATIC_ASSERT(vic_vectaddrs_offs,   offsetof(struct vic, vectaddrs  ) == 0x100);
 STATIC_ASSERT(vic_vectcntls_offs,   offsetof(struct vic, vectcntls  ) == 0x200);
 
 void
+vintr_setup(volatile struct vic *vic, int vintr, int intr, uint32_t isr)
+{
+    /* Set up the vectored interrupt slot vintr to refer to intr,
+     * set its ISR address, and enable it. */
+    vintr_set(   vic, vintr, intr);
+    vintr_setisr(vic, vintr, isr);
+    vintr_enable(vic, vintr, true);
+
+    /* Enable the actual IRQ (not FIQ) */
+    intr_setfiq(vic, intr, false);
+    intr_enable(vic, intr, true);
+}
+
+void
 intr_enable(volatile struct vic *vic, int intr, bool enable)
 {
     if (enable)

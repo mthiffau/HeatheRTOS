@@ -12,6 +12,9 @@ struct vic;
 #define VIC1 ((volatile struct vic*)0x800b0000)
 #define VIC2 ((volatile struct vic*)0x800c0000)
 
+/* Set up a vectored IRQ. */
+void vintr_setup(volatile struct vic*, int vintr, int intr, uint32_t isr);
+
 /* Enable/disable a given interrupt. */
 void intr_enable(volatile struct vic*, int intr, bool enable);
 
