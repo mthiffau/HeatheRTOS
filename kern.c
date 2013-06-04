@@ -94,6 +94,14 @@ kern_init(struct kern *kern, struct kparam *kp)
     if (kp->irq_enable) {
         struct clock clock;
         clock_init(&clock, 1);
+
+        /* Set vectored interrupt 0 to the following IRQ, and enable. */
+        vintr_setdefisr(TC3UI_VIC, 0xcafebabe);
+        vintr_set(TC3UI_VIC, 0, TC3UI_INTR);
+        vintr_setisr(TC3UI_VIC, 0, 0xdeadbeef);
+        vintr_enable(TC3UI_VIC, 0, true);
+
+        /* Enable 32-bit timer underflow interrupt IRQ */
         intr_setfiq(TC3UI_VIC, TC3UI_INTR, false);
         intr_enable(TC3UI_VIC, TC3UI_INTR, true);
     }
@@ -133,6 +141,8 @@ kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
         kern_handle_swi(kern, active);
         break;
     case INTR_IRQ:
+        bwprintf(COM2, "got IRQ 0x%x\n", vintr_cur(VIC2));
+        vintr_clear(VIC2);
         tmr32_intr_clear();
         bwputstr(COM2, "tick\n");
         task_ready(kern, active);
