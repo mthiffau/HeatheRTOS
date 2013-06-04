@@ -50,8 +50,8 @@ static const cpumode_t bits_mode[] = {
     MODE_SYS
 };
 
-static unsigned int
-get_cpsr(void)
+uint32_t
+cur_cpsr(void)
 {
     unsigned int cpsr;
     asm("mrs %0, cpsr\n"
@@ -65,7 +65,7 @@ get_cpsr(void)
 cpumode_t
 cur_cpumode(void)
 {
-    return bits_mode[get_cpsr() & PSR_MODE_MASK];
+    return bits_mode[cur_cpsr() & PSR_MODE_MASK];
 }
 
 uint32_t

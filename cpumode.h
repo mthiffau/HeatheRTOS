@@ -14,6 +14,7 @@ enum {
 };
 #undef DEFMODE
 
+uint32_t    cur_cpsr(void);
 cpumode_t   cur_cpumode(void);
 uint32_t    cpumode_bits(cpumode_t);
 cpumode_t   cpumode_from_bits(uint32_t);
