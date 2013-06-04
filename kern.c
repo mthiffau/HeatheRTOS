@@ -90,6 +90,7 @@ kern_init(struct kern *kern, struct kparam *kp)
     EXC_VEC_FP(EXC_VEC_IRQ) = &kern_entry_irq;
 
     /* Enable IRQs */
+    intr_reset_all();
     if (kp->irq_enable) {
         struct clock clock;
         clock_init(&clock, 1);
