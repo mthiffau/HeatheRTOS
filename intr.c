@@ -58,6 +58,15 @@ intr_setfiq(volatile struct vic *vic, int intr, bool fiq)
 }
 
 void
+intr_assert(volatile struct vic *vic, int intr, bool assert)
+{
+    if (assert)
+        vic->softint   = 1 << intr;
+    else
+        vic->softclear = 1 << intr;
+}
+
+void
 vintr_set(volatile struct vic *vic, int vintr, int intr)
 {
     volatile uint32_t *cntl = &vic->vectcntls[vintr];

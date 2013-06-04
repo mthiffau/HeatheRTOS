@@ -18,6 +18,9 @@ void intr_enable(volatile struct vic*, int intr, bool enable);
 /* Set a given interrupt to be treated as FIQ or IRQ. */
 void intr_setfiq(volatile struct vic*, int intr, bool fiq);
 
+/* Forcibly assert/unassert a given interrupt from software. */
+void intr_assert(volatile struct vic*, int intr, bool assert);
+
 /* Associate a given vectored interrupt slot with a given interrupt. */
 void vintr_set(volatile struct vic *vic, int vintr, int intr);
 
