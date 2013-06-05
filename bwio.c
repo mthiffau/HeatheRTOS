@@ -239,6 +239,7 @@ void bwformat ( int channel, const char *fmt, va_list va ) {
 				bwputw( channel, w, lz, bf );
 				break;
 			case 'x':
+			case 'p':
 				bwui2a( va_arg( va, unsigned int ), 16, bf );
 				bwputw( channel, w, lz, bf );
 				break;
