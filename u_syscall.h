@@ -4,6 +4,7 @@
 
 #define U_SYSCALL_H
 
+XDEF_H;
 U_TID_H;
 
 tid_t Create(int priority, void (*task_entry)(void));
@@ -15,6 +16,9 @@ void  Exit(void) __attribute__((noreturn));
 int   Send(int TID, const void* msg, int msglen, void* reply, int replylen);
 int   Receive(int* TID, void* msg, int msglen);
 int   Reply(int TID, const void* reply, int replylen);
+
+int   RegisterEvent(int priority, int irq, int (*cb)(void*, size_t));
+int   AwaitEvent(void*, size_t);
 
 /* Register with the name server under the given name.
  *

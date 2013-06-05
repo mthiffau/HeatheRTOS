@@ -1,8 +1,8 @@
+#include "xdef.h"
 #include "u_tid.h"
 #include "u_syscall.h"
 
 #include "xbool.h"
-#include "xdef.h"
 #include "xassert.h"
 #include "xstring.h"
 #include "xmemcpy.h"

@@ -51,6 +51,18 @@ Reply:
     swi #SYSCALL_REPLY
     mov pc, lr
 
+    .global RegisterEvent
+    .type   RegisterEvent, %function
+RegisterEvent:
+    swi #SYSCALL_REGISTEREVENT
+    mov pc, lr
+
+    .global AwaitEvent
+    .type   AwaitEvent, %function
+AwaitEvent:
+    swi #SYSCALL_AWAITEVENT
+    mov pc, lr
+
     .global Shutdown
     .type   Shutdown, %function
 Shutdown:

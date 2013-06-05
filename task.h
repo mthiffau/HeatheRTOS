@@ -71,8 +71,11 @@ struct task_desc {
 
     /* Send queue for this task */
     struct task_queue senders;
+
+    /* Registered event */
+    int8_t event;
 };
-STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 12);
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 16);
 
 /* Context switch assumes this memory layout */
 struct task_regs {
@@ -117,6 +120,7 @@ STATIC_ASSERT(task_regs_size, sizeof   (struct task_regs)       == 0x44);
 
 /* Find a task by its TID. Returns one of the following error codes. */
 int get_task(struct kern *k, tid_t tid, struct task_desc **td_out);
+
 enum {
     GET_TASK_SUCCESS        =  0,
     GET_TASK_IMPOSSIBLE_TID = -1,

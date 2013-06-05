@@ -1,9 +1,9 @@
 #include "config.h"
+#include "xdef.h"
 #include "u_tid.h"
 #include "u_syscall.h"
 
 #include "xint.h"
-#include "xdef.h"
 #include "xbool.h"
 #include "xassert.h"
 #include "xarg.h"

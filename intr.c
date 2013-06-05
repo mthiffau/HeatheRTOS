@@ -74,11 +74,18 @@ intr_setfiq(volatile struct vic *vic, int intr, bool fiq)
 void
 intr_assert(volatile struct vic *vic, int intr, bool assert)
 {
-    if (assert)
-        vic->softint   = 1 << intr;
-    else
-        vic->softclear = 1 << intr;
+    intr_assert_mask(vic, 1 << intr, assert);
 }
+
+void
+intr_assert_mask(volatile struct vic *vic, uint32_t mask, bool assert)
+{
+    if (assert)
+        vic->softint   = mask;
+    else
+        vic->softclear = mask;
+}
+
 
 void
 vintr_set(volatile struct vic *vic, int vintr, int intr)
@@ -109,10 +116,13 @@ vintr_setisr(volatile struct vic *vic, int vintr, uint32_t isr)
     vic->vectaddrs[vintr] = isr;
 }
 
-uint32_t
-vintr_cur(volatile struct vic *vic)
+bool
+vintr_cur(volatile struct vic *vic, uint32_t *cur_out)
 {
-    return vic->vectaddr;
+    if (!vic->irqstat)
+        return false;
+    *cur_out = vic->vectaddr;
+    return true;
 }
 
 void

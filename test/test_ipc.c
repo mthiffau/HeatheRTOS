@@ -7,6 +7,7 @@
 #include "static_assert.h"
 #include "u_tid.h"
 #include "task.h"
+#include "event.h"
 #include "kern.h"
 
 #include "xassert.h"
@@ -46,7 +47,7 @@ test_ipc_all(void)
 
 static void test_ipc_kern(const char *name, void (*init)(void))
 {
-    struct kparam kp = { .init = init, .init_prio = 8, .irq_enable = false };
+    struct kparam kp = { .init = init, .init_prio = 8 };
     bwprintf(COM2, "%s...", name);
     kern_main(&kp);
     bwputstr(COM2, "ok\n");

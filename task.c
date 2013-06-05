@@ -8,6 +8,7 @@
 #include "xbool.h"
 #include "xassert.h"
 
+#include "event.h"
 #include "kern.h"
 #include "cpumode.h"
 #include "u_syscall.h"

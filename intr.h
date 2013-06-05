@@ -24,6 +24,9 @@ void intr_setfiq(volatile struct vic*, int intr, bool fiq);
 /* Forcibly assert/unassert a given interrupt from software. */
 void intr_assert(volatile struct vic*, int intr, bool assert);
 
+/* Forcibly assert/unassert a given set of interrupts from software. */
+void intr_assert_mask(volatile struct vic*, uint32_t mask, bool assert);
+
 /* Associate a given vectored interrupt slot with a given interrupt. */
 void vintr_set(volatile struct vic *vic, int vintr, int intr);
 
@@ -36,8 +39,8 @@ void vintr_setdefisr(volatile struct vic *vic, uint32_t isr);
 /* Set the ISR address for a given vectored interrupt slot. */
 void vintr_setisr(volatile struct vic *vic, int vintr, uint32_t isr);
 
-/* Get the ISR address for the current interrupt. */
-uint32_t vintr_cur(volatile struct vic *vic);
+/* Get the ISR address for the current interrupt, if any. */
+bool vintr_cur(volatile struct vic *vic, uint32_t *cur_out);
 
 /* Clear the current interrupt to allow lower-priority interrupts. */
 void vintr_clear(volatile struct vic *vic);

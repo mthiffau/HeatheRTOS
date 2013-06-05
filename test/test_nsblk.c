@@ -7,6 +7,7 @@
 #include "static_assert.h"
 #include "u_tid.h"
 #include "task.h"
+#include "event.h"
 #include "kern.h"
 
 #include "xassert.h"
@@ -126,8 +127,7 @@ test_nsblk(bool low_prio)
 {
     static struct kparam kp = {
         .init       = &nsblk_init_main,
-        .init_prio  = 0,
-        .irq_enable = false
+        .init_prio  = 0
     };
 
     bwprintf(COM2, "test_nsblk%s...", low_prio ? "_low_prio" : "");

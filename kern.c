@@ -5,6 +5,7 @@
 #include "static_assert.h"
 #include "u_tid.h"
 #include "task.h"
+#include "event.h"
 #include "kern.h"
 
 #include "ipc.h"
@@ -32,14 +33,15 @@
 #define EXC_VEC_IRQ         ((unsigned int*)0x18)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
-#define TC3UI_VIC           VIC2
-#define TC3UI_INTR          19
+#define TC3UI_IRQ           51
+
+static void kern_RegisterEvent(struct kern *kern, struct task_desc *active);
+static void kern_AwaitEvent(struct kern *kern, struct task_desc *active);
 
 /* Default kernel parameters */
 struct kparam def_kparam = {
     .init       = &u_init_main,
-    .init_prio  = U_INIT_PRIORITY,
-    .irq_enable = true
+    .init_prio  = U_INIT_PRIORITY
 };
 
 int
@@ -68,6 +70,7 @@ kern_main(struct kparam *kp)
 
         intr = ctx_switch(active);
         kern_handle_intr(&kern, active, intr);
+        assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
     }
 
     kern_cleanup();
@@ -78,6 +81,8 @@ void
 kern_init(struct kern *kern, struct kparam *kp)
 {
     uint32_t i, mem_avail;
+
+    (void)kp; /* unused (at the moment) */
 
     /* Turn off UART FIFOs. */
     bwsetfifo(COM1, OFF);
@@ -90,21 +95,10 @@ kern_init(struct kern *kern, struct kparam *kp)
     EXC_VEC_FP(EXC_VEC_IRQ) = &kern_entry_irq;
 
     /* Enable IRQs */
+    evt_init(&kern->eventab);
     intr_reset_all();
-    if (kp->irq_enable) {
-        struct clock clock;
-        clock_init(&clock, 1);
-
-        /* Set vectored interrupt 0 to the following IRQ, and enable. */
-        vintr_setdefisr(TC3UI_VIC, 0xcafebabe);
-        vintr_set(TC3UI_VIC, 0, TC3UI_INTR);
-        vintr_setisr(TC3UI_VIC, 0, 0xdeadbeef);
-        vintr_enable(TC3UI_VIC, 0, true);
-
-        /* Enable 32-bit timer underflow interrupt IRQ */
-        intr_setfiq(TC3UI_VIC, TC3UI_INTR, false);
-        intr_enable(TC3UI_VIC, TC3UI_INTR, true);
-    }
+    vintr_setdefisr(VIC1, 0xcafebabe);
+    vintr_setdefisr(VIC2, 0xcafebabe);
 
     /* Kernel hasn't been asked to shut down */
     kern->shutdown = false;
@@ -141,11 +135,7 @@ kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
         kern_handle_swi(kern, active);
         break;
     case INTR_IRQ:
-        bwprintf(COM2, "got IRQ 0x%x\n", vintr_cur(VIC2));
-        vintr_clear(VIC2);
-        tmr32_intr_clear();
-        bwputstr(COM2, "tick\n");
-        task_ready(kern, active);
+        kern_handle_irq(kern, active);
         break;
     default:
         panic("received unknown interrupt 0x%x\n", intr);
@@ -190,12 +180,53 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
     case SYSCALL_REPLY:
         ipc_reply_start(kern, active);
         break;
+    case SYSCALL_REGISTEREVENT:
+        kern_RegisterEvent(kern, active);
+        break;
+    case SYSCALL_AWAITEVENT:
+        kern_AwaitEvent(kern, active);
+        break;
     case SYSCALL_SHUTDOWN:
         kern->shutdown = true;
+        task_ready(kern, active); /* must move out of ACTIVE state */
         break;
     default:
         panic("received unknown syscall 0x%x\n", syscall);
     }
+}
+
+void
+kern_handle_irq(struct kern *kern, struct task_desc *active)
+{
+    int event_id;
+    struct event *evt;
+    struct task_desc *wake;
+    int rc, cb_rc;
+
+    /* Find the current event. */
+    event_id = evt_cur();
+    evt      = &kern->eventab.events[event_id];
+
+    /* Run the associated callback. */
+    cb_rc = evt->cb(evt->ptr, evt->size);
+    task_ready(kern, active);
+    evt_clear(&kern->eventab, event_id);
+
+    assert(cb_rc >= -1);
+    if (cb_rc == -1)
+        return; /* callback says to ignore this interrupt */
+
+    /* Look up the event-blocked task */
+    rc = get_task(kern, evt->tid, &wake);
+    assert(rc == GET_TASK_SUCCESS);
+    assert(TASK_STATE(wake) == TASK_STATE_EVENT_BLOCKED);
+
+    /* Ignore this interrupt until we get another AwaitEvent() for it */
+    evt_disable(&kern->eventab, event_id);
+
+    /* Return from AwaitEvent() with the result of the callback */
+    wake->regs->r0 = cb_rc;
+    task_ready(kern, wake);
 }
 
 void
@@ -204,4 +235,35 @@ kern_cleanup(void)
     /* TODO? disable 40-bit timer as well */
     tmr32_enable(false);
     intr_reset_all();
+}
+
+static void
+kern_RegisterEvent(struct kern *kern, struct task_desc *active)
+{
+    int event_id = (int)active->regs->r0;
+    active->regs->r0 = evt_register(
+        &kern->eventab,
+        TASK_TID(kern, active),
+        event_id,
+        (int)active->regs->r1,
+        (int(*)(void*,size_t))active->regs->r2);
+
+    active->event = event_id;
+    task_ready(kern, active);
+}
+
+static void
+kern_AwaitEvent(struct kern *kern, struct task_desc *active)
+{
+    if (active->event < 0) {
+        active->regs->r0 = -1;
+        task_ready(kern, active);
+    }
+
+    TASK_SET_STATE(active, TASK_STATE_EVENT_BLOCKED);
+    evt_enable(
+        &kern->eventab,
+        active->event,
+        (void*)active->regs->r0,
+        (size_t)active->regs->r1);
 }
