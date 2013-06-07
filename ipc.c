@@ -47,7 +47,7 @@ ipc_send_start(struct kern *kern, struct task_desc *active)
     if (TASK_STATE(srv) == TASK_STATE_SEND_BLOCKED) {
         rendezvous(kern, active, srv);
     } else {
-        TASK_SET_STATE(srv, TASK_STATE_RECEIVE_BLOCKED);
+        TASK_SET_STATE(active, TASK_STATE_RECEIVE_BLOCKED);
         task_enqueue(kern, active, &srv->senders);
     }
 }
