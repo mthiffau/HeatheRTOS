@@ -17,18 +17,14 @@
 
 #include "xarg.h"
 #include "bwio.h"
+#include "test/log.h"
 
 #define NSBLK_LOGSIZE 128
 
-static char nsblk_log_data[NSBLK_LOGSIZE];
-static int  nsblk_log_pos;
-static void nsblk_log_init(void) { nsblk_log_pos = 0; }
-static void nsblk_log(const char *data, int size)
-{
-    assert(nsblk_log_pos + size <= NSBLK_LOGSIZE);
-    while (size-- > 0)
-        nsblk_log_data[nsblk_log_pos++] = *data++;
-}
+static char           nsblk_log_buf[NSBLK_LOGSIZE];
+static struct testlog nsblk_log;
+static void nsblk_log_call(char call, int x, const char *name);
+static void nsblk_log_call_r(char call, int x, const char *name, int r);
 
 /* Log messages:
  * E         - init exits
@@ -71,28 +67,6 @@ static const char *nsblk_log_expected[] = {
     "S;"
 };
 
-static void nsblk_log_char(char c) { nsblk_log(&c, 1); }
-static void nsblk_log_int(int x) { assert(x >= 0 && x <= 9); nsblk_log_char('0' + x); }
-static void nsblk_log_call_noterm(char call, int x, const char *name)
-{
-    nsblk_log_char(call);
-    nsblk_log_int(x);
-    nsblk_log_char(':');
-    nsblk_log(name, strnlen(name, NS_NAME_MAXLEN));
-}
-static void nsblk_log_call(char call, int x, const char *name)
-{
-    nsblk_log_call_noterm(call, x, name);
-    nsblk_log_char(';');
-}
-static void nsblk_log_call_r(char call, int x, const char *name, int r)
-{
-    nsblk_log_call_noterm(call, x, name);
-    nsblk_log_char('>');
-    nsblk_log_int(r);
-    nsblk_log_char(';');
-}
-
 static void nsblk_init_main(void);
 static void nsblk_spawn(int priority, void (*)(void), int expected_tid);
 static void nsblk_shutdown(void);
@@ -131,11 +105,10 @@ test_nsblk(bool low_prio)
     };
 
     bwprintf(COM2, "test_nsblk%s...", low_prio ? "_low_prio" : "");
-    nsblk_log_init();
+    tlog_init(&nsblk_log, nsblk_log_buf, NSBLK_LOGSIZE);
     nsblk_low_prio = low_prio;
     kern_main(&kp);
-    nsblk_log_char('\0');
-    assert(strcmp(nsblk_log_data, nsblk_log_expected[low_prio ? 1 : 0]) == 0);
+    tlog_check(&nsblk_log, nsblk_log_expected[low_prio ? 1 : 0]);
     bwputstr(COM2, "ok\n");
 }
 
@@ -150,7 +123,7 @@ nsblk_init_main(void)
     nsblk_spawn(5, &nsblk_eggs_who6, 6);
     nsblk_spawn(5, &nsblk_spam_who7, 7);
     nsblk_spawn(N_PRIORITIES - 1, &nsblk_shutdown, 8);
-    nsblk_log("E;", 2);
+    tlog_putstr(&nsblk_log, "E;");
 }
 
 static void
@@ -182,6 +155,16 @@ nsblk_reg(const char *name, int id)
 void
 nsblk_shutdown(void)
 {
-    nsblk_log("S;", 2);
+    tlog_putstr(&nsblk_log, "S;");
     Shutdown();
+}
+
+static void nsblk_log_call(char call, int x, const char *name)
+{
+    tlog_printf(&nsblk_log, "%c%d:%s;", call, x, name);
+}
+
+static void nsblk_log_call_r(char call, int x, const char *name, int r)
+{
+    tlog_printf(&nsblk_log, "%c%d:%s>%d;", call, x, name, r);
 }
