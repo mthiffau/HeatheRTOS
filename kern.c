@@ -188,7 +188,7 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         break;
     case SYSCALL_SHUTDOWN:
         kern->shutdown = true;
-        task_ready(kern, active); /* must move out of ACTIVE state */
+        task_free(kern, active); /* must move out of ACTIVE state */
         break;
     default:
         panic("received unknown syscall 0x%x\n", syscall);

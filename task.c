@@ -102,6 +102,7 @@ task_schedule(struct kern *kern)
     if (q->head_ix == TASK_IX_NULL)
         kern->rdy_queue_ne &= ~(1 << prio);
 
+    assert(TASK_STATE(td) == TASK_STATE_READY);
     TASK_SET_STATE(td, TASK_STATE_ACTIVE);
     return td;
 }
