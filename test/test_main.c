@@ -10,6 +10,7 @@
 #include "test/test_xmemcpy.h"
 #include "test/test_ipc.h"
 #include "test/test_nsblk.h"
+#include "test/test_event.h"
 #include "test/test_ipc_perf.h"
 
 int
@@ -21,6 +22,7 @@ main(void)
     test_xmemcpy_all();
     test_ipc_all();
     test_nsblk_all();
+    test_event_all();
     test_ipc_perf();
 
     return 0;
