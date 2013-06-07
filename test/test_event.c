@@ -16,7 +16,7 @@
 #include "bwio.h"
 #include "test/log.h"
 
-#include "clock.h"
+#include "clock_srv.h"
 #include "timer.h"
 #include "intr.h"
 

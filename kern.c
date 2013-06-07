@@ -17,7 +17,6 @@
 #include "ctx_switch.h"
 #include "intr_type.h"
 #include "intr.h"
-#include "clock.h"
 #include "timer.h"
 #include "syscall.h"
 #include "link.h"

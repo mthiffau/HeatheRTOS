@@ -1,8 +1,8 @@
-#ifdef CLOCK_H
-#error "double-included clock.h"
+#ifdef CLOCK_SRV_H
+#error "double-included clock_srv.h"
 #endif
 
-#define CLOCK_H
+#define CLOCK_SRV_H
 
 XBOOL_H;
 XINT_H;

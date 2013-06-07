@@ -13,10 +13,6 @@
 #include "xarg.h"
 #include "bwio.h"
 
-#include "clock.h"
-#include "timer.h"
-#include "intr.h"
-
 void
 u_init_main(void)
 {
