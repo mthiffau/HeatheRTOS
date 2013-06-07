@@ -107,10 +107,9 @@ u_idle(void)
 static void
 u_clock(void)
 {
-    struct clock clock;
-    int          ticks, rc;
+    int ticks, rc;
 
-    clock_init(&clock, 100);
+    clock_init(100);
     rc = RegisterEvent(2, 51, &u_clock_cb);
     assert(rc == 0);
 
