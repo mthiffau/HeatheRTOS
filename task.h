@@ -24,7 +24,7 @@ struct task_regs;
 #define TID_SEQ_OFFS    8
 #define TID_IX_MASK     0xff
 #define TASK_TID(kern, tdp)    \
-    ((tdp)->tid_seq << TID_SEQ_OFFS) | TASK_PTR2IX(kern, tdp)
+    (((tdp)->tid_seq << TID_SEQ_OFFS) | TASK_PTR2IX(kern, tdp))
 
 /* Task descriptor stores state and priority in a single byte */
 #define TASK_STATE_MASK 0xf0
