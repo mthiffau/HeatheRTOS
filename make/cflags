@@ -1,0 +1,1 @@
+-nostdinc -I. -Wall -Wextra -Werror -fPIC -mcpu=arm920t -msoft-float -O2

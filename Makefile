@@ -1,8 +1,10 @@
+CFLAGS_FILE = make/cflags
+
 HOST    = arm-elf-
 CC      = $(HOST)gcc
 AS      = $(HOST)as
 LD      = $(HOST)gcc
-CFLAGS  = -nostdinc -I. -Wall -Wextra -Werror -fPIC -mcpu=arm920t -msoft-float -O2
+CFLAGS  = $(shell cat $(CFLAGS_FILE))
 ASFLAGS = -mcpu=arm920t -mapcs-32 # always use full stack frames
 LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc
@@ -43,16 +45,16 @@ $(TEST): $(LINK) $(TOBJS)
 $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD_DIRS)
 	$(AS) -o $@ $(ASFLAGS) $<
 
-$(BUILD)/%.c.s: $(BUILD)/%.c.i |$(BUILD_DIRS)
+$(BUILD)/%.c.s: $(BUILD)/%.c.i $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -S -o $@ $(CFLAGS) $<
 
-$(BUILD)/%.c.i: %.c |$(BUILD_DIRS)
+$(BUILD)/%.c.i: %.c $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD)/%.S.o: $(BUILD)/%.S.s |$(BUILD_DIRS)
 	$(AS) -o $@ $(ASFLAGS) $<
 
-$(BUILD)/%.S.s: %.S |$(BUILD_DIRS)
+$(BUILD)/%.S.s: %.S $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD_DIRS):
