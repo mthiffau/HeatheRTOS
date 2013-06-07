@@ -1,3 +1,4 @@
+#include "u_tid.h"
 #include "clock_srv.h"
 
 #include "config.h"
@@ -7,12 +8,25 @@
 #include "timer.h"
 
 #include "xassert.h"
-#include "u_tid.h"
 #include "u_syscall.h"
 #include "u_events.h"
 
-#include "xarg.h"
-#include "bwio.h"
+enum {
+    CLKMSG_TICK,
+    CLKMSG_TIME,
+    CLKMSG_DELAY,
+    CLKMSG_DELAYUNTIL
+};
+
+enum {
+    CLKRPLY_OK         =  0,
+    CLKRPLY_DELAY_PAST = -3
+};
+
+struct clkmsg {
+    int type;
+    int ticks;
+};
 
 struct clksrv {
     int ticks;
@@ -45,7 +59,7 @@ clksrv_main(void)
     struct clksrv clk;
     struct clkmsg msg;
     tid_t client;
-    int rc;
+    int rc, rply;
 
     clksrv_init(&clk);
 
@@ -60,7 +74,12 @@ clksrv_main(void)
             rc = Reply(client, NULL, 0);
             assert(rc == 0);
             clk.ticks++;
-            bwprintf(COM2, "tick %d\n", clk.ticks);
+            break;
+
+        case CLKMSG_TIME:
+            rply = clk.ticks;
+            rc = Reply(client, &rply, sizeof (rply));
+            assert(rc == 0);
             break;
 
         default:
@@ -108,4 +127,45 @@ clksrv_notify_cb(void *ptr, size_t n)
     assert(n   == 0);
     tmr32_intr_clear();
     return 0;
+}
+
+void
+clkctx_init(struct clkctx *ctx)
+{
+    ctx->clksrv_tid = WhoIs("clock");
+}
+
+int
+Time(struct clkctx *ctx)
+{
+    struct clkmsg msg;
+    int rc, rply;
+    msg.type = CLKMSG_TIME;
+    rc = Send(ctx->clksrv_tid, &msg, sizeof (msg), &rply, sizeof (rply));
+    assert(rc == sizeof (rply));
+    return rply;
+}
+
+int
+Delay(struct clkctx *ctx, int ticks)
+{
+    struct clkmsg msg;
+    int rc, rply;
+    msg.type  = CLKMSG_DELAY;
+    msg.ticks = ticks;
+    rc = Send(ctx->clksrv_tid, &msg, sizeof (msg), &rply, sizeof (rply));
+    assert(rc == sizeof (rply));
+    return rply;
+}
+
+int
+DelayUntil(struct clkctx *ctx, int when_ticks)
+{
+    struct clkmsg msg;
+    int rc, rply;
+    msg.type  = CLKMSG_DELAYUNTIL;
+    msg.ticks = when_ticks;
+    rc = Send(ctx->clksrv_tid, &msg, sizeof (msg), &rply, sizeof (rply));
+    assert(rc == sizeof (rply));
+    return rply;
 }

@@ -35,6 +35,17 @@ u_init_main(void)
     /* Start clock server */
     clk_tid = Create(U_INIT_PRIORITY, &clksrv_main);
     assert(clk_tid >= 0);
+
+    int oldtime = -1;
+    struct clkctx clkctx;
+    clkctx_init(&clkctx);
+    for (;;) {
+        int time = Time(&clkctx);
+        if (time != oldtime) {
+            oldtime = time;
+            bwprintf(COM2, "new time %d\n", time);
+        }
+    }
 }
 
 static void u_idle(void)
