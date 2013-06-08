@@ -75,9 +75,9 @@ static void
 test_send_tid_nosuchtask(void)
 {
     int rc;
-    rc = Send(1, NULL, 0, NULL, 0);
-    assert(rc == -2);
     rc = Send(2, NULL, 0, NULL, 0);
+    assert(rc == -2);
+    rc = Send(3, NULL, 0, NULL, 0);
     assert(rc == -2);
     rc = Send(59, NULL, 0, NULL, 0);
     assert(rc == -2);
@@ -113,9 +113,9 @@ static void
 test_rply_tid_nosuchtask(void)
 {
     int rc;
-    rc = Reply(1, NULL, 0);
-    assert(rc == -2);
     rc = Reply(2, NULL, 0);
+    assert(rc == -2);
+    rc = Reply(3, NULL, 0);
     assert(rc == -2);
     rc = Reply(59, NULL, 0);
     assert(rc == -2);
@@ -155,7 +155,6 @@ test_msglen_send2recv(void)
     assert(msglen == 11);
     assert(strcmp(msg, "foobar baz") == 0);
     assert(strcmp(msg + 11, "bcdefghijklmnopqrstuvwxyz") == 0);
-    Shutdown();
 }
 
 static void
@@ -175,7 +174,6 @@ test_recv_overflow(void)
     assert(sender_tid == child_tid);
     assert(msglen == 11);
     assert(strcmp(msg, "foobar bazabcdefghijklmnopqrstuvwxyz") == 0);
-    Shutdown();
 }
 
 static bool rply2send_sender_done;

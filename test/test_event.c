@@ -24,7 +24,6 @@
 
 static void test_event(const char *name, int foo, int bar, const char *exp);
 static void test_event_main(void);
-static void u_idle(void);
 static void u_clock(void);
 static int  u_clock_cb(void*, size_t);
 static void foo(void);
@@ -95,13 +94,6 @@ test_event_main(void)
     Create(0, &u_clock);
     Create(0, &foo);
     Create(0, &bar);
-    Create(N_PRIORITIES - 1, &u_idle);
-}
-
-static void
-u_idle(void)
-{
-    for (;;) { }
 }
 
 static void
@@ -122,7 +114,7 @@ u_clock(void)
             intr_assert_mask(VIC1, (1 << 21) | (1 << 22), true);
     }
 
-    Shutdown();
+    Shutdown(); /* Event-blocked foo, bar will keep kernel running */
 }
 
 static int

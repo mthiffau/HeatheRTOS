@@ -37,39 +37,36 @@ static void nsblk_log_call_r(char call, int x, const char *name, int r);
 static const char *nsblk_log_expected[] = {
     /* message sequence for high-priority name server */
     "E;"
-    "W2:spam;"
     "W3:spam;"
-    "R4:eggs;"
-    "R4:eggs>0;"
-    "R5:spam;"
-    "W3:spam>5;"
-    "W2:spam>5;"
-    "R5:spam>0;"
-    "W6:eggs;"
-    "W7:spam;"
-    "W6:eggs>4;"
-    "W7:spam>5;"
-    "S;",
+    "W4:spam;"
+    "R5:eggs;"
+    "R5:eggs>0;"
+    "R6:spam;"
+    "W4:spam>6;"
+    "W3:spam>6;"
+    "R6:spam>0;"
+    "W7:eggs;"
+    "W8:spam;"
+    "W7:eggs>5;"
+    "W8:spam>6;",
     /* message sequence for low-priority name server */
     "E;"
-    "W2:spam;"
     "W3:spam;"
-    "R4:eggs;"
-    "R5:spam;"
-    "W6:eggs;"
-    "W7:spam;"
-    "R4:eggs>0;"
-    "R5:spam>0;"
-    "W3:spam>5;"
-    "W2:spam>5;"
-    "W6:eggs>4;"
-    "W7:spam>5;"
-    "S;"
+    "W4:spam;"
+    "R5:eggs;"
+    "R6:spam;"
+    "W7:eggs;"
+    "W8:spam;"
+    "R5:eggs>0;"
+    "R6:spam>0;"
+    "W4:spam>6;"
+    "W3:spam>6;"
+    "W7:eggs>5;"
+    "W8:spam>6;"
 };
 
 static void nsblk_init_main(void);
 static void nsblk_spawn(int priority, void (*)(void), int expected_tid);
-static void nsblk_shutdown(void);
 
 static void nsblk_who(const char *name, int id);
 static void nsblk_reg(const char *name, int id);
@@ -79,12 +76,12 @@ static void nsblk_spam_reg(int id) { nsblk_reg("spam", id); }
 static void nsblk_eggs_who(int id) { nsblk_who("eggs", id); }
 static void nsblk_eggs_reg(int id) { nsblk_reg("eggs", id); }
 
-static void nsblk_spam_who2(void) { nsblk_spam_who(2); }
 static void nsblk_spam_who3(void) { nsblk_spam_who(3); }
-static void nsblk_eggs_reg4(void) { nsblk_eggs_reg(4); }
-static void nsblk_spam_reg5(void) { nsblk_spam_reg(5); }
-static void nsblk_eggs_who6(void) { nsblk_eggs_who(6); }
-static void nsblk_spam_who7(void) { nsblk_spam_who(7); }
+static void nsblk_spam_who4(void) { nsblk_spam_who(4); }
+static void nsblk_eggs_reg5(void) { nsblk_eggs_reg(5); }
+static void nsblk_spam_reg6(void) { nsblk_spam_reg(6); }
+static void nsblk_eggs_who7(void) { nsblk_eggs_who(7); }
+static void nsblk_spam_who8(void) { nsblk_spam_who(8); }
 
 static bool nsblk_low_prio; /* HACK FIXME? */
 static void test_nsblk(bool low_prio);
@@ -115,14 +112,13 @@ test_nsblk(bool low_prio)
 static void
 nsblk_init_main(void)
 {
-    nsblk_spawn(nsblk_low_prio ? 8 : 1, &ns_main, 1);
-    nsblk_spawn(2, &nsblk_spam_who2, 2);
+    nsblk_spawn(nsblk_low_prio ? 8 : 1, &ns_main, NS_TID);
     nsblk_spawn(2, &nsblk_spam_who3, 3);
-    nsblk_spawn(3, &nsblk_eggs_reg4, 4);
-    nsblk_spawn(4, &nsblk_spam_reg5, 5);
-    nsblk_spawn(5, &nsblk_eggs_who6, 6);
-    nsblk_spawn(5, &nsblk_spam_who7, 7);
-    nsblk_spawn(N_PRIORITIES - 1, &nsblk_shutdown, 8);
+    nsblk_spawn(2, &nsblk_spam_who4, 4);
+    nsblk_spawn(3, &nsblk_eggs_reg5, 5);
+    nsblk_spawn(4, &nsblk_spam_reg6, 6);
+    nsblk_spawn(5, &nsblk_eggs_who7, 7);
+    nsblk_spawn(5, &nsblk_spam_who8, 8);
     tlog_putstr(&nsblk_log, "E;");
 }
 
@@ -150,13 +146,6 @@ nsblk_reg(const char *name, int id)
     rc = RegisterAs(name);
     assert(rc == 0);
     nsblk_log_call_r('R', id, name, rc);
-}
-
-void
-nsblk_shutdown(void)
-{
-    tlog_putstr(&nsblk_log, "S;");
-    Shutdown();
 }
 
 static void nsblk_log_call(char call, int x, const char *name)

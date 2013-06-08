@@ -14,12 +14,10 @@
 #include "xarg.h"
 #include "bwio.h"
 
-static void u_idle(void);
-
 void
 u_init_main(void)
 {
-    tid_t ns_tid, idle_tid, clk_tid;
+    tid_t ns_tid, clk_tid;
 
     /* Start the name server. It's important that startup proceeds so that
      * the TID of the name server can be known at compile time (NS_TID).
@@ -27,10 +25,6 @@ u_init_main(void)
      * work on startup and then probably never again. */
     ns_tid = Create(U_INIT_PRIORITY - 1, &ns_main);
     assert(ns_tid == NS_TID);
-
-    /* FIXME this should be special in the kernel */
-    idle_tid = Create(PRIORITY_IDLE, &u_idle);
-    assert(idle_tid >= 0);
 
     /* Start clock server */
     clk_tid = Create(U_INIT_PRIORITY, &clksrv_main);
@@ -44,11 +38,8 @@ u_init_main(void)
         if (time != oldtime) {
             oldtime = time;
             bwprintf(COM2, "new time %d\n", time);
+            if (time >= 10)
+                Shutdown();
         }
     }
-}
-
-static void u_idle(void)
-{
-    for (;;) { }
 }

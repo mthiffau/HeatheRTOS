@@ -53,10 +53,7 @@ task_create(
 
     assert((td->state_prio & TASK_STATE_MASK) == TASK_STATE_FREE);
 
-    /* Guaranteed to succeed from this point */
-    kern->ntasks++;
-
-    /* Initialize task. */
+    /* Guaranteed to succeed from this point: initialize task. */
     ix             = TASK_PTR2IX(kern, td);
     td->parent_ix  = parent_ix;
     TASK_SET_PRIO(td, priority); /* task_ready() will set state */
@@ -81,6 +78,7 @@ task_ready(struct kern *kern, struct task_desc *td)
     TASK_SET_STATE(td, TASK_STATE_READY);
     task_enqueue(kern, td, &kern->rdy_queues[prio]);
     kern->rdy_queue_ne |= 1 << prio;
+    kern->rdy_count++;
 }
 
 /* NB. lower numbers are higher priority! */
@@ -91,9 +89,11 @@ task_schedule(struct kern *kern)
     struct task_queue *q;
     struct task_desc  *td;
 
-    if (kern->rdy_queue_ne == 0)
-        return NULL;
+    /* There must always be ready tasks */
+    assert(kern->rdy_count > 0);
+    assert(kern->rdy_queue_ne != 0);
 
+    /* Find the highest priority at which tasks are ready. */
     prio = ctz16(kern->rdy_queue_ne);
     q    = &kern->rdy_queues[prio];
     td   = task_dequeue(kern, q);
@@ -104,6 +104,7 @@ task_schedule(struct kern *kern)
 
     assert(TASK_STATE(td) == TASK_STATE_READY);
     TASK_SET_STATE(td, TASK_STATE_ACTIVE);
+    kern->rdy_count--;
     return td;
 }
 
@@ -113,7 +114,6 @@ task_free(struct kern *kern, struct task_desc *td)
     TASK_SET_STATE(td, TASK_STATE_FREE);
     td->tid_seq++;
     task_enqueue(kern, td, &kern->free_tasks);
-    kern->ntasks--;
 }
 
 void

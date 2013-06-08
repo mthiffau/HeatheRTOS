@@ -7,7 +7,7 @@
 U_TID_H;
 
 #define NS_NAME_MAXLEN 32
-#define NS_TID          1
+#define NS_TID          2
 
 /* Name server entry point.
  * The name server should be started at the beginning of u_init */

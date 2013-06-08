@@ -13,13 +13,17 @@ EVENT_H;
 struct kern {
     void             *stack_mem_top;
     size_t            stack_size;
-    int               ntasks;
     struct task_desc  tasks[MAX_TASKS];
     uint16_t          rdy_queue_ne; /* bit i set if queue i nonempty */
     struct task_queue rdy_queues[N_PRIORITIES];
     struct task_queue free_tasks;
     struct eventab    eventab;
-    bool              shutdown;
+
+    /* Termination control. Kernel exits either when there has been a
+     * shutdown request, or when no tasks are ready or event-blocked. */
+    bool shutdown;
+    int  rdy_count;
+    int  evblk_count;
 };
 
 /* TODO: cache, IRQ settings. Maybe a hook run every kernel loop */
