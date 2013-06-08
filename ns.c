@@ -1,3 +1,4 @@
+#include "u_tid.h"
 #include "ns.h"
 
 #include "xbool.h"
@@ -5,12 +6,28 @@
 #include "xstring.h"
 #include "xassert.h"
 #include "xmemcpy.h"
-#include "u_tid.h"
 #include "u_syscall.h"
 #include "config.h"
 
 #define MAX_NAMES       MAX_TASKS
 #define NS_TID_UNKNOWN  (-1) /* sentinel tid for unregistered names */
+
+/* Message format. */
+enum {
+    NS_MSG_REGISTER,
+    NS_MSG_WHOIS
+};
+
+struct ns_msg {
+    int  type;
+    char name[NS_NAME_MAXLEN]; /* NUL-terminated */
+};
+
+/* Replies to a registration message. (WhoIs always succeeds) */
+enum {
+    NS_RPLY_SUCCESS = 0,
+    NS_RPLY_NOSPACE = -3
+};
 
 /* Name record. This keeps a TID if any, and a queue of waiting tasks. */
 struct nsrec {
@@ -223,4 +240,32 @@ static void
 nswait_free_node(struct nsdb *db, struct nswait *node)
 {
     nswait_push_node(&db->wait_free, node);
+}
+
+int
+RegisterAs(const char *name)
+{
+    struct ns_msg msg;
+    int           rc, rplylen, namesize;
+    namesize = strnlen(name, NS_NAME_MAXLEN) + 1;
+    assert(namesize <= NS_NAME_MAXLEN);
+    msg.type = NS_MSG_REGISTER;
+    memcpy(msg.name, name, namesize);
+    rplylen = Send(NS_TID, &msg, sizeof (msg), &rc, sizeof (rc));
+    assert(rplylen == sizeof (rc));
+    return rc;
+}
+
+tid_t
+WhoIs(const char *name)
+{
+    struct ns_msg msg;
+    int           tid, rplylen, namesize;
+    namesize = strnlen(name, NS_NAME_MAXLEN) + 1;
+    assert(namesize <= NS_NAME_MAXLEN);
+    msg.type = NS_MSG_WHOIS;
+    memcpy(msg.name, name, namesize);
+    rplylen = Send(NS_TID, &msg, sizeof (msg), &tid, sizeof (tid));
+    assert(rplylen == sizeof (tid));
+    return tid;
 }

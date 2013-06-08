@@ -10,6 +10,7 @@
 #include "xassert.h"
 #include "u_syscall.h"
 #include "u_events.h"
+#include "ns.h"
 
 enum {
     CLKMSG_TICK,

@@ -2,6 +2,7 @@
 #include "xdef.h"
 #include "u_tid.h"
 #include "u_syscall.h"
+#include "ns.h"
 
 #include "xint.h"
 #include "xbool.h"
