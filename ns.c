@@ -94,7 +94,7 @@ ns_main(void)
     ns_init(&db);
     for (;;) {
         msglen = Receive(&sender, &msg, sizeof (msg));
-        assert(msglen == sizeof (msg));
+        assertv(msglen, msglen == sizeof (msg));
         switch (msg.type) {
         case NS_MSG_REGISTER:
             ns_register(&db, msg.name, sender);
@@ -158,7 +158,7 @@ static void
 ns_reply(tid_t tid, int rply)
 {
     int rc = Reply(tid, &rply, sizeof (rply));
-    assert(rc == 0);
+    assertv(rc, rc == 0);
 }
 
 static struct nsrec*
@@ -248,11 +248,11 @@ RegisterAs(const char *name)
     struct ns_msg msg;
     int           rc, rplylen, namesize;
     namesize = strnlen(name, NS_NAME_MAXLEN) + 1;
-    assert(namesize <= NS_NAME_MAXLEN);
+    assertv(namesize, namesize <= NS_NAME_MAXLEN);
     msg.type = NS_MSG_REGISTER;
     memcpy(msg.name, name, namesize);
     rplylen = Send(NS_TID, &msg, sizeof (msg), &rc, sizeof (rc));
-    assert(rplylen == sizeof (rc));
+    assertv(rplylen, rplylen == sizeof (rc));
     return rc;
 }
 
@@ -262,10 +262,10 @@ WhoIs(const char *name)
     struct ns_msg msg;
     int           tid, rplylen, namesize;
     namesize = strnlen(name, NS_NAME_MAXLEN) + 1;
-    assert(namesize <= NS_NAME_MAXLEN);
+    assertv(namesize, namesize <= NS_NAME_MAXLEN);
     msg.type = NS_MSG_WHOIS;
     memcpy(msg.name, name, namesize);
     rplylen = Send(NS_TID, &msg, sizeof (msg), &tid, sizeof (tid));
-    assert(rplylen == sizeof (tid));
+    assertv(rplylen, rplylen == sizeof (tid));
     return tid;
 }

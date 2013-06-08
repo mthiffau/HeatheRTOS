@@ -1,3 +1,5 @@
+#undef NOASSERT
+
 #include "test/test_xmemcpy.h"
 
 #include "xbool.h"

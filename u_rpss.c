@@ -45,12 +45,12 @@ u_rpss_main(void)
 
     /* Register with the nameserver */
     rc = RegisterAs(RPSS_NAME);
-    assert(rc == 0);
+    assertv(rc, rc == 0);
 
     for(;;) {
         /* Receive a request */
         msglen = Receive(&sender, &msg, sizeof(msg));
-        assert(msglen == sizeof(msg));
+        assertv(msglen, msglen == sizeof(msg));
 
         /* Decide what to do */
         switch(msg.type) {
@@ -113,7 +113,7 @@ u_rpss_handle_signup(struct rpss_state* state, int cli_tid)
     if(state->clients[cli_ix].tid != RPS_CLIENT_NONE) {
         msg.type = RPS_MSG_NACK;
         rc = Reply(cli_tid, &msg, sizeof(msg));
-        assert(rc == 0);
+        assertv(rc, rc == 0);
         return;
     }
 
@@ -174,7 +174,7 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
     if(player1->tid != cli_tid) {
         msg.type = RPS_MSG_NACK;
         rc = Reply(cli_tid, &msg, sizeof(msg));
-        assert(rc == 0);
+        assertv(rc, rc == 0);
         return;
     }
 
@@ -212,7 +212,7 @@ u_rpss_handle_play(struct rpss_state* state, int cli_tid, uint8_t move)
                 winner = player2->move == RPS_MOVE_PAPER ? player1 : player2;
                 break;
             default:
-                assert(false);
+                panic("unrecognized RPS move %d\n", player1->move);
             }
 
             bwprintf(COM2,
@@ -256,7 +256,7 @@ u_rpss_handle_quit(struct rpss_state* state, int cli_tid)
     if(player1->tid != cli_tid) {
         msg.type = RPS_MSG_ACK;
         rc = Reply(cli_tid, &msg, sizeof(msg));
-        assert(rc == 0);
+        assertv(rc, rc == 0);
         return;
     }
 

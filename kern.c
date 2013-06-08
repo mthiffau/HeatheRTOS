@@ -116,9 +116,9 @@ kern_init(struct kern *kern, struct kparam *kp)
 
     /* Start special tasks: idle and init. Each is its own parent. */
     tid = task_create(kern, 0, PRIORITY_IDLE, kern_idle);
-    assert(tid == 0);
+    assertv(tid, tid == 0);
     tid = task_create(kern, 1, kp->init_prio, kp->init);
-    assert(tid == 1);
+    assertv(tid, tid == 1);
 }
 
 void
@@ -212,7 +212,7 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
 
     /* Look up the event-blocked task */
     rc = get_task(kern, evt->tid, &wake);
-    assert(rc == GET_TASK_SUCCESS);
+    assertv(rc, rc == GET_TASK_SUCCESS);
     assert(TASK_STATE(wake) == TASK_STATE_EVENT_BLOCKED);
     kern->evblk_count--;
 

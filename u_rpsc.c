@@ -42,7 +42,7 @@ u_rpsc_main(void)
     /* Sign Up */
     msg.type = RPS_MSG_SIGNUP;
     rc = Send(rpss_tid, &msg, sizeof(msg), &rply, sizeof(rply));
-    assert(rc == sizeof(rply));
+    assertv(rc, rc == sizeof(rply));
     assert(rply.type == RPS_MSG_ACK);
 
     bwprintf(COM2,

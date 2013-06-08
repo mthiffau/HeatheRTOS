@@ -7,11 +7,13 @@
 XBOOL_H;
 
 #ifdef NOASSERT
-#define assert(x) ((void)0)
+#define assertv(v,x)    ((void)(v))
+#define assert(x)       assertv(0, x)
 #else
+#define assertv(v,x)    assert(x)
 #define assert(x)                                      \
     do {                                               \
-        if (!(x))                                      \
+        if (!__builtin_expect((x), 0))                 \
             panic("%s:%d: %s",                         \
                   __FILE__,                            \
                   __LINE__,                            \

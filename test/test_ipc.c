@@ -1,3 +1,5 @@
+#undef NOASSERT
+
 #include "test/test_ipc.h"
 
 #include "config.h"

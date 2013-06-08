@@ -1,3 +1,5 @@
+/* Perf test - assertions may be turned off. */
+
 #include "test/test_ipc_perf.h"
 
 #include "config.h"

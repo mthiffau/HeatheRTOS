@@ -24,11 +24,11 @@ u_init_main(void)
      * The priority strikes me as relatively unimportant - NS does some
      * work on startup and then probably never again. */
     ns_tid = Create(U_INIT_PRIORITY - 1, &ns_main);
-    assert(ns_tid == NS_TID);
+    assertv(ns_tid, ns_tid == NS_TID);
 
     /* Start clock server */
     clk_tid = Create(U_INIT_PRIORITY, &clksrv_main);
-    assert(clk_tid >= 0);
+    assertv(clk_tid, clk_tid >= 0);
 
     int oldtime = -1;
     struct clkctx clkctx;

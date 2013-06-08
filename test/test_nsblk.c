@@ -1,3 +1,5 @@
+#undef NOASSERT
+
 #include "test/test_nsblk.h"
 
 #include "config.h"

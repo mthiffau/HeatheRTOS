@@ -1,6 +1,5 @@
 #include "xbool.h"
 #include "xint.h"
-#include "xassert.h"
 #include "xarg.h"
 #include "bwio.h"
 

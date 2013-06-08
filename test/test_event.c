@@ -1,3 +1,5 @@
+#undef NOASSERT
+
 #include "config.h"
 #include "xbool.h"
 #include "xint.h"

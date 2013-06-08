@@ -65,7 +65,7 @@ clksrv_main(void)
     clksrv_init(&clk);
 
     rc = RegisterAs("clock");
-    assert(rc == 0);
+    assertv(rc, rc == 0);
 
     for (;;) {
         rc = Receive(&client, &msg, sizeof (msg));
@@ -95,7 +95,7 @@ clksrv_init(struct clksrv *clk)
     int rc;
     clk->ticks = 0;
     rc = Create(PRIORITY_MAX, &clksrv_notify);
-    assert(rc >= 0);
+    assertv(rc, rc >= 0);
 }
 
 static void
@@ -106,7 +106,7 @@ clksrv_notify(void)
     int rc;
 
     rc = clock_init(2);
-    assert(rc == 0);
+    assertv(rc, rc == 0);
 
     rc = RegisterEvent(EV_CLOCK_TICK, IRQ_CLOCK_TICK, &clksrv_notify_cb);
     assert(rc == 0);
@@ -124,8 +124,8 @@ clksrv_notify(void)
 static int
 clksrv_notify_cb(void *ptr, size_t n)
 {
-    assert(ptr == NULL);
-    assert(n   == 0);
+    assertv(ptr, ptr == NULL);
+    assertv(n,   n   == 0);
     tmr32_intr_clear();
     return 0;
 }
@@ -143,7 +143,7 @@ Time(struct clkctx *ctx)
     int rc, rply;
     msg.type = CLKMSG_TIME;
     rc = Send(ctx->clksrv_tid, &msg, sizeof (msg), &rply, sizeof (rply));
-    assert(rc == sizeof (rply));
+    assertv(rc, rc == sizeof (rply));
     return rply;
 }
 
@@ -155,7 +155,7 @@ Delay(struct clkctx *ctx, int ticks)
     msg.type  = CLKMSG_DELAY;
     msg.ticks = ticks;
     rc = Send(ctx->clksrv_tid, &msg, sizeof (msg), &rply, sizeof (rply));
-    assert(rc == sizeof (rply));
+    assertv(rc, rc == sizeof (rply));
     return rply;
 }
 
@@ -167,6 +167,6 @@ DelayUntil(struct clkctx *ctx, int when_ticks)
     msg.type  = CLKMSG_DELAYUNTIL;
     msg.ticks = when_ticks;
     rc = Send(ctx->clksrv_tid, &msg, sizeof (msg), &rply, sizeof (rply));
-    assert(rc == sizeof (rply));
+    assertv(rc, rc == sizeof (rply));
     return rply;
 }

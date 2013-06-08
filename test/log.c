@@ -1,3 +1,5 @@
+#undef NOASSERT
+
 #include "xarg.h"
 #include "test/log.h"
 
