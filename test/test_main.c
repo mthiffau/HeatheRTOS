@@ -7,6 +7,7 @@
 #include "timer.h"
 
 #include "test/test_xmemcpy.h"
+#include "test/test_pqueue.h"
 #include "test/test_ipc.h"
 #include "test/test_nsblk.h"
 #include "test/test_event.h"
@@ -19,6 +20,7 @@ main(void)
     l1cache_enable();
 
     test_xmemcpy_all();
+    test_pqueue_all();
     test_ipc_all();
     test_nsblk_all();
     test_event_all();

@@ -11,3 +11,7 @@
 #define PRIORITY_MIN        14
 #define PRIORITY_IDLE       15
 #define IRQ_PRIORITIES      16
+
+/* Select priority queue implementation. */
+#define PQ_RING
+/* #define PQ_HEAP */
