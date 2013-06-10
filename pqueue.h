@@ -58,7 +58,7 @@ void pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem);
 
 /* Add a key/value entry to the priority queue. Returns 0 if the entry
  * was successfully added, and -1 if there was no space. */
-int pqueue_add(struct pqueue *q, int key, int val);
+int pqueue_add(struct pqueue *q, intptr_t key, intptr_t val);
 
 /* Peek at the minimum-key entry the priority queue. Returns NULL if
  * the queue is empty. The result is valid until pq_pop() is called. */

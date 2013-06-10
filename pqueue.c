@@ -21,7 +21,7 @@ pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem)
 }
 
 int
-pqueue_add(struct pqueue* q, int key, int val)
+pqueue_add(struct pqueue* q, intptr_t key, intptr_t val)
 {
 #ifdef PQ_RING
     size_t i, start;
