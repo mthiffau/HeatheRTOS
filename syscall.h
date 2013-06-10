@@ -4,15 +4,15 @@
 
 #define SYSCALL_H
 
-#define SYSCALL_CREATE          0x11
-#define SYSCALL_MYTID           0x12
-#define SYSCALL_MYPARENTTID     0x13
-#define SYSCALL_PASS            0x14
-#define SYSCALL_EXIT            0x15
-#define SYSCALL_DESTROY         0x16
-#define SYSCALL_SEND            0x21
-#define SYSCALL_RECEIVE         0x22
-#define SYSCALL_REPLY           0x23
-#define SYSCALL_REGISTEREVENT   0x41
-#define SYSCALL_AWAITEVENT      0x42
-#define SYSCALL_SHUTDOWN        0x51
+#define SYSCALL_CREATE          0x0
+#define SYSCALL_MYTID           0x1
+#define SYSCALL_MYPARENTTID     0x2
+#define SYSCALL_PASS            0x3
+#define SYSCALL_EXIT            0x4
+#define SYSCALL_DESTROY         0x5
+#define SYSCALL_SEND            0x6
+#define SYSCALL_RECEIVE         0x7
+#define SYSCALL_REPLY           0x8
+#define SYSCALL_REGISTEREVENT   0x9
+#define SYSCALL_AWAITEVENT      0xa
+#define SYSCALL_SHUTDOWN        0xb
