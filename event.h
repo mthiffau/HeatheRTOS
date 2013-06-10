@@ -12,8 +12,7 @@ CONFIG_H;
 
 #define IRQ_COUNT       64
 
-/* Events have priority in order of their event ID. */
-
+/* Error codes. */
 enum {
     EVT_OOR     = -1,
     EVT_IN_USE  = -2,
@@ -23,21 +22,36 @@ enum {
     EVT_DBL_REG = -6
 };
 
+/* An event slot. Each registered event belongs to a particular task.
+ * It is associated with a particular IRQ.
+ * Events are triggered based on IRQs, and prioritized using the VIC.
+ * Events have priority in order of their event ID. */
 struct event {
-    int    irq;
-    tid_t  tid;
-    int  (*cb)(void*, size_t);
-    void  *ptr;
-    size_t size;
+    int    irq;                 /* which IRQ */
+    tid_t  tid;                 /* owning task */
+    int  (*cb)(void*, size_t);  /* callback supplied by owning task */
+    void  *ptr;                 /* AwaitEvent() arguments */
+    size_t size;                /* (these are passed to cb) */
 };
 
+/* Event table. Accounts for all event registration data. */
 struct eventab {
+    /* Event slots. */
     struct event events[IRQ_PRIORITIES];
+    /* Bitmask for IRQs: 1 if in use, 0 if free. */
     uint32_t     irq_used[IRQ_COUNT / 32 + (IRQ_COUNT % 32 ? 1 : 0)];
 };
 
+/* Initialize the event table. This resets the interrupt controller. */
 void evt_init(struct eventab *tab);
 
+/* Register an event to a given task with a given callback function.
+ * Returns 0 for success, or:
+ *  - EVT_OOR if the event ID is out of range
+ *  - EVT_IN_USE if the event ID is already in use
+ *  - IRQ_OOR if the IRQ is out of range
+ *  - IRQ_IN_USE if the IRQ is already in use
+ */
 int evt_register(
     struct eventab *tab,
     tid_t tid,
@@ -45,9 +59,28 @@ int evt_register(
     int irq,
     int (*cb)(void*, size_t));
 
+/* Unregister a registered event by ID. Returns 0 for success, or
+ * EVT_NOT_REG if that event is not registered. */
 int  evt_unregister(struct eventab *tab, int event);
+
+/* Get the event ID of the current event (in an IRQ handler).
+ * Each call to evt_cur() must be followed by a later call to evt_clear(). */
 int  evt_cur(void);
+
+/* Clear the interrupt from the interrupt controller.
+ * This allows lower-priority interrupts through.
+ * event must be the result of evt_cur(). */
 void evt_clear(struct eventab *tab, int event);
+
+/* Enable the IRQ corresponding to the given event.
+ * This accepts parameters for AwaitEvent, which need to be saved
+ * for the callback. */
 void evt_enable(struct eventab *tab, int event, void*, size_t);
+
+/* Disable the IRQ corresponding to the given event.
+ * IRQs are kept disabled unless their owning task is inside AwaitEvent().
+ * This way, it's impossible to swallow an IRQ while no task is waiting. */
 void evt_disable(struct eventab *tab, int event);
+
+/* Clean up interrupt controller state. */
 void evt_cleanup(void);
