@@ -56,6 +56,7 @@ clock_init(int freq_Hz)
     if (tmr32_set_kHz(HWCLOCK_Hz / 1000) != 0)
         return -1;
 
+    tmr32_intr_clear();
     tmr32_enable(true);
     return 0;
 }
