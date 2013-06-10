@@ -68,7 +68,7 @@ evt_unregister(struct eventab *tab, int event)
 {
     struct event *evt;
     volatile struct vic *vic;
-    int irq;
+    int irq, mask_i, mask_j;
 
     evt = &tab->events[event];
     if (evt->irq < 0)
@@ -81,6 +81,12 @@ evt_unregister(struct eventab *tab, int event)
     vintr_enable(vic, event, false);
     vintr_set(   vic, event, 0);
     vintr_setisr(vic, event, 0xdeadbeef);
+
+    /* Free up the event ID and IRQ */
+    mask_i = evt->irq / 32;
+    mask_j = evt->irq % 32;
+    tab->irq_used[mask_i] &= ~(1 << mask_j);
+    evt->irq = IRQ_INVALID;
 
     return 0;
 }
