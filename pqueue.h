@@ -36,18 +36,18 @@ struct pqueue_node {
 #ifdef PQ_RING
     /* No PQ_RING-specific members */
 #else
-#error "heap priority queue not implemented"
+    /* No PQ_HEAP-specific members */
 #endif
 };
 
 struct pqueue {
     struct pqueue_node *nodes;
     size_t              maxsize;
+    size_t              count;
 #ifdef PQ_RING
     size_t start;
-    size_t count;
 #else
-#error "heap priority queue not implemented"
+    /* No PQ_HEAP-specific members */
 #endif
 };
 
