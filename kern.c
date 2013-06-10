@@ -236,6 +236,12 @@ static void
 kern_RegisterEvent(struct kern *kern, struct task_desc *active)
 {
     int event_id = (int)active->regs->r0;
+    if (active->event >= 0) {
+        active->regs->r0 = EVT_DBL_REG;
+        task_ready(kern, active);
+        return;
+    }
+
     active->regs->r0 = evt_register(
         &kern->eventab,
         TASK_TID(kern, active),

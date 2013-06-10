@@ -19,7 +19,8 @@ enum {
     EVT_IN_USE  = -2,
     IRQ_OOR     = -3,
     IRQ_IN_USE  = -4,
-    EVT_NOT_REG = -5
+    EVT_NOT_REG = -5,
+    EVT_DBL_REG = -6
 };
 
 struct event {
