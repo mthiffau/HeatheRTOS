@@ -34,12 +34,16 @@ u_init_main(void)
     struct clkctx clkctx;
     clkctx_init(&clkctx);
     for (;;) {
-        int time = Time(&clkctx);
+        int rc, time = Time(&clkctx);
         if (time != oldtime) {
             oldtime = time;
             bwprintf(COM2, "new time %d\n", time);
             if (time >= 10)
                 Shutdown();
+        } else {
+            bwputc(COM2, '.');
         }
+        rc = Delay(&clkctx, 1);
+        assertv(rc, rc == 0);
     }
 }

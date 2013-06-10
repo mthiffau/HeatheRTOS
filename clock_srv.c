@@ -5,12 +5,14 @@
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
+#include "pqueue.h"
 #include "timer.h"
 
 #include "xassert.h"
 #include "u_syscall.h"
 #include "u_events.h"
 #include "ns.h"
+#include "array_size.h"
 
 enum {
     CLKMSG_TICK,
@@ -31,11 +33,15 @@ struct clkmsg {
 
 struct clksrv {
     int ticks;
+    struct pqueue      delays; /* TIDs keyed on wakeup time */
+    struct pqueue_node delay_nodes[MAX_TASKS];
 };
 
 static void clksrv_init(struct clksrv *clk);
 static void clksrv_notify(void);
 static int  clksrv_notify_cb(void*, size_t);
+static void clksrv_delayuntil(struct clksrv *clk, tid_t who, int ticks);
+static void clksrv_undelay(struct clksrv *clk);
 
 int
 clock_init(int freq_Hz)
@@ -61,28 +67,30 @@ clksrv_main(void)
     struct clkmsg msg;
     tid_t client;
     int rc, rply;
-
     clksrv_init(&clk);
-
     rc = RegisterAs("clock");
     assertv(rc, rc == 0);
-
     for (;;) {
         rc = Receive(&client, &msg, sizeof (msg));
         assert(rc == sizeof (msg));
         switch (msg.type) {
         case CLKMSG_TICK:
             rc = Reply(client, NULL, 0);
-            assert(rc == 0);
+            assertv(rc, rc == 0);
             clk.ticks++;
+            clksrv_undelay(&clk);
             break;
-
         case CLKMSG_TIME:
             rply = clk.ticks;
             rc = Reply(client, &rply, sizeof (rply));
-            assert(rc == 0);
+            assertv(rc, rc == 0);
             break;
-
+        case CLKMSG_DELAY:
+            clksrv_delayuntil(&clk, client, clk.ticks + msg.ticks);
+            break;
+        case CLKMSG_DELAYUNTIL:
+            clksrv_delayuntil(&clk, client, msg.ticks);
+            break;
         default:
             panic("unrecognized clock server message: %d", msg.type);
         }
@@ -94,6 +102,7 @@ clksrv_init(struct clksrv *clk)
 {
     int rc;
     clk->ticks = 0;
+    pqueue_init(&clk->delays, ARRAY_SIZE(clk->delay_nodes), clk->delay_nodes);
     rc = Create(PRIORITY_MAX, &clksrv_notify);
     assertv(rc, rc >= 0);
 }
@@ -105,7 +114,7 @@ clksrv_notify(void)
     struct clkmsg msg;
     int rc;
 
-    rc = clock_init(2);
+    rc = clock_init(100);
     assertv(rc, rc == 0);
 
     rc = RegisterEvent(EV_CLOCK_TICK, IRQ_CLOCK_TICK, &clksrv_notify_cb);
@@ -128,6 +137,38 @@ clksrv_notify_cb(void *ptr, size_t n)
     assertv(n,   n   == 0);
     tmr32_intr_clear();
     return 0;
+}
+
+static void
+clksrv_delayuntil(struct clksrv *clk, tid_t who, int when_ticks)
+{
+    if (when_ticks > clk->ticks) {
+        /* Add to priority queue */
+        int rc;
+        rc = pqueue_add(&clk->delays, when_ticks, who);
+        assertv(rc, rc == 0); /* we should always have enough space */
+    } else {
+        /* Reply immediately */
+        int rc, rply;
+        rply = when_ticks == clk->ticks ? CLKRPLY_OK : CLKRPLY_DELAY_PAST;
+        rc = Reply(who, &rply, sizeof (rply));
+        assertv(rc, rc == 0);
+    }
+}
+
+static void
+clksrv_undelay(struct clksrv *clk)
+{
+    struct pqueue_entry *delay;
+    while ((delay = pqueue_peekmin(&clk->delays)) != NULL) {
+        int rc, rply;
+        if (delay->key > clk->ticks)
+            break; /* no more tasks ready to wake up; all times in future */
+        rply = CLKRPLY_OK;
+        rc = Reply((tid_t)delay->val, &rply, sizeof (rply));
+        assertv(rc, rc == 0);
+        pqueue_popmin(&clk->delays);
+    }
 }
 
 void
