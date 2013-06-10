@@ -114,8 +114,11 @@ task_free(struct kern *kern, struct task_desc *td)
 {
     TASK_SET_STATE(td, TASK_STATE_FREE);
     td->tid_seq++;
-    if (td->event >= 0)
-        evt_unregister(&kern->eventab, td->event);
+    if (td->event >= 0) {
+        int rc;
+        rc = evt_unregister(&kern->eventab, td->event);
+        assertv(rc, rc == 0);
+    }
     task_enqueue(kern, td, &kern->free_tasks);
 }
 
