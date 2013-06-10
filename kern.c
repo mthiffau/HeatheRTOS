@@ -82,9 +82,6 @@ kern_init(struct kern *kern, struct kparam *kp)
 
     /* Enable IRQs */
     evt_init(&kern->eventab);
-    intr_reset_all();
-    vintr_setdefisr(VIC1, 0xcafebabe);
-    vintr_setdefisr(VIC2, 0xcafebabe);
 
     /* 1MB reserved for kernel stack, move down to next 4k boundary */
     kern->stack_mem_top = (void*)(((uint32_t)&i - 0x100000) & 0xfffff000);

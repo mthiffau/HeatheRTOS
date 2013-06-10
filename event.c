@@ -17,6 +17,9 @@ void
 evt_init(struct eventab *tab)
 {
     unsigned i;
+    intr_reset_all();
+    vintr_setdefisr(VIC1, 0xcafebabe);
+    vintr_setdefisr(VIC2, 0xcafebabe);
     for (i = 0; i < ARRAY_SIZE(tab->events); i++)
         tab->events[i].irq = IRQ_INVALID;
     for (i = 0; i < ARRAY_SIZE(tab->irq_used); i++)
@@ -101,6 +104,8 @@ evt_cur(void)
     got2 = vintr_cur(VIC2, &vec2);
 
     assert(got1 || got2);
+    assert(!got1 || vec1 < IRQ_PRIORITIES);
+    assert(!got2 || vec2 < IRQ_PRIORITIES);
     if (!got1)
         return vec2;
     if (!got2)
