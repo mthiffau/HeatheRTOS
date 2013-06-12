@@ -13,6 +13,7 @@
 #include "test/test_event.h"
 #include "test/test_clksrv_simple.h"
 #include "test/test_ipc_perf.h"
+#include "test/test_queue_impl.h"
 
 int
 main(void)
@@ -27,6 +28,7 @@ main(void)
     test_event_all();
     test_clksrv_simple();
     test_ipc_perf();
+    test_queue_impl();
 
     return 0;
 }
