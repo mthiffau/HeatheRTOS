@@ -12,6 +12,7 @@
 #include "test/test_nsblk.h"
 #include "test/test_event.h"
 #include "test/test_clksrv_simple.h"
+#include "test/test_clksrv_more.h"
 #include "test/test_ipc_perf.h"
 #include "test/test_queue_impl.h"
 
@@ -27,6 +28,7 @@ main(void)
     test_nsblk_all();
     test_event_all();
     test_clksrv_simple();
+    test_clksrv_more();
     test_ipc_perf();
     test_queue_impl();
 

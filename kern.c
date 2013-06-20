@@ -59,7 +59,7 @@ kern_main(struct kparam *kp)
         kern_handle_intr(&kern, active, intr);
         assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
     }
-
+    
     kern_cleanup();
     return 0;
 }
