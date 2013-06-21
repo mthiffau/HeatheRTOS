@@ -18,7 +18,14 @@
 #include "array_size.h"
 #include "static_assert.h"
 
-#define GETC_BUF_SIZE 128
+#define GETC_BUF_SIZE 512
+#define PUTC_BUF_SIZE 512
+
+#define NOTIFY_PRIO_RX          0
+#define NOTIFY_PRIO_RXTO        1
+#define NOTIFY_PRIO_TXR         2
+#define NOTIFY_PRIO_GEN         3
+#define NOTIFY_PRIO(uart, n)    (1 + (uart) * 4 + (n))
 
 struct uart {
     uint32_t data;
@@ -112,6 +119,7 @@ serialsrv_main(void)
     msglen = Receive(&client, &cfg, sizeof (cfg));
     assertv(msglen, msglen == sizeof (cfg));
     assert(cfg.uart == 0 || cfg.uart == 1);
+    assert(!cfg.fifos || cfg.nocts);
     assert(!cfg.fifos); /* FIXME */
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
@@ -232,39 +240,48 @@ serial_getc(struct serialsrv *srv, tid_t client)
     }
 }
 
+static tid_t
+serial_notif_init(
+    int evt_type,
+    int intrs[2],
+    int (*cb)(void*,size_t),
+    struct serialcfg *cfg)
+{
+    tid_t server;
+    int evt, rc;
+
+    /* Receive configuration */
+    rc = Receive(&server, cfg, sizeof (*cfg));
+    assertv(rc, rc == sizeof (*cfg));
+    rc = Reply(server, NULL, 0);
+    assertv(rc, rc == 0);
+
+    /* Register for UART interrupt */
+    assert(cfg->uart < 2);
+    evt = NOTIFY_PRIO(cfg->uart, evt_type); /* FIXME? sketchy */
+    rc = RegisterEvent(evt, intrs[cfg->uart], cb);
+    assertv(rc, rc == 0);
+
+    return server;
+}
+
 /* Rx Ready Notifier and Callback */
 static void
 serialrx_notif(void)
 {
+    static int rx_intrs[2] = { 23, 25 };
+
     volatile struct uart *uart;
     struct serialcfg cfg;
-    struct serialmsg msg;
     tid_t server;
-    int rc, rx_intr;
 
-    /* Receive configuration */
-    rc = Receive(&server, &cfg, sizeof (cfg));
-    assertv(rc, rc == sizeof (cfg));
-    rc = Reply(server, NULL, 0);
-    assertv(rc, rc == 0);
+    struct serialmsg msg;
+    int rc;
+
+    server = serial_notif_init(
+        NOTIFY_PRIO_RX, rx_intrs, &serialrx_notif_cb, &cfg);
     uart = get_uart(cfg.uart);
-
-    /* Register for UART receive interrupt */
-    switch (cfg.uart) {
-    case COM1:
-        rx_intr = 23;
-        break;
-    case COM2:
-        rx_intr = 25;
-        break;
-    default:
-        panic("invalid UART %d\n", cfg.uart);
-    }
-
-    /* FIXME? sketchy priority assignment */
     uart->ctrl |= RIEN_MASK;
-    rc = RegisterEvent(1 + 4 * cfg.uart, rx_intr, &serialrx_notif_cb);
-    assertv(rc, rc == 0);
 
     /* Start actual loop */
     msg.type = SERIALMSG_RX;

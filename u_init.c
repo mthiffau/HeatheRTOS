@@ -20,7 +20,8 @@ u_init_main(void)
 {
     tid_t ns_tid, clk_tid, serial_tid;
     struct serialcfg serialcfg;
-    struct serialctx ctx;
+    struct serialctx tty;
+    struct clkctx clock;
     int rplylen;
     int ch;
 
@@ -45,11 +46,13 @@ u_init_main(void)
     assertv(rplylen, rplylen == 0);
 
     /* Read characters */
-    serialctx_init(&ctx, COM2);
-    while ((ch = Getc(&ctx)) != '\e') {
+    clkctx_init(&clock);
+    serialctx_init(&tty, COM2);
+    while ((ch = Getc(&tty)) != '\e') {
         bwputc(COM2, (char)ch);
+        if (ch == '-')
+            Delay(&clock, 100);
     }
 
     Shutdown();
 }
-
