@@ -10,6 +10,7 @@
 #include "xassert.h"
 #include "cpumode.h"
 #include "clock_srv.h"
+#include "serial_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -17,7 +18,11 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid;
+    tid_t ns_tid, clk_tid, serial_tid;
+    struct serialcfg serialcfg;
+    struct serialctx ctx;
+    int rplylen;
+    int ch;
 
     /* Start the name server. It's important that startup proceeds so that
      * the TID of the name server can be known at compile time (NS_TID).
@@ -30,7 +35,20 @@ u_init_main(void)
     clk_tid = Create(2, &clksrv_main);
     assertv(clk_tid, clk_tid >= 0);
 
-    /* TODO */
+    /* Start serial server for TTY */
+    serial_tid = Create(2, &serialsrv_main);
+    assertv(serial_tid, serial_tid >= 0);
+    serialcfg.uart  = COM2;
+    serialcfg.fifos = false;
+    serialcfg.nocts = true;
+    rplylen = Send(serial_tid, &serialcfg, sizeof (serialcfg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+
+    /* Read characters */
+    serialctx_init(&ctx, COM2);
+    while ((ch = Getc(&ctx)) != '\e') {
+        bwputc(COM2, (char)ch);
+    }
 
     Shutdown();
 }
