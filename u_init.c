@@ -49,7 +49,7 @@ u_init_main(void)
     clkctx_init(&clock);
     serialctx_init(&tty, COM2);
     while ((ch = Getc(&tty)) != '\e') {
-        bwputc(COM2, (char)ch);
+        Putc(&tty, (char)ch);
         if (ch == '-')
             Delay(&clock, 100);
     }
