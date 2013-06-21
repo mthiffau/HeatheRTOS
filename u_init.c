@@ -17,6 +17,8 @@
 void
 u_init_main(void)
 {
+    tid_t ns_tid, clk_tid;
+
     /* Start the name server. It's important that startup proceeds so that
      * the TID of the name server can be known at compile time (NS_TID).
      * The priority strikes me as relatively unimportant - NS does some
