@@ -21,6 +21,11 @@ struct serialcfg {
     uint8_t uart;
     bool    fifos;
     bool    nocts;
+    int     baud;
+    bool    parity;
+    bool    parity_even;
+    bool    stop2;
+    uint8_t bits;
 };
 
 void serialsrv_main(void);

@@ -92,12 +92,13 @@ static void serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg);
 static void serial_writechar(struct serialsrv *srv, char c);
 static void serial_rx(struct serialsrv *srv, tid_t client, int rx_data);
 static void serial_txr(struct serialsrv *srv, tid_t notifier);
+static void serial_cts(struct serialsrv *srv, tid_t notifier, bool cts);
 static void serial_putc(struct serialsrv *srv, tid_t client, char c);
 static void serial_getc(struct serialsrv *srv, tid_t client);
 
 static tid_t
 serial_notif_init(
-    int evt_type,
+    int evts[2],
     int intrs[2],
     int (*cb)(void*,size_t),
     struct serialcfg *cfg);
@@ -115,6 +116,8 @@ static void serialgen_notif(void);
 static int  serialgen_notif_cb(void*, size_t);
 
 static volatile struct uart *get_uart(int which);
+
+static void uart_ctrl_delay(void);
 
 void
 serialsrv_main(void)
@@ -157,8 +160,7 @@ serialsrv_main(void)
             serial_txr(&srv, client);
             break;
         case SERIALMSG_CTS:
-            /* CTS state changed */
-            panic("CTS message not implemented");
+            serial_cts(&srv, client, msg.cts_status);
             break;
         case SERIALMSG_GETC:
             /* Char input request from a task */
@@ -177,18 +179,58 @@ static void
 serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
 {
     int rc;
+    uint32_t ctrl;
     tid_t tid;
+
+    assert(cfg->bits >= 5 && cfg->bits <= 8);
 
     srv->uart  = get_uart(cfg->uart);
     srv->fifos = cfg->fifos;
     srv->nocts = cfg->nocts;
 
+    /* Set baud rate */
+    uart_ctrl_delay();
+    srv->uart->lcrm = 0x0;
+    uart_ctrl_delay();
+    switch (cfg->baud) { /* FIXME? */
+    case 115200:
+        srv->uart->lcrl = 0x3;
+        break;
+    case 2400:
+        srv->uart->lcrl = 0xbf;
+        break;
+    default:
+        panic("invalid baud rate %d", cfg->baud);
+    }
+
+    /* Initial UART setup */
+    uart_ctrl_delay();
+    srv->uart->ctrl = 0; /* disabled */
+    uart_ctrl_delay();
+    srv->uart->lcrh =
+          ((cfg->bits - 5) << 5)
+        | (cfg->fifos       ? FEN_MASK  : 0)
+        | (cfg->stop2       ? STP2_MASK : 0)
+        | (cfg->parity_even ? EPS_MASK  : 0)
+        | (cfg->parity      ? PEN_MASK  : 0)
+        | 0 /* BRK */;
+
+    /* Re-enable UART, interrupts */
+    uart_ctrl_delay();
+    ctrl = UARTEN_MASK | RIEN_MASK | TIEN_MASK;
+    if (!cfg->nocts)
+        ctrl |= MSIEN_MASK;
+    srv->uart->ctrl = ctrl;
+
+    /* Initialize getc state */
+    srv->getc_client = -1;
+    rbuf_init(&srv->getc_buf, srv->getc_buf_mem, sizeof (srv->getc_buf_mem));
+
+    /* Initialize putc state */
+    uart_ctrl_delay();
     srv->txr = false; /* interrupt will notify us, even if immediately */
     srv->cts = srv->nocts || (bool)(srv->uart->flag & CTS_MASK);
     rbuf_init(&srv->putc_buf, srv->putc_buf_mem, sizeof (srv->putc_buf_mem));
-
-    srv->getc_client = -1;
-    rbuf_init(&srv->getc_buf, srv->getc_buf_mem, sizeof (srv->getc_buf_mem));
 
     /* Start notifiers */
     tid = Create(PRIORITY_MAX, &serialrx_notif);
@@ -196,19 +238,17 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
     assertv(rc, rc == 0);
 
-    (void)&serialtx_notif;
-    (void)&serialgen_notif;
-
     tid = Create(PRIORITY_MAX, &serialtx_notif);
     assertv(tid, tid >= 0);
     rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
     assertv(rc, rc == 0);
-    /* TODO
-    tid = Create(PRIORITY_MAX, &serialgen_notif);
-    assertv(tid, tid >= 0);
-    rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
-    assertv(rc, rc == 0);
-    */
+
+    if (!cfg->nocts) {
+        tid = Create(PRIORITY_MAX, &serialgen_notif);
+        assertv(tid, tid >= 0);
+        rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
+        assertv(rc, rc == 0);
+    }
 }
 
 static void
@@ -296,15 +336,28 @@ serial_txr(struct serialsrv *srv, tid_t notifier)
         serial_writechar(srv, c);
 }
 
+static void
+serial_cts(struct serialsrv *srv, tid_t notifier, bool cts)
+{
+    int rc;
+    char c;
+    rc = Reply(notifier, NULL, 0);
+    assertv(rc, rc == 0);
+    assert(!srv->nocts);
+    srv->cts = cts;
+    if (srv->cts && srv->txr && rbuf_getc(&srv->putc_buf, &c))
+        serial_writechar(srv, c);
+}
+
 static tid_t
 serial_notif_init(
-    int evt_type,
+    int evts[2],
     int intrs[2],
     int (*cb)(void*,size_t),
     struct serialcfg *cfg)
 {
     tid_t server;
-    int evt, rc;
+    int rc;
 
     /* Receive configuration */
     rc = Receive(&server, cfg, sizeof (*cfg));
@@ -314,8 +367,7 @@ serial_notif_init(
 
     /* Register for UART interrupt */
     assert(cfg->uart < 2);
-    evt = NOTIFY_PRIO(cfg->uart, evt_type); /* FIXME? sketchy */
-    rc = RegisterEvent(evt, intrs[cfg->uart], cb);
+    rc = RegisterEvent(evts[cfg->uart], intrs[cfg->uart], cb);
     assertv(rc, rc == 0);
 
     return server;
@@ -325,17 +377,16 @@ serial_notif_init(
 static void
 serialrx_notif(void)
 {
-    static int rx_intrs[2] = { 23, 25 };
+    static int rx_evts[2]  = { EV_UART1_RX, EV_UART2_RX };
+    static int rx_intrs[2] = { IRQ_UART1_RX, IRQ_UART2_RX };
     volatile struct uart *uart;
     struct serialcfg cfg;
     tid_t server;
     struct serialmsg msg;
     int rc;
 
-    server = serial_notif_init(
-        NOTIFY_PRIO_RX, rx_intrs, &serialrx_notif_cb, &cfg);
+    server = serial_notif_init(rx_evts, rx_intrs, &serialrx_notif_cb, &cfg);
     uart = get_uart(cfg.uart);
-    uart->ctrl |= RIEN_MASK;
 
     /* Start actual loop */
     msg.type = SERIALMSG_RX;
@@ -363,17 +414,16 @@ serialrx_notif_cb(void *untyped_uart, size_t n)
 static void
 serialtx_notif(void)
 {
-    static int tx_intrs[2] = { 24, 26 };
+    static int tx_evts[2]  = { EV_UART1_TX, EV_UART2_TX };
+    static int tx_intrs[2] = { IRQ_UART1_TX, IRQ_UART2_TX };
     volatile struct uart *uart;
     struct serialcfg cfg;
     tid_t server;
     struct serialmsg msg;
     int rc;
 
-    server = serial_notif_init(
-        NOTIFY_PRIO_TXR, tx_intrs, &serialtx_notif_cb, &cfg);
+    server = serial_notif_init(tx_evts, tx_intrs, &serialtx_notif_cb, &cfg);
     uart = get_uart(cfg.uart);
-    uart->ctrl |= TIEN_MASK;
 
     /* Start actual loop */
     msg.type = SERIALMSG_TXR;
@@ -396,19 +446,53 @@ serialtx_notif_cb(void *untyped_uart, size_t n)
 }
 
 /* General UART IRQ Notifier */
+struct serialgen_info {
+    volatile struct uart *uart;
+    struct serialmsg      msg;
+};
+
 static void
 serialgen_notif(void)
 {
-    /* TODO */
-    (void)&serialgen_notif_cb;
+    static int gen_evts[2]  = { EV_UART1_GEN, EV_UART2_GEN };
+    static int gen_intrs[2] = { IRQ_UART1_GEN, IRQ_UART2_GEN };
+    volatile struct uart *uart;
+    struct serialcfg cfg;
+    tid_t server;
+    struct serialgen_info info;
+    int rc;
+
+    server = serial_notif_init(gen_evts, gen_intrs, &serialgen_notif_cb, &cfg);
+    uart = get_uart(cfg.uart);
+
+    /* Start actual loop */
+    info.uart = uart;
+    for (;;) {
+        rc = AwaitEvent(&info, 0);
+        assertv(rc, rc == 0);
+        rc = Send(server, &info.msg, sizeof (info.msg), NULL, 0);
+        assertv(rc, rc == 0);
+    }
 }
 
 static int
-serialgen_notif_cb(void *untyped_uart, size_t n)
+serialgen_notif_cb(void *untyped_info, size_t n)
 {
-    (void)untyped_uart;
-    (void)n;
-    return -1;
+    struct serialgen_info *info = (struct serialgen_info*)untyped_info;
+    uint32_t intr;
+    (void)n; /* ignore */
+
+    /* Check interrupt - just modem status for now. */
+    intr = info->uart->intr;
+    if(!(intr & 0x1)) {
+        bwprintf(COM2, "!%x\n", (unsigned)intr);
+        return -1; /* not for us */
+    }
+    info->uart->intr = 0; /* clear modem status interrupt */
+
+    info->msg.type       = SERIALMSG_CTS;
+    info->msg.cts_status = (bool)(info->uart->flag & CTS_MASK);
+    return 0;
 }
 
 static volatile struct uart*
@@ -456,4 +540,66 @@ Putc(struct serialctx *ctx, char c)
     rplylen = Send(ctx->serial_tid, &msg, sizeof (msg), &rply, sizeof (rply));
     assertv(rplylen, rplylen == sizeof (rply));
     return rply;
+}
+
+static void
+uart_ctrl_delay(void)
+{
+    __asm__ (
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+        "nop\n"
+    );
 }

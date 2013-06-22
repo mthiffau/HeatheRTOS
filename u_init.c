@@ -25,6 +25,9 @@ u_init_main(void)
     int rplylen;
     int ch;
 
+    char buf[512];
+    int pos;
+
     /* Start the name server. It's important that startup proceeds so that
      * the TID of the name server can be known at compile time (NS_TID).
      * The priority strikes me as relatively unimportant - NS does some
@@ -39,19 +42,37 @@ u_init_main(void)
     /* Start serial server for TTY */
     serial_tid = Create(2, &serialsrv_main);
     assertv(serial_tid, serial_tid >= 0);
-    serialcfg.uart  = COM2;
-    serialcfg.fifos = false;
-    serialcfg.nocts = true;
+    serialcfg = (struct serialcfg) {
+        .uart   = COM1,
+        .fifos  = false,
+        .nocts  = false,
+        .baud   = 2400,
+        .parity = false,
+        .parity_even = false,
+        .stop2  = true,
+        .bits   = 8
+    };
     rplylen = Send(serial_tid, &serialcfg, sizeof (serialcfg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 
     /* Read characters */
     clkctx_init(&clock);
-    serialctx_init(&tty, COM2);
+    serialctx_init(&tty, COM1);
+
+    pos = 0;
     while ((ch = Getc(&tty)) != '\e') {
-        Putc(&tty, (char)ch);
+        buf[pos++] = ch;
+        Putc(&tty, ch == '\r' ? '\n' : ch);
         if (ch == '-')
             Delay(&clock, 100);
+        else if (ch == '\n' || ch == '\r') {
+            int i;
+            for (i = 0; i < pos - 1; i++) {
+                Putc(&tty, buf[i]);
+            }
+            Putc(&tty, '\n');
+            pos = 0;
+        }
     }
 
     Shutdown();
