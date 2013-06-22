@@ -11,6 +11,7 @@
 #include "cpumode.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
+#include "ui_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -18,15 +19,9 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid, serial_tid;
-    struct serialcfg serialcfg;
-    struct serialctx tty;
-    struct clkctx clock;
+    tid_t ns_tid, clk_tid, tty_tid, ui_tid;
+    struct serialcfg ttycfg;
     int rplylen;
-    int ch;
-
-    char buf[512];
-    int pos;
 
     /* Start the name server. It's important that startup proceeds so that
      * the TID of the name server can be known at compile time (NS_TID).
@@ -40,40 +35,22 @@ u_init_main(void)
     assertv(clk_tid, clk_tid >= 0);
 
     /* Start serial server for TTY */
-    serial_tid = Create(2, &serialsrv_main);
-    assertv(serial_tid, serial_tid >= 0);
-    serialcfg = (struct serialcfg) {
-        .uart   = COM1,
+    tty_tid = Create(2, &serialsrv_main);
+    assertv(tty_tid, tty_tid >= 0);
+    ttycfg = (struct serialcfg) {
+        .uart   = COM2,
         .fifos  = false,
-        .nocts  = false,
-        .baud   = 2400,
+        .nocts  = true,
+        .baud   = 115200,
         .parity = false,
         .parity_even = false,
-        .stop2  = true,
+        .stop2  = false,
         .bits   = 8
     };
-    rplylen = Send(serial_tid, &serialcfg, sizeof (serialcfg), NULL, 0);
+    rplylen = Send(tty_tid, &ttycfg, sizeof (ttycfg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 
-    /* Read characters */
-    clkctx_init(&clock);
-    serialctx_init(&tty, COM1);
-
-    pos = 0;
-    while ((ch = Getc(&tty)) != '\e') {
-        buf[pos++] = ch;
-        Putc(&tty, ch == '\r' ? '\n' : ch);
-        if (ch == '-')
-            Delay(&clock, 100);
-        else if (ch == '\n' || ch == '\r') {
-            int i;
-            for (i = 0; i < pos - 1; i++) {
-                Putc(&tty, buf[i]);
-            }
-            Putc(&tty, '\n');
-            pos = 0;
-        }
-    }
-
-    Shutdown();
+    /* Start UI server */
+    ui_tid = Create(2, &uisrv_main);
+    assertv(ui_tid, ui_tid >= 0);
 }

@@ -15,3 +15,6 @@
 /* Select priority queue implementation. */
 #define PQ_RING
 /* #define PQ_HEAP */
+
+/* Track sensor data size max */
+#define SENSOR_BYTES        10

@@ -1,0 +1,249 @@
+#include "config.h"
+#include "xint.h"
+#include "u_tid.h"
+#include "ui_srv.h"
+
+#include "xbool.h"
+#include "xassert.h"
+
+#include "xdef.h"
+#include "xmemcpy.h"
+
+#include "u_syscall.h"
+#include "ns.h"
+#include "serial_srv.h"
+
+#include "xarg.h"
+#include "bwio.h"
+
+#define STR(x)          STR1(x)
+#define STR1(x)         #x
+
+#define CMD_MAXLEN      63
+#define MAX_SENSORS     10
+
+/* Escape sequences */
+#define TERM_RESET_DEVICE           "\ec"
+#define TERM_ERASE_ALL              "\e[2J"
+#define TERM_ERASE_DOWN             "\e[J"
+#define TERM_ERASE_EOL              "\e[K"
+#define TERM_FORCE_CURSOR_START     "\e["
+#define TERM_FORCE_CURSOR_MID       ";"
+#define TERM_FORCE_CURSOR_END       "f"
+#define TERM_FORCE_CURSOR(row, col) \
+    TERM_FORCE_CURSOR_START row TERM_FORCE_CURSOR_MID col TERM_FORCE_CURSOR_END
+#define TERM_SAVE_CURSOR            "\e[s"
+#define TERM_RESTORE_CURSOR         "\e[u"
+
+/* Screen positions */
+#define TIME_ROW                    2
+#define TIME_COL                    7
+#define TIME_MSG_COL                1
+#define TIME_MSG                    "Time: "
+#define CMD_ROW                     4
+#define CMD_COL                     3
+#define CMD_PROMPT_COL              1
+#define CMD_PROMPT                  "> "
+#define STATUS_ROW                  6
+#define STATUS_COL                  1
+
+enum {
+    UIMSG_KEYBOARD,
+    UIMSG_SET_TIME,
+    UIMSG_SENSORS
+};
+
+struct uimsg {
+    int type;
+    union {
+        int     time_ticks;
+        char    keypress;
+        uint8_t sensors[SENSOR_BYTES];
+    };
+};
+
+struct uisrv {
+    struct serialctx tty;
+
+    char    cmd[CMD_MAXLEN + 1];
+    int     cmdlen;
+
+    uint8_t sensors[MAX_SENSORS];
+    int     nsensors, lastsensor;
+};
+
+/* FIXME */
+static void Print(struct serialctx *serial, const char *s)
+{
+    while (*s)
+        Putc(serial, *s++);
+}
+
+static void uisrv_init(struct uisrv *uisrv);
+static void uisrv_kbd(struct uisrv *uisrv, char keypress);
+static void uisrv_runcmd(struct uisrv *uisrv);
+static void uisrv_set_time(struct uisrv *uisrv, int ticks);
+static void uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES]);
+static void kbd_listen(void);
+
+void
+uisrv_main(void)
+{
+    struct uisrv uisrv;
+    struct uimsg msg;
+    tid_t client;
+    int rc, msglen;
+
+    uisrv_init(&uisrv);
+    rc = RegisterAs("ui");
+    assertv(rc, rc == 0);
+
+    for (;;) {
+        msglen = Receive(&client, &msg, sizeof (msg));
+        assertv(msglen, msglen == sizeof (msg));
+        rc = Reply(client, NULL, 0);
+        assertv(rc, rc == 0);
+
+        switch (msg.type) {
+        case UIMSG_KEYBOARD:
+            uisrv_kbd(&uisrv, msg.keypress);
+            break;
+        case UIMSG_SET_TIME:
+            uisrv_set_time(&uisrv, msg.time_ticks);
+            break;
+        case UIMSG_SENSORS:
+            uisrv_sensors(&uisrv, msg.sensors);
+            break;
+        default:
+            panic("Invalid UI server message type %d", msg.type);
+        }
+    }
+}
+
+static void
+uisrv_init(struct uisrv *uisrv)
+{
+    tid_t kbd_tid;
+
+    uisrv->cmdlen     = 0;
+    uisrv->cmd[0]     = '\0';
+    uisrv->nsensors   = 0;
+    uisrv->lastsensor = MAX_SENSORS - 1;
+
+    serialctx_init(&uisrv->tty, COM2);
+    kbd_tid = Create(1, &kbd_listen);
+    assertv(kbd_tid, kbd_tid >= 0);
+
+    Print(&uisrv->tty,
+        TERM_RESET_DEVICE
+        TERM_ERASE_ALL
+        TERM_FORCE_CURSOR(STR(TIME_ROW), STR(TIME_MSG_COL))
+        TIME_MSG
+        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
+        CMD_PROMPT
+        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
+}
+
+static void
+uisrv_kbd(struct uisrv *uisrv, char keypress)
+{
+    switch (keypress) {
+    case '\r':
+    case '\n':
+        uisrv_runcmd(uisrv);
+        break;
+
+    case '\b':
+        if (uisrv->cmdlen > 0) {
+            uisrv->cmd[--uisrv->cmdlen] = '\0';
+            Print(&uisrv->tty, "\b \b");
+        }
+        break;
+
+    default:
+        if (uisrv->cmdlen == CMD_MAXLEN)
+            break;
+        uisrv->cmd[uisrv->cmdlen++] = keypress;
+        uisrv->cmd[uisrv->cmdlen]   = '\0';
+        Putc(&uisrv->tty, keypress);
+        break;
+    }
+}
+
+static void
+uisrv_runcmd(struct uisrv *uisrv)
+{
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL))
+        TERM_ERASE_EOL
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(STATUS_ROW), STR(STATUS_COL))
+        TERM_ERASE_EOL);
+
+    /* TODO: parse command */
+
+    Print(&uisrv->tty, uisrv->cmd);
+    Print(&uisrv->tty, TERM_RESTORE_CURSOR);
+
+    uisrv->cmdlen = 0;
+    uisrv->cmd[0] = '\0';
+}
+
+static void
+uisrv_set_time(struct uisrv *uisrv, int ticks)
+{
+    /* TODO */
+    (void)uisrv;
+    (void)ticks;
+}
+
+static void
+uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES])
+{
+    /* TODO */
+    (void)uisrv;
+    (void)sensors;
+}
+
+static void
+kbd_listen(void)
+{
+    tid_t uisrv;
+    struct serialctx tty;
+    struct uimsg msg;
+    int c, rplylen;
+
+    uisrv = MyParentTid();
+    serialctx_init(&tty, COM2);
+
+    msg.type = UIMSG_KEYBOARD;
+    for (;;) {
+        c = Getc(&tty);
+        assertv(c, c >= 0);
+        msg.keypress = (char)c;
+        rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
+    }
+}
+
+void uictx_init(struct uictx *ui)
+{
+    ui->uisrv_tid = WhoIs("ui");
+}
+
+void ui_set_time(struct uictx *ui, int ticks)
+{
+    int rplylen;
+    struct uimsg msg = { .type = UIMSG_SET_TIME, .time_ticks = ticks };
+    rplylen = Send(ui->uisrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+void ui_sensors(struct uictx *ui, uint8_t new_sensors[SENSOR_BYTES])
+{
+    int rplylen;
+    struct uimsg msg = { .type = UIMSG_SENSORS };
+    memcpy(msg.sensors, new_sensors, SENSOR_BYTES);
+    rplylen = Send(ui->uisrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
