@@ -13,6 +13,7 @@
 #include "xarg.h"
 #include "xassert.h"
 #include "xmemcpy.h"
+#include "array_size.h"
 
 #include "ctx_switch.h"
 #include "intr_type.h"
@@ -32,6 +33,7 @@
 #define EXC_VEC_IRQ         ((unsigned int*)0x18)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
 static void kern_RegisterEvent(struct kern *kern, struct task_desc *active);
 static void kern_AwaitEvent(struct kern *kern, struct task_desc *active);
 static void kern_idle(void);
@@ -60,7 +62,7 @@ kern_main(struct kparam *kp)
         assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
     }
     
-    kern_cleanup();
+    kern_cleanup(&kern);
     return 0;
 }
 
@@ -160,6 +162,8 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         task_ready(kern, active);
         break;
     case SYSCALL_EXIT:
+        if(active->cleanup != NULL)
+            active->cleanup();
         task_free(kern, active);
         break;
     case SYSCALL_SEND:
@@ -170,6 +174,9 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         break;
     case SYSCALL_REPLY:
         ipc_reply_start(kern, active);
+        break;
+    case SYSCALL_REGISTERCLEANUP:
+        kern_RegisterCleanup(kern, active);
         break;
     case SYSCALL_REGISTEREVENT:
         kern_RegisterEvent(kern, active);
@@ -222,11 +229,23 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
 }
 
 void
-kern_cleanup(void)
+kern_cleanup(struct kern *kern)
 {
-    /* TODO? disable 40-bit timer as well */
-    tmr32_enable(false);
+    unsigned int i;
     evt_cleanup();
+
+    for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
+        struct task_desc *td = &kern->tasks[i];
+        if (TASK_STATE(td) != TASK_STATE_FREE && td->cleanup != NULL)
+            td->cleanup();
+    }
+}
+
+static void
+kern_RegisterCleanup(struct kern *kern, struct task_desc *active)
+{
+    active->cleanup = (void (*)(void))active->regs->r0;
+    task_ready(kern, active);
 }
 
 static void

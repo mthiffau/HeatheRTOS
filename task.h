@@ -72,10 +72,13 @@ struct task_desc {
     /* Send queue for this task */
     struct task_queue senders;
 
+    /* Registered cleanup function */
+    void (*cleanup)(void);
+
     /* Registered event */
     int8_t event;
 };
-STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 16);
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 20);
 
 /* Context switch assumes this memory layout */
 struct task_regs {

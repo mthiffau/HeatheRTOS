@@ -51,4 +51,4 @@ void kern_handle_swi(struct kern *k, struct task_desc *active);
 void kern_handle_irq(struct kern *k, struct task_desc *active);
 
 /* Reset hardware state before returning to RedBoot. */
-void kern_cleanup(void);
+void kern_cleanup(struct kern *kern);

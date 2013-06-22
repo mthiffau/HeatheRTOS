@@ -88,6 +88,11 @@ struct serialsrv {
 };
 
 static void serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg);
+static void serialsrv_cleanup1(void);
+static void serialsrv_cleanup2(void);
+static void serialsrv_uart_setup(struct serialcfg *cfg, 
+                                 bool intrs, 
+                                 volatile struct uart *uart);
 
 static void serial_writechar(struct serialsrv *srv, char c);
 static void serial_rx(struct serialsrv *srv, tid_t client, int rx_data);
@@ -178,49 +183,22 @@ serialsrv_main(void)
 static void
 serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
 {
+    static void (*cleanups[2])(void) = {
+        &serialsrv_cleanup1,
+        &serialsrv_cleanup2
+    };
     int rc;
-    uint32_t ctrl;
     tid_t tid;
-
+    
     assert(cfg->bits >= 5 && cfg->bits <= 8);
 
     srv->uart  = get_uart(cfg->uart);
     srv->fifos = cfg->fifos;
     srv->nocts = cfg->nocts;
 
-    /* Set baud rate */
-    uart_ctrl_delay();
-    srv->uart->lcrm = 0x0;
-    uart_ctrl_delay();
-    switch (cfg->baud) { /* FIXME? */
-    case 115200:
-        srv->uart->lcrl = 0x3;
-        break;
-    case 2400:
-        srv->uart->lcrl = 0xbf;
-        break;
-    default:
-        panic("invalid baud rate %d", cfg->baud);
-    }
+    RegisterCleanup(cleanups[cfg->uart]);
 
-    /* Initial UART setup */
-    uart_ctrl_delay();
-    srv->uart->ctrl = 0; /* disabled */
-    uart_ctrl_delay();
-    srv->uart->lcrh =
-          ((cfg->bits - 5) << 5)
-        | (cfg->fifos       ? FEN_MASK  : 0)
-        | (cfg->stop2       ? STP2_MASK : 0)
-        | (cfg->parity_even ? EPS_MASK  : 0)
-        | (cfg->parity      ? PEN_MASK  : 0)
-        | 0 /* BRK */;
-
-    /* Re-enable UART, interrupts */
-    uart_ctrl_delay();
-    ctrl = UARTEN_MASK | RIEN_MASK | TIEN_MASK;
-    if (!cfg->nocts)
-        ctrl |= MSIEN_MASK;
-    srv->uart->ctrl = ctrl;
+    serialsrv_uart_setup(cfg, true, srv->uart);
 
     /* Initialize getc state */
     srv->getc_client = -1;
@@ -249,6 +227,72 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
         rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
         assertv(rc, rc == 0);
     }
+}
+
+static void
+serialsrv_uart_setup(struct serialcfg* cfg, bool intrs, volatile struct uart *uart)
+{
+    uint32_t ctrl;
+
+    /* Set baud rate */
+    uart_ctrl_delay();
+    uart->lcrm = 0x0;
+    uart_ctrl_delay();
+    switch (cfg->baud) { /* FIXME? */
+    case 115200:
+        uart->lcrl = 0x3;
+        break;
+    case 2400:
+        uart->lcrl = 0xbf;
+        break;
+    default:
+        panic("invalid baud rate %d", cfg->baud);
+    }
+
+    /* Initial UART setup */
+    uart_ctrl_delay();
+    uart->ctrl = 0; /* disabled */
+    uart_ctrl_delay();
+    uart->lcrh =
+          ((cfg->bits - 5) << 5)
+        | (cfg->fifos       ? FEN_MASK  : 0)
+        | (cfg->stop2       ? STP2_MASK : 0)
+        | (cfg->parity_even ? EPS_MASK  : 0)
+        | (cfg->parity      ? PEN_MASK  : 0)
+        | 0 /* BRK */;
+
+    /* Re-enable UART, interrupts */
+    uart_ctrl_delay();
+    ctrl = UARTEN_MASK;
+    if (intrs) {
+        ctrl |= RIEN_MASK | TIEN_MASK;
+        if (!cfg->nocts)
+            ctrl |= MSIEN_MASK;
+    }
+    uart->ctrl = ctrl;
+}
+
+static struct serialcfg default_cfg = {
+    .uart        = 0xff,  /* Arbitrary */
+    .fifos       = true,
+    .nocts       = true,  /* Arbitrary */
+    .baud        = 115200,
+    .parity      = false,
+    .parity_even = false,
+    .stop2       = false,
+    .bits        = 8
+};
+
+static void
+serialsrv_cleanup1(void)
+{
+    serialsrv_uart_setup(&default_cfg, false, get_uart(COM1));
+}
+
+static void
+serialsrv_cleanup2(void)
+{
+    serialsrv_uart_setup(&default_cfg, false, get_uart(COM2));
 }
 
 static void

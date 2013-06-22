@@ -51,6 +51,12 @@ Reply:
     swi #SYSCALL_REPLY
     mov pc, lr
 
+    .global RegisterCleanup
+    .type   RegisterCleanup, %function
+RegisterCleanup:
+    swi #SYSCALL_REGISTERCLEANUP
+    mov pc, lr
+
     .global RegisterEvent
     .type   RegisterEvent, %function
 RegisterEvent:

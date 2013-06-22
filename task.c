@@ -64,6 +64,7 @@ task_create(
     td->regs->sp   = (uint32_t)stack;
     td->regs->lr   = (uint32_t)&Exit; /* call Exit on return of task_entry */
     td->regs->pc   = (uint32_t)task_entry;
+    td->cleanup    = NULL;
     td->event      = (int8_t)-1;
 
     taskq_init(&td->senders);

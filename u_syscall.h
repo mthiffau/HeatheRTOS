@@ -17,6 +17,8 @@ int   Send(int TID, const void* msg, int msglen, void* reply, int replylen);
 int   Receive(int* TID, void* msg, int msglen);
 int   Reply(int TID, const void* reply, int replylen);
 
+void  RegisterCleanup(void (*cleanup_cb)(void));
+
 int   RegisterEvent(int priority, int irq, int (*cb)(void*, size_t));
 int   AwaitEvent(void*, size_t);
 

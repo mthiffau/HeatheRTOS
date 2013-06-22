@@ -39,6 +39,7 @@ struct clksrv {
 
 static void clksrv_init(struct clksrv *clk);
 static void clksrv_notify(void);
+static void clksrv_cleanup(void);
 static int  clksrv_notify_cb(void*, size_t);
 static void clksrv_delayuntil(struct clksrv *clk, tid_t who, int ticks);
 static void clksrv_undelay(struct clksrv *clk);
@@ -68,6 +69,7 @@ clksrv_main(void)
     struct clkmsg msg;
     tid_t client;
     int rc, rply;
+
     clksrv_init(&clk);
     rc = RegisterAs("clock");
     assertv(rc, rc == 0);
@@ -115,6 +117,9 @@ clksrv_notify(void)
     struct clkmsg msg;
     int rc;
 
+    clksrv_cleanup();
+    RegisterCleanup(&clksrv_cleanup);
+
     rc = clock_init(100);
     assertv(rc, rc == 0);
 
@@ -129,6 +134,13 @@ clksrv_notify(void)
         rc = Send(clksrv_tid, &msg, sizeof (msg), NULL, 0);
         assert(rc == 0);
     }
+}
+
+static void
+clksrv_cleanup(void)
+{
+    /* TODO? disable 40-bit timer as well */
+    tmr32_enable(false);
 }
 
 static int

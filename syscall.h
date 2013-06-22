@@ -13,6 +13,7 @@
 #define SYSCALL_SEND            0x6
 #define SYSCALL_RECEIVE         0x7
 #define SYSCALL_REPLY           0x8
-#define SYSCALL_REGISTEREVENT   0x9
-#define SYSCALL_AWAITEVENT      0xa
-#define SYSCALL_SHUTDOWN        0xb
+#define SYSCALL_REGISTERCLEANUP 0x9
+#define SYSCALL_REGISTEREVENT   0xa
+#define SYSCALL_AWAITEVENT      0xb
+#define SYSCALL_SHUTDOWN        0xc
