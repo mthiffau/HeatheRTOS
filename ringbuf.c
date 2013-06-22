@@ -51,9 +51,10 @@ bool rbuf_getc(struct ringbuf *r, char *c_out)
     return true;
 }
 
-void rbuf_write(struct ringbuf *r, int n, const char *s)
+void rbuf_write(struct ringbuf *r, const void *buf, int n)
 {
     int i;
+    const char *s = buf;
     for (i = 0; i < n; i++)
         rbuf_putc(r, *s++);
 }

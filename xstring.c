@@ -15,6 +15,15 @@ strcmp(const char *s1, const char *s2)
 }
 
 int
+strlen(const char *s)
+{
+    int n = 0;
+    while (*s++)
+        n++;
+    return n;
+}
+
+int
 strnlen(const char *s, int maxlen)
 {
     int i;

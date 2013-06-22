@@ -1,11 +1,12 @@
 #include "xbool.h"
 #include "xint.h"
+#include "xdef.h"
 #include "u_tid.h"
 #include "serial_srv.h"
 
 #include "config.h"
-#include "xdef.h"
 #include "xarg.h"
+#include "xstring.h"
 #include "ringbuf.h"
 #include "ts7200.h"
 #include "bwio.h"
@@ -17,7 +18,9 @@
 #include "ns.h"
 #include "array_size.h"
 #include "static_assert.h"
+#include "xmemcpy.h"
 
+#define WRITE_MAXLEN  32
 #define GETC_BUF_SIZE 512
 #define PUTC_BUF_SIZE 512
 
@@ -56,6 +59,8 @@ enum {
     SERIALMSG_CTS,   /* CTS status              empty reply */
     SERIALMSG_GETC,  /* Getc request            reply is Getc return value */
     SERIALMSG_PUTC,  /* Putc request            reply is Putc return value */
+    SERIALMSG_FLUSH, /* Flush request           empty reply */
+    SERIALMSG_WRITE, /* Write request           reply is integer code */
 };
 
 struct serialmsg {
@@ -64,6 +69,10 @@ struct serialmsg {
         uint8_t rx_data;
         bool    cts_status;
         uint8_t putc_arg;
+        struct {
+            int     len;
+            uint8_t buf[WRITE_MAXLEN];
+        } write;
     };
 };
 
@@ -77,6 +86,7 @@ struct serialsrv {
     bool           txr;
     bool           cts;
     struct ringbuf putc_buf;
+    tid_t          flush_client;
 
     /* Receive state */
     tid_t          getc_client; /* negative if none */
@@ -95,11 +105,15 @@ static void serialsrv_uart_setup(struct serialcfg *cfg,
                                  volatile struct uart *uart);
 
 static void serial_writechar(struct serialsrv *srv, char c);
+static void serial_all_ready(struct serialsrv *srv);
 static void serial_rx(struct serialsrv *srv, tid_t client, int rx_data);
 static void serial_txr(struct serialsrv *srv, tid_t notifier);
 static void serial_cts(struct serialsrv *srv, tid_t notifier, bool cts);
 static void serial_putc(struct serialsrv *srv, tid_t client, char c);
+static void serial_write(
+    struct serialsrv *srv, tid_t client, uint8_t *buf, int len);
 static void serial_getc(struct serialsrv *srv, tid_t client);
+static void serial_flush(struct serialsrv *srv, tid_t client);
 
 static tid_t
 serial_notif_init(
@@ -174,6 +188,12 @@ serialsrv_main(void)
         case SERIALMSG_PUTC:
             serial_putc(&srv, client, msg.putc_arg);
             break;
+        case SERIALMSG_WRITE:
+            serial_write(&srv, client, msg.write.buf, msg.write.len);
+            break;
+        case SERIALMSG_FLUSH:
+            serial_flush(&srv, client);
+            break;
         default:
             panic("unrecognized serial server message %d", msg.type);
         }
@@ -189,7 +209,7 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     };
     int rc;
     tid_t tid;
-    
+
     assert(cfg->bits >= 5 && cfg->bits <= 8);
 
     srv->uart  = get_uart(cfg->uart);
@@ -209,6 +229,7 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     srv->txr = false; /* interrupt will notify us, even if immediately */
     srv->cts = srv->nocts || (bool)(srv->uart->flag & CTS_MASK);
     rbuf_init(&srv->putc_buf, srv->putc_buf_mem, sizeof (srv->putc_buf_mem));
+    srv->flush_client = -1;
 
     /* Start notifiers */
     tid = Create(PRIORITY_MAX, &serialrx_notif);
@@ -334,6 +355,20 @@ serial_putc(struct serialsrv *srv, tid_t client, char c)
 }
 
 static void
+serial_write(struct serialsrv *srv, tid_t client, uint8_t *buf, int len)
+{
+    int rply, rc;
+
+    rbuf_write(&srv->putc_buf, buf, len);
+    if (len > 0 && srv->cts && srv->txr)
+        serial_all_ready(srv);
+
+    rply = SERIAL_OK;
+    rc = Reply(client, &rply, sizeof (rply));
+    assertv(rc, rc == 0);
+}
+
+static void
 serial_getc(struct serialsrv *srv, tid_t client)
 {
     int rply, rc;
@@ -359,9 +394,26 @@ serial_getc(struct serialsrv *srv, tid_t client)
 }
 
 static void
+serial_flush(struct serialsrv *srv, tid_t client)
+{
+    int rc, rply;
+    char c;
+    if (srv->flush_client >= 0) {
+        rply = SERIAL_BUSY;
+        rc = Reply(client, &rply, sizeof (rply));
+        assertv(rc, rc == 0);
+    } else if (!rbuf_peekc(&srv->putc_buf, &c)) {
+        rply = SERIAL_OK;
+        rc = Reply(client, &rply, sizeof (rply));
+        assertv(rc, rc == 0);
+    } else {
+        srv->flush_client = client;
+    }
+}
+
+static void
 serial_writechar(struct serialsrv *srv, char c)
 {
-    /* BEWARE */
     srv->uart->data = (uint8_t)c;
     srv->uart->ctrl |= TIEN_MASK;
     srv->txr = false;
@@ -369,28 +421,42 @@ serial_writechar(struct serialsrv *srv, char c)
 }
 
 static void
+serial_all_ready(struct serialsrv *srv)
+{
+    int rc, rply;
+    char c;
+    if (!rbuf_getc(&srv->putc_buf, &c))
+        return;
+    serial_writechar(srv, c);
+    if (srv->flush_client >= 0 && !rbuf_peekc(&srv->putc_buf, &c)) {
+        rply = SERIAL_OK;
+        rc   = Reply(srv->flush_client, &rply, sizeof (rply));
+        assertv(rc, rc == 0);
+        srv->flush_client = -1;
+    }
+}
+
+static void
 serial_txr(struct serialsrv *srv, tid_t notifier)
 {
     int rc;
-    char c;
     rc = Reply(notifier, NULL, 0);
     assertv(rc, rc == 0);
     srv->txr = true;
-    if (srv->cts && rbuf_getc(&srv->putc_buf, &c))
-        serial_writechar(srv, c);
+    if (srv->cts)
+        serial_all_ready(srv);
 }
 
 static void
 serial_cts(struct serialsrv *srv, tid_t notifier, bool cts)
 {
     int rc;
-    char c;
     rc = Reply(notifier, NULL, 0);
     assertv(rc, rc == 0);
     assert(!srv->nocts);
     srv->cts = cts;
-    if (srv->cts && srv->txr && rbuf_getc(&srv->putc_buf, &c))
-        serial_writechar(srv, c);
+    if (srv->cts && srv->txr)
+        serial_all_ready(srv);
 }
 
 static tid_t
@@ -581,6 +647,46 @@ Putc(struct serialctx *ctx, char c)
     int rply;
     msg.type = SERIALMSG_PUTC;
     msg.putc_arg = c;
+    rplylen = Send(ctx->serial_tid, &msg, sizeof (msg), &rply, sizeof (rply));
+    assertv(rplylen, rplylen == sizeof (rply));
+    return rply;
+}
+
+int
+Write(struct serialctx *ctx, const void *buf, size_t n)
+{
+    struct serialmsg msg;
+    int rplylen;
+    int rply;
+    msg.type = SERIALMSG_WRITE;
+    while (n > 0) {
+        size_t k = n <= WRITE_MAXLEN ? n : WRITE_MAXLEN;
+        msg.write.len = k;
+        memcpy(msg.write.buf, buf, k);
+        rplylen = Send(ctx->serial_tid,
+            &msg, sizeof (msg),
+            &rply, sizeof (rply));
+        assertv(rplylen, rplylen == sizeof (rply));
+        n   -= k;
+        buf += k;
+        if (rply != 0)
+            return rply;
+    }
+    return 0;
+}
+
+int
+Print(struct serialctx *ctx, const char *s)
+{
+    return Write(ctx, s, strlen(s));
+}
+
+int
+Flush(struct serialctx *ctx)
+{
+    struct serialmsg msg;
+    int rply, rplylen;
+    msg.type = SERIALMSG_FLUSH;
     rplylen = Send(ctx->serial_tid, &msg, sizeof (msg), &rply, sizeof (rply));
     assertv(rplylen, rplylen == sizeof (rply));
     return rply;

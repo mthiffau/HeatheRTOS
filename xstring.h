@@ -5,4 +5,5 @@
 #define XSTRING_H
 
 int strcmp(const char *s1, const char *s2);
+int strlen(const char *s);
 int strnlen(const char *s, int maxlen);

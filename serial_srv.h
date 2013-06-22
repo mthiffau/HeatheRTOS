@@ -6,6 +6,7 @@
 
 XBOOL_H;
 XINT_H;
+XDEF_H;
 U_TID_H;
 
 /* Return codes for Getc, Putc. */
@@ -37,3 +38,6 @@ struct serialctx {
 void serialctx_init(struct serialctx *ctx, int channel);
 int Getc(struct serialctx *ctx);
 int Putc(struct serialctx *ctx, char c);
+int Write(struct serialctx *ctx, const void *buf, size_t n);
+int Print(struct serialctx *ctx, const char *s);
+int Flush(struct serialctx *ctx);

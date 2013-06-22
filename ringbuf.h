@@ -29,7 +29,7 @@ bool rbuf_peekc(struct ringbuf *r, char *c_out);
 bool rbuf_getc(struct ringbuf *r, char *c_out);
 
 /* Write many characters to ring buffer. */
-void rbuf_write(struct ringbuf *r, int n, const char *s);
+void rbuf_write(struct ringbuf *r, const void *buf, int n);
 
 /* Print a NUL-terminated string verbatim. */
 void rbuf_print(struct ringbuf *r, const char *s);
