@@ -19,8 +19,8 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid, tty_tid, ui_tid;
-    struct serialcfg ttycfg;
+    tid_t ns_tid, clk_tid, tty_tid, train_tid, ui_tid;
+    struct serialcfg ttycfg, traincfg;
     int rplylen;
 
     /* Start the name server. It's important that startup proceeds so that
@@ -48,6 +48,22 @@ u_init_main(void)
         .bits   = 8
     };
     rplylen = Send(tty_tid, &ttycfg, sizeof (ttycfg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+
+    /* Start serial server for the train controller. */
+    train_tid = Create(2, &serialsrv_main);
+    assertv(train_tid, train_tid >= 0);
+    traincfg = (struct serialcfg) {
+        .uart   = COM1,
+        .fifos  = false,
+        .nocts  = false,
+        .baud   = 2400,
+        .parity = false,
+        .parity_even = false,
+        .stop2  = true,
+        .bits   = 8
+    };
+    rplylen = Send(train_tid, &traincfg, sizeof (traincfg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 
     /* Start UI server */
