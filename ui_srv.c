@@ -88,6 +88,7 @@ static void uisrv_kbd(struct uisrv *uisrv, char keypress);
 static void uisrv_runcmd(struct uisrv *uisrv);
 static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES]);
 static void kbd_listen(void);
@@ -213,6 +214,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_q(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tr")) {
         uisrv_cmd_tr(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "sw")) {
+        uisrv_cmd_sw(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -247,7 +250,10 @@ uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
     uint8_t which;
     uint8_t speed;
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: tr TRAIN SPEED");
+        Print(&uisrv->tty, "usage: tr TRAIN SPEED (");
+        int i;
+        for (i = 0; i < argc; i++)
+            Printf(&uisrv->tty, "%s%c", argv[i], i == argc - 1 ? ')' : ' ');
         return;
     }
     if (atou8(argv[0], &which) != 0) {
@@ -261,6 +267,41 @@ uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
 
     /* Send out speed command */
     tcmux_train_speed(&uisrv->tcmux, which, speed);
+}
+
+static void
+uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc)
+{
+    /* Parse arguments */
+    uint8_t sw;
+    bool    curved;
+    bool    bad_dir;
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: sw SWITCH (C|S)");
+        return;
+    }
+    if (atou8(argv[0], &sw) != 0) {
+        Printf(&uisrv->tty, "bad switch '%s'", argv[0]);
+        return;
+    }
+
+    bad_dir = false;
+    if (argv[1][0] == '\0' || argv[1][1] != '\0')
+        bad_dir = true;
+    else if (argv[1][0] == 'c' || argv[1][0] == 'C')
+        curved = true;
+    else if (argv[1][0] == 's' || argv[1][0] == 'S')
+        curved = false;
+    else
+        bad_dir = true;
+
+    if (bad_dir) {
+        Printf(&uisrv->tty, "bad direction '%s'", argv[1]);
+        return;
+    }
+
+    /* Send out switch command */
+    tcmux_switch_curve(&uisrv->tcmux, sw, curved);
 }
 
 static void

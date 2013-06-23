@@ -9,9 +9,14 @@
 #include "clock_srv.h"
 #include "serial_srv.h"
 
+#include "queue.h"
+
 #include "xassert.h"
 #include "xarg.h"
 #include "bwio.h"
+
+#define SPEED_QUEUE_SIZE        64
+#define SWITCH_QUEUE_SIZE       64
 
 #define TRCMD_SPEED(n)         ((char)n)
 #define TRCMD_REVERSE          ((char)15)
@@ -23,21 +28,26 @@
 enum {
     TCMUX_TRAIN_SPEED,
     TCMUX_SWITCH_CURVE,
-    /* TODO: satellite messages */
-};
-
-struct tcmux {
-    struct serialctx port;
+    TCMUX_CMD_READY
+    /* TODO: more satellite messages */
 };
 
 struct speed_msg {
     uint8_t train;
     uint8_t speed;
+    bool    sync;
 };
 
 struct switch_msg {
     uint8_t sw;
-    bool curved;
+    bool    curved;
+    bool    sync;
+};
+
+struct train_cmd {
+    char    cmd[2];
+    uint8_t len;
+    tid_t   client;
 };
 
 struct tcmuxmsg {
@@ -48,11 +58,28 @@ struct tcmuxmsg {
     };
 };
 
+struct tcmux {
+    struct serialctx  port;
+    bool              cmd_ready;
+    tid_t             flusher;
+
+    /* Command queues */
+    struct queue      speed_cmdq, switch_cmdq;
+    struct train_cmd  speed_cmdq_mem[SPEED_QUEUE_SIZE];
+    struct train_cmd  switch_cmdq_mem[SWITCH_QUEUE_SIZE];
+    bool              solenoid_on;
+};
+
 static void tcmux_init(struct tcmux*);
 static void tcmuxsrv_train_speed(
     struct tcmux *tc, tid_t client, struct speed_msg *m);
 static void tcmuxsrv_switch_curve(
     struct tcmux *tc, tid_t client, struct switch_msg *m);
+
+static void tcmuxsrv_trcmd_trysend(struct tcmux *tc);
+static void tcmuxsrv_trcmd_send(struct tcmux *tc, struct train_cmd *trcmd);
+
+static void tcmux_cmd_flusher(void);
 
 void
 tcmuxsrv_main(void)
@@ -75,6 +102,11 @@ tcmuxsrv_main(void)
         case TCMUX_SWITCH_CURVE:
             tcmuxsrv_switch_curve(&tc, client, &msg.sw);
             break;
+        case TCMUX_CMD_READY:
+            assert(client == tc.flusher);
+            tc.cmd_ready = true;
+            tcmuxsrv_trcmd_trysend(&tc);
+            break;
         default:
             panic("Invalid tcmux message type %d\n", msg.type);
         }
@@ -85,6 +117,25 @@ static void
 tcmux_init(struct tcmux *tc)
 {
     serialctx_init(&tc->port, COM1);
+    tc->cmd_ready = false;
+
+    /* Initialize command queues */
+    q_init(
+        &tc->speed_cmdq,
+        tc->speed_cmdq_mem,
+        sizeof (tc->speed_cmdq_mem[0]),
+        sizeof (tc->speed_cmdq_mem));
+    q_init(
+        &tc->switch_cmdq,
+        tc->switch_cmdq_mem,
+        sizeof (tc->switch_cmdq_mem[0]),
+        sizeof (tc->switch_cmdq_mem));
+
+    tc->solenoid_on = false;
+
+    /* Start train command flusher */
+    tc->flusher = Create(1, tcmux_cmd_flusher);
+    assert(tc->flusher >= 0);
 }
 
 static void
@@ -94,14 +145,22 @@ tcmuxsrv_train_speed(
     struct speed_msg *m)
 {
     int rc;
-    char cmd[2];
+    struct train_cmd trcmd;
 
-    rc = Reply(client, NULL, 0);
+    trcmd.cmd[0] = TRCMD_SPEED(m->speed);
+    trcmd.cmd[1] = (char)m->train;
+    trcmd.len    = 2;
+    if (m->sync) {
+        trcmd.client = client;
+    } else {
+        rc = Reply(client, NULL, 0);
+        assertv(rc, rc == 0);
+        trcmd.client = -1;
+    }
+
+    rc = q_enqueue(&tc->speed_cmdq, &trcmd);
     assertv(rc, rc == 0);
-
-    cmd[0] = TRCMD_SPEED(m->speed);
-    cmd[1] = (char)m->train;
-    Write(&tc->port, cmd, sizeof (cmd));
+    tcmuxsrv_trcmd_trysend(tc);
 }
 
 static void
@@ -111,15 +170,76 @@ tcmuxsrv_switch_curve(
     struct switch_msg *m)
 {
     int rc;
-    char cmd[3];
+    struct train_cmd trcmd;
 
-    rc = Reply(client, NULL, 0);
+    trcmd.cmd[0] = m->curved ? TRCMD_SWITCH_CURVE : TRCMD_SWITCH_STRAIGHT;
+    trcmd.cmd[1] = (char)m->sw;
+    trcmd.len    = 2;
+    if (m->sync) {
+        trcmd.client = client;
+    } else {
+        rc = Reply(client, NULL, 0);
+        assertv(rc, rc == 0);
+        trcmd.client = -1;
+    }
+
+    rc = q_enqueue(&tc->switch_cmdq, &trcmd);
     assertv(rc, rc == 0);
 
-    cmd[0] = m->curved ? TRCMD_SWITCH_CURVE : TRCMD_SWITCH_STRAIGHT;
-    cmd[1] = (char)m->sw;
-    cmd[2] = TRCMD_SWITCH_OFF;
-    Write(&tc->port, cmd, sizeof (cmd));
+    tcmuxsrv_trcmd_trysend(tc);
+}
+
+static void
+tcmuxsrv_trcmd_trysend(struct tcmux *tc)
+{
+    struct train_cmd trcmd;
+    if (!tc->cmd_ready)
+        return;
+
+    if (q_dequeue(&tc->switch_cmdq, &trcmd)) {
+        tc->solenoid_on = true;
+        tcmuxsrv_trcmd_send(tc, &trcmd);
+    } else if (tc->solenoid_on) {
+        trcmd.cmd[0] = TRCMD_SWITCH_OFF;
+        trcmd.len    = 1;
+        trcmd.client = -1;
+        tcmuxsrv_trcmd_send(tc, &trcmd);
+        tc->solenoid_on = false;
+    } else if (q_dequeue(&tc->speed_cmdq, &trcmd)) {
+        tcmuxsrv_trcmd_send(tc, &trcmd);
+    }
+}
+
+static void
+tcmuxsrv_trcmd_send(struct tcmux *tc, struct train_cmd *trcmd)
+{
+    int rc;
+    assert(tc->cmd_ready);
+    rc = Write(&tc->port, trcmd->cmd, trcmd->len);
+    assertv(rc, rc == 0);
+    rc = Reply(tc->flusher, NULL, 0);
+    assertv(rc, rc == 0);
+    tc->cmd_ready = false;
+}
+
+static void
+tcmux_cmd_flusher(void)
+{
+    struct serialctx port;
+    struct tcmuxmsg msg;
+    tid_t tcmux;
+    int rc, rplylen;
+
+    tcmux = MyParentTid();
+    serialctx_init(&port, COM1);
+
+    msg.type = TCMUX_CMD_READY;
+    for (;;) {
+        rplylen = Send(tcmux, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
+        rc = Flush(&port);
+        assertv(rc, rc == SERIAL_OK);
+    }
 }
 
 void
@@ -128,15 +248,40 @@ tcmuxctx_init(struct tcmuxctx *tcmux)
     tcmux->tcmuxsrv_tid = WhoIs("tcmux");
 }
 
-void
-tcmux_train_speed(struct tcmuxctx *tc, uint8_t train, uint8_t speed)
+static void
+tcmux_train_speed_impl(
+    struct tcmuxctx *tc,
+    uint8_t train,
+    uint8_t speed,
+    bool sync)
 {
     int rplylen;
     struct tcmuxmsg msg = {
         .type  = TCMUX_TRAIN_SPEED,
         .speed = {
             .train = train,
-            .speed = speed
+            .speed = speed,
+            .sync  = sync
+        }
+    };
+    rplylen = Send(tc->tcmuxsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+static void
+tcmux_switch_curve_impl(
+    struct tcmuxctx *tc,
+    uint8_t sw,
+    bool curved,
+    bool sync)
+{
+    int rplylen;
+    struct tcmuxmsg msg = {
+        .type  = TCMUX_SWITCH_CURVE,
+        .sw = {
+            .sw     = sw,
+            .curved = curved,
+            .sync   = sync
         }
     };
     rplylen = Send(tc->tcmuxsrv_tid, &msg, sizeof (msg), NULL, 0);
@@ -144,16 +289,25 @@ tcmux_train_speed(struct tcmuxctx *tc, uint8_t train, uint8_t speed)
 }
 
 void
+tcmux_train_speed(struct tcmuxctx *tc, uint8_t train, uint8_t speed)
+{
+    tcmux_train_speed_impl(tc, train, speed, false);
+}
+
+void
+tcmux_train_speed_sync(struct tcmuxctx *tc, uint8_t train, uint8_t speed)
+{
+    tcmux_train_speed_impl(tc, train, speed, true);
+}
+
+void
 tcmux_switch_curve(struct tcmuxctx *tc, uint8_t sw, bool curved)
 {
-    int rplylen;
-    struct tcmuxmsg msg = {
-        .type  = TCMUX_SWITCH_CURVE,
-        .sw = {
-            .sw     = sw,
-            .curved = curved
-        }
-    };
-    rplylen = Send(tc->tcmuxsrv_tid, &msg, sizeof (msg), NULL, 0);
-    assertv(rplylen, rplylen == 0);
+    tcmux_switch_curve_impl(tc, sw, curved, false);
+}
+
+void
+tcmux_switch_curve_sync(struct tcmuxctx *tc, uint8_t sw, bool curved)
+{
+    tcmux_switch_curve_impl(tc, sw, curved, true);
 }

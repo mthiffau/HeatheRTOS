@@ -52,7 +52,7 @@ u_init_main(void)
     assertv(rplylen, rplylen == 0);
 
     /* Start serial server for the train controller. */
-    train_tid = Create(2, &serialsrv_main);
+    train_tid = Create(3, &serialsrv_main);
     assertv(train_tid, train_tid >= 0);
     traincfg = (struct serialcfg) {
         .uart   = COM1,
@@ -68,10 +68,10 @@ u_init_main(void)
     assertv(rplylen, rplylen == 0);
 
     /* Start train control multiplexer */
-    tcmux_tid = Create(2, &tcmuxsrv_main);
+    tcmux_tid = Create(6, &tcmuxsrv_main);
     assertv(tcmux_tid, tcmux_tid >= 0);
 
     /* Start UI server */
-    ui_tid = Create(2, &uisrv_main);
+    ui_tid = Create(8, &uisrv_main);
     assertv(ui_tid, ui_tid >= 0);
 }

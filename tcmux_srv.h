@@ -20,6 +20,8 @@ void tcmuxctx_init(struct tcmuxctx*);
 
 /* Send a train speed command. */
 void tcmux_train_speed(struct tcmuxctx*, uint8_t train, uint8_t speed);
+void tcmux_train_speed_sync(struct tcmuxctx*, uint8_t train, uint8_t speed);
 
 /* Send a switch command. */
 void tcmux_switch_curve(struct tcmuxctx*, uint8_t sw, bool curved);
+void tcmux_switch_curve_sync(struct tcmuxctx*, uint8_t sw, bool curved);
