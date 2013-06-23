@@ -16,5 +16,10 @@
 #define PQ_RING
 /* #define PQ_HEAP */
 
-/* Track sensor data size max */
-#define SENSOR_BYTES        10
+/* Application task priorities */
+#define PRIORITY_NS         PRIORITY_MIN
+#define PRIORITY_CLOCK      2
+#define PRIORITY_SERIAL1    3
+#define PRIORITY_SERIAL2    2
+#define PRIORITY_TCMUX      6
+#define PRIORITY_UI         PRIORITY_MIN

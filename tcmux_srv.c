@@ -1,13 +1,17 @@
+#include "config.h"
 #include "xbool.h"
 #include "xint.h"
 #include "u_tid.h"
 #include "tcmux_srv.h"
 
 #include "xdef.h"
+#include "static_assert.h"
+#include "sensor.h"
 #include "u_syscall.h"
 #include "ns.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
+#include "ui_srv.h" /* for ui_sensors() */
 
 #include "queue.h"
 
@@ -23,14 +27,14 @@
 #define TRCMD_SWITCH_STRAIGHT  ((char)33)
 #define TRCMD_SWITCH_CURVE     ((char)34)
 #define TRCMD_SWITCH_OFF       ((char)32)
-#define TRCMD_SENSOR_POLL_ALL  ((char)133)
+#define TRCMD_SENSOR_POLL_ALL  ((char)(128 + SENSOR_MODULES))
 
 enum {
     TCMUX_TRAIN_SPEED,
     TCMUX_SWITCH_CURVE,
     TCMUX_CMD_READY,
     TCMUX_SWITCH_READY,
-    /* TODO: more satellite messages */
+    TCMUX_SENSOR_POLL,
 };
 
 struct speed_msg {
@@ -64,18 +68,29 @@ struct tcmux {
     struct serialctx  port;
     bool              cmd_ready;
     bool              switch_ready;
-    tid_t             flusher;
-    tid_t             switch_delayer;
     tid_t             last_cmd_client;
     bool              last_cmd_was_switch;
     tid_t             last_switchcmd_client;
+    bool              solenoid_on;
 
     /* Command queues */
+    bool              want_sensor_poll;
     struct queue      speed_cmdq, switch_cmdq;
     struct train_cmd  speed_cmdq_mem[SPEED_QUEUE_SIZE];
     struct train_cmd  switch_cmdq_mem[SWITCH_QUEUE_SIZE];
-    bool              solenoid_on;
+
+    /* Satellite tasks */
+    tid_t flusher;
+    tid_t switch_delayer;
+    tid_t sensor_listener;
 };
+
+static inline uint8_t
+bit_reverse(uint8_t n)
+{
+    /* http://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64Bits */
+    return ((n * 0x80200802ULL) & 0x0884422110ULL) * 0x0101010101ULL >> 32;
+}
 
 static void tcmux_init(struct tcmux*);
 static void tcmuxsrv_train_speed(
@@ -84,12 +99,14 @@ static void tcmuxsrv_switch_curve(
     struct tcmux *tc, tid_t client, struct switch_msg *m);
 static void tcmuxsrv_cmd_ready(struct tcmux *tc, tid_t client);
 static void tcmuxsrv_switch_ready(struct tcmux *tc, tid_t client);
+static void tcmuxsrv_sensor_poll(struct tcmux *tc, tid_t client);
 
 static void tcmuxsrv_trcmd_trysend(struct tcmux *tc);
 static void tcmuxsrv_trcmd_send(struct tcmux *tc, struct train_cmd *trcmd);
 
 static void tcmux_cmd_flusher(void);
 static void tcmux_switch_delayer(void);
+static void tcmux_sensor_listener(void);
 
 void
 tcmuxsrv_main(void)
@@ -111,6 +128,9 @@ tcmuxsrv_main(void)
             break;
         case TCMUX_SWITCH_READY:
             tcmuxsrv_switch_ready(&tc, client);
+            break;
+        case TCMUX_SENSOR_POLL:
+            tcmuxsrv_sensor_poll(&tc, client);
             break;
         case TCMUX_TRAIN_SPEED:
             tcmuxsrv_train_speed(&tc, client, &msg.speed);
@@ -147,14 +167,19 @@ tcmux_init(struct tcmux *tc)
         sizeof (tc->switch_cmdq_mem));
 
     tc->solenoid_on = false;
+    tc->want_sensor_poll = false;
 
     /* Start train command flusher */
-    tc->flusher = Create(1, tcmux_cmd_flusher);
+    tc->flusher = Create(PRIORITY_TCMUX - 1, tcmux_cmd_flusher);
     assert(tc->flusher >= 0);
 
     /* Start switch command delayer */
-    tc->switch_delayer = Create(1, &tcmux_switch_delayer);
+    tc->switch_delayer = Create(PRIORITY_TCMUX - 1, &tcmux_switch_delayer);
     assert(tc->switch_delayer >= 0);
+
+    /* Start sensor value listener */
+    tc->sensor_listener = Create(PRIORITY_TCMUX - 1, &tcmux_sensor_listener);
+    assert(tc->sensor_listener >= 0);
 }
 
 static void
@@ -185,6 +210,18 @@ tcmuxsrv_switch_ready(struct tcmux *tc, tid_t client)
         rc = Reply(tc->last_switchcmd_client, NULL, 0);
         assertv(rc, rc == 0);
     }
+    tcmuxsrv_trcmd_trysend(tc);
+}
+
+static void
+tcmuxsrv_sensor_poll(struct tcmux *tc, tid_t client)
+{
+    int rc;
+    assert(client == tc->sensor_listener);
+    rc = Reply(tc->sensor_listener, NULL, 0);
+    assertv(rc, rc == 0);
+
+    tc->want_sensor_poll = true;
     tcmuxsrv_trcmd_trysend(tc);
 }
 
@@ -247,6 +284,16 @@ tcmuxsrv_trcmd_trysend(struct tcmux *tc)
     struct train_cmd trcmd;
     if (!tc->cmd_ready)
         return;
+
+    if (tc->want_sensor_poll) {
+        trcmd.cmd[0]    = TRCMD_SENSOR_POLL_ALL;
+        trcmd.len       = 1;
+        trcmd.is_switch = false;
+        trcmd.client    = -1;
+        tcmuxsrv_trcmd_send(tc, &trcmd);
+        tc->want_sensor_poll = false;
+        return;
+    }
 
     if (tc->switch_ready) {
         if (q_dequeue(&tc->switch_cmdq, &trcmd)) {
@@ -319,6 +366,48 @@ tcmux_switch_delayer(void)
         assertv(rplylen, rplylen == 0);
         rc = Delay(&clock, 10);
         assertv(rc, rc == CLOCK_OK);
+    }
+}
+
+static void
+tcmux_sensor_listener(void)
+{
+    sensors_t last_sensors[SENSOR_MODULES] = { 0 };
+    sensors_t new_sensors[SENSOR_MODULES];
+    struct serialctx port;
+    struct uictx ui;
+    struct tcmuxmsg msg;
+    tid_t tcmux;
+    int rplylen;
+
+    tcmux = MyParentTid();
+    serialctx_init(&port, COM1);
+    uictx_init(&ui);
+
+    msg.type = TCMUX_SENSOR_POLL;
+    for (;;) {
+        int i;
+        rplylen = Send(tcmux, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
+        for (i = 0; i < SENSOR_MODULES; i++) {
+            int lo, hi;
+            uint8_t lo8, hi8;
+            sensors_t sens;
+
+            lo = Getc(&port);
+            assertv(lo, lo >= 0 && lo <= 0xff);
+            hi = Getc(&port);
+            assertv(hi, hi >= 0 && hi <= 0xff);
+
+            /* Sensor bits from the train controller are backwards */
+            lo8  = bit_reverse((uint8_t)lo);
+            hi8  = bit_reverse((uint8_t)hi);
+            sens = (hi8 << 8) | lo8;
+
+            new_sensors[i]  = sens & ~last_sensors[i];
+            last_sensors[i] = sens;
+        }
+        ui_sensors(&ui, new_sensors);
     }
 }
 

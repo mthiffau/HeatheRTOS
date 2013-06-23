@@ -6,6 +6,7 @@
 
 CONFIG_H;
 XINT_H;
+SENSOR_H;
 U_TID_H;
 
 /* Entry point for the UI server. */
@@ -19,4 +20,4 @@ struct uictx {
 void uictx_init(struct uictx *ui);
 
 /* Notify the UI of newly tripped sensors. */
-void ui_sensors(struct uictx *ui, uint8_t new_sensors[SENSOR_BYTES]);
+void ui_sensors(struct uictx *ui, sensors_t new_sensors[SENSOR_MODULES]);

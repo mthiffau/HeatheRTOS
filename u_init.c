@@ -7,6 +7,8 @@
 
 #include "xbool.h"
 #include "xint.h"
+#include "static_assert.h"
+#include "sensor.h"
 #include "xassert.h"
 #include "cpumode.h"
 #include "clock_srv.h"
@@ -28,15 +30,15 @@ u_init_main(void)
      * the TID of the name server can be known at compile time (NS_TID).
      * The priority strikes me as relatively unimportant - NS does some
      * work on startup and then probably never again. */
-    ns_tid = Create(U_INIT_PRIORITY - 1, &ns_main);
+    ns_tid = Create(PRIORITY_NS, &ns_main);
     assertv(ns_tid, ns_tid == NS_TID);
 
     /* Start clock server */
-    clk_tid = Create(2, &clksrv_main);
+    clk_tid = Create(PRIORITY_CLOCK, &clksrv_main);
     assertv(clk_tid, clk_tid >= 0);
 
     /* Start serial server for TTY */
-    tty_tid = Create(2, &serialsrv_main);
+    tty_tid = Create(PRIORITY_SERIAL2, &serialsrv_main);
     assertv(tty_tid, tty_tid >= 0);
     ttycfg = (struct serialcfg) {
         .uart   = COM2,
@@ -52,7 +54,7 @@ u_init_main(void)
     assertv(rplylen, rplylen == 0);
 
     /* Start serial server for the train controller. */
-    train_tid = Create(3, &serialsrv_main);
+    train_tid = Create(PRIORITY_SERIAL1, &serialsrv_main);
     assertv(train_tid, train_tid >= 0);
     traincfg = (struct serialcfg) {
         .uart   = COM1,
@@ -68,10 +70,10 @@ u_init_main(void)
     assertv(rplylen, rplylen == 0);
 
     /* Start train control multiplexer */
-    tcmux_tid = Create(6, &tcmuxsrv_main);
+    tcmux_tid = Create(PRIORITY_TCMUX, &tcmuxsrv_main);
     assertv(tcmux_tid, tcmux_tid >= 0);
 
     /* Start UI server */
-    ui_tid = Create(8, &uisrv_main);
+    ui_tid = Create(PRIORITY_UI, &uisrv_main);
     assertv(ui_tid, ui_tid >= 0);
 }

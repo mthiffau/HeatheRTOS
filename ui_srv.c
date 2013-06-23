@@ -1,11 +1,12 @@
 #include "config.h"
+#include "xbool.h"
 #include "xint.h"
 #include "u_tid.h"
+#include "static_assert.h"
+#include "sensor.h"
 #include "ui_srv.h"
 
-#include "xbool.h"
 #include "xassert.h"
-
 #include "xdef.h"
 #include "xmemcpy.h"
 #include "xstring.h"
@@ -65,6 +66,8 @@
 #define SWITCHES_ROW                9
 #define SWITCHES_COL                1
 #define SWITCHES_ENTRY_WIDTH        3
+#define SENSORS_ROW                 11
+#define SENSORS_COL                 20
 
 enum {
     UIMSG_KEYBOARD,
@@ -75,9 +78,9 @@ enum {
 struct uimsg {
     int type;
     union {
-        int     time_tenths;
-        char    keypress;
-        uint8_t sensors[SENSOR_BYTES];
+        int       time_tenths;
+        char      keypress;
+        sensors_t sensors[SENSOR_MODULES];
     };
 };
 
@@ -106,7 +109,8 @@ static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
-static void uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES]);
+static void uisrv_sensors(
+    struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
 static void kbd_listen(void);
 static void time_listen(void);
 
@@ -388,11 +392,30 @@ uisrv_set_time(struct uisrv *uisrv, int tenths)
 }
 
 static void
-uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES])
+uisrv_sensors(struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES])
 {
-    /* TODO */
-    (void)uisrv;
-    (void)sensors;
+    int i;
+    bool ok = false;
+    for (i = 0; i < SENSOR_MODULES; i++) {
+        if (sensors[i] != 0) {
+            ok = true;
+            break;
+        }
+    }
+
+    if (!ok)
+        return;
+
+    Printf(&uisrv->tty,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSORS_COL))
+        "A:%04x B:%04x C:%04x D:%04x E:%04x"
+        TERM_RESTORE_CURSOR,
+        sensors[0],
+        sensors[1],
+        sensors[2],
+        sensors[3],
+        sensors[4]);
 }
 
 static void
@@ -444,11 +467,11 @@ void uictx_init(struct uictx *ui)
     ui->uisrv_tid = WhoIs("ui");
 }
 
-void ui_sensors(struct uictx *ui, uint8_t new_sensors[SENSOR_BYTES])
+void ui_sensors(struct uictx *ui, sensors_t new_sensors[SENSOR_MODULES])
 {
     int rplylen;
     struct uimsg msg = { .type = UIMSG_SENSORS };
-    memcpy(msg.sensors, new_sensors, SENSOR_BYTES);
+    memcpy(msg.sensors, new_sensors, SENSOR_MODULES * sizeof (sensors_t));
     rplylen = Send(ui->uisrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }
