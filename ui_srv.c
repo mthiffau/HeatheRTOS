@@ -60,7 +60,7 @@ enum {
 struct uimsg {
     int type;
     union {
-        int     time_ticks;
+        int     time_tenths;
         char    keypress;
         uint8_t sensors[SENSOR_BYTES];
     };
@@ -84,9 +84,10 @@ static void uisrv_init(struct uisrv *uisrv);
 static void uisrv_kbd(struct uisrv *uisrv, char keypress);
 static void uisrv_runcmd(struct uisrv *uisrv);
 static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
-static void uisrv_set_time(struct uisrv *uisrv, int ticks);
+static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES]);
 static void kbd_listen(void);
+static void time_listen(void);
 
 void
 uisrv_main(void)
@@ -111,7 +112,7 @@ uisrv_main(void)
             uisrv_kbd(&uisrv, msg.keypress);
             break;
         case UIMSG_SET_TIME:
-            uisrv_set_time(&uisrv, msg.time_ticks);
+            uisrv_set_time(&uisrv, msg.time_tenths);
             break;
         case UIMSG_SENSORS:
             uisrv_sensors(&uisrv, msg.sensors);
@@ -126,6 +127,7 @@ static void
 uisrv_init(struct uisrv *uisrv)
 {
     tid_t kbd_tid;
+    tid_t time_tid;
 
     uisrv->cmdlen     = 0;
     uisrv->cmd[0]     = '\0';
@@ -134,8 +136,12 @@ uisrv_init(struct uisrv *uisrv)
 
     clkctx_init(&uisrv->clock);
     serialctx_init(&uisrv->tty, COM2);
+
     kbd_tid = Create(1, &kbd_listen);
     assertv(kbd_tid, kbd_tid >= 0);
+
+    time_tid = Create(1, &time_listen);
+    assertv(time_tid, time_tid >= 0);
 
     Print(&uisrv->tty,
         TERM_RESET_DEVICE
@@ -228,11 +234,20 @@ uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc)
 }
 
 static void
-uisrv_set_time(struct uisrv *uisrv, int ticks)
+uisrv_set_time(struct uisrv *uisrv, int tenths)
 {
-    /* TODO */
-    (void)uisrv;
-    (void)ticks;
+    unsigned min, sec;
+    assert(tenths >= 0);
+    sec     = tenths / 10;
+    tenths %= 10;
+    min     = sec / 60;
+    sec    %= 60;
+    Printf(&uisrv->tty,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(TIME_ROW), STR(TIME_COL))
+        "%02d:%02u.%u"
+        TERM_RESTORE_CURSOR,
+        min, sec, tenths);
 }
 
 static void
@@ -264,17 +279,32 @@ kbd_listen(void)
     }
 }
 
+static void
+time_listen(void)
+{
+    int now_clock, rplylen;
+    struct clkctx clock;
+    struct uimsg msg;
+    tid_t uisrv;
+
+    uisrv = MyParentTid();
+    clkctx_init(&clock);
+
+    now_clock       = Time(&clock);
+    msg.type        = UIMSG_SET_TIME;
+    msg.time_tenths = 0;
+    for (;;) {
+        rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
+        now_clock += 10;
+        msg.time_tenths++;
+        DelayUntil(&clock, now_clock);
+    }
+}
+
 void uictx_init(struct uictx *ui)
 {
     ui->uisrv_tid = WhoIs("ui");
-}
-
-void ui_set_time(struct uictx *ui, int ticks)
-{
-    int rplylen;
-    struct uimsg msg = { .type = UIMSG_SET_TIME, .time_ticks = ticks };
-    rplylen = Send(ui->uisrv_tid, &msg, sizeof (msg), NULL, 0);
-    assertv(rplylen, rplylen == 0);
 }
 
 void ui_sensors(struct uictx *ui, uint8_t new_sensors[SENSOR_BYTES])
