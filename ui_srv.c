@@ -32,15 +32,17 @@
 #define TERM_ERASE_ALL              "\e[2J"
 #define TERM_ERASE_DOWN             "\e[J"
 #define TERM_ERASE_EOL              "\e[K"
+#define TERM_SAVE_CURSOR            "\e[s"
+#define TERM_RESTORE_CURSOR         "\e[u"
 #define TERM_FORCE_CURSOR_START     "\e["
 #define TERM_FORCE_CURSOR_MID       ";"
 #define TERM_FORCE_CURSOR_END       "f"
 #define TERM_FORCE_CURSOR(row, col) \
-    TERM_FORCE_CURSOR_START row TERM_FORCE_CURSOR_MID col TERM_FORCE_CURSOR_END
-#define TERM_SAVE_CURSOR            "\e[s"
-#define TERM_RESTORE_CURSOR         "\e[u"
+    TERM_FORCE_CURSOR_START         \
+    row TERM_FORCE_CURSOR_MID col   \
+    TERM_FORCE_CURSOR_END
 
-/* Screen positions */
+/* Screen positions and messages */
 #define TIME_ROW                    2
 #define TIME_COL                    7
 #define TIME_MSG_COL                1
@@ -51,6 +53,18 @@
 #define CMD_PROMPT                  "> "
 #define STATUS_ROW                  6
 #define STATUS_COL                  1
+#define SWITCHES_LBL_ROW            8
+#define SWITCHES_LBL_COL            1
+#define SWITCHES_LBL    \
+    "  1  2  3  4  5  6  7  8  9" \
+    " 10 11 12 13 14 15 16 17 18" \
+    "x99x9Ax9Bx9C\n"              \
+    "  S  S  S  S  S  S  S  S  S" \
+    "  S  S  S  S  S  S  S  S  S" \
+    "  S  S  S  S"
+#define SWITCHES_ROW                9
+#define SWITCHES_COL                1
+#define SWITCHES_ENTRY_WIDTH        3
 
 enum {
     UIMSG_KEYBOARD,
@@ -89,6 +103,8 @@ static void uisrv_runcmd(struct uisrv *uisrv);
 static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
+static bool uisrv_update_switch_table(
+    struct uisrv *uisrv, uint8_t sw, bool curved);
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES]);
 static void kbd_listen(void);
@@ -168,6 +184,8 @@ uisrv_init(struct uisrv *uisrv)
         TERM_ERASE_ALL
         TERM_FORCE_CURSOR(STR(TIME_ROW), STR(TIME_MSG_COL))
         TIME_MSG
+        TERM_FORCE_CURSOR(STR(SWITCHES_LBL_ROW), STR(SWITCHES_LBL_COL))
+        SWITCHES_LBL
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
         CMD_PROMPT
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
@@ -325,7 +343,31 @@ uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     /* Send out switch command */
+    if (!uisrv_update_switch_table(uisrv, sw, curved)) {
+        Printf(&uisrv->tty, "unrecognized switch '%s'", argv[0]);
+        return;
+    }
+
     tcmux_switch_curve(&uisrv->tcmux, sw, curved);
+}
+
+static bool
+uisrv_update_switch_table(struct uisrv *uisrv, uint8_t sw, bool curved)
+{
+    int col;
+    if (sw >= 0x99 && sw <= 0x9c)
+        sw -= 0x99 - 19;
+    else if (sw < 1 || sw > 18)
+        return false;
+
+    /* Update displayed switch table */
+    col = SWITCHES_COL + (SWITCHES_ENTRY_WIDTH * sw - 1);
+    Printf(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(SWITCHES_ROW), "%d")
+        "%c",
+        col,
+        curved ? 'C' : 'S');
+    return true;
 }
 
 static void
