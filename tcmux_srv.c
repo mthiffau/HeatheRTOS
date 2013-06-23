@@ -28,7 +28,8 @@
 enum {
     TCMUX_TRAIN_SPEED,
     TCMUX_SWITCH_CURVE,
-    TCMUX_CMD_READY
+    TCMUX_CMD_READY,
+    TCMUX_SWITCH_READY,
     /* TODO: more satellite messages */
 };
 
@@ -47,6 +48,7 @@ struct switch_msg {
 struct train_cmd {
     char    cmd[2];
     uint8_t len;
+    bool    is_switch;
     tid_t   client;
 };
 
@@ -61,7 +63,12 @@ struct tcmuxmsg {
 struct tcmux {
     struct serialctx  port;
     bool              cmd_ready;
+    bool              switch_ready;
     tid_t             flusher;
+    tid_t             switch_delayer;
+    tid_t             last_cmd_client;
+    bool              last_cmd_was_switch;
+    tid_t             last_switchcmd_client;
 
     /* Command queues */
     struct queue      speed_cmdq, switch_cmdq;
@@ -75,11 +82,14 @@ static void tcmuxsrv_train_speed(
     struct tcmux *tc, tid_t client, struct speed_msg *m);
 static void tcmuxsrv_switch_curve(
     struct tcmux *tc, tid_t client, struct switch_msg *m);
+static void tcmuxsrv_cmd_ready(struct tcmux *tc, tid_t client);
+static void tcmuxsrv_switch_ready(struct tcmux *tc, tid_t client);
 
 static void tcmuxsrv_trcmd_trysend(struct tcmux *tc);
 static void tcmuxsrv_trcmd_send(struct tcmux *tc, struct train_cmd *trcmd);
 
 static void tcmux_cmd_flusher(void);
+static void tcmux_switch_delayer(void);
 
 void
 tcmuxsrv_main(void)
@@ -96,16 +106,17 @@ tcmuxsrv_main(void)
         msglen = Receive(&client, &msg, sizeof (msg));
         assertv(msglen, msglen == sizeof (msg));
         switch (msg.type) {
+        case TCMUX_CMD_READY:
+            tcmuxsrv_cmd_ready(&tc, client);
+            break;
+        case TCMUX_SWITCH_READY:
+            tcmuxsrv_switch_ready(&tc, client);
+            break;
         case TCMUX_TRAIN_SPEED:
             tcmuxsrv_train_speed(&tc, client, &msg.speed);
             break;
         case TCMUX_SWITCH_CURVE:
             tcmuxsrv_switch_curve(&tc, client, &msg.sw);
-            break;
-        case TCMUX_CMD_READY:
-            assert(client == tc.flusher);
-            tc.cmd_ready = true;
-            tcmuxsrv_trcmd_trysend(&tc);
             break;
         default:
             panic("Invalid tcmux message type %d\n", msg.type);
@@ -117,7 +128,11 @@ static void
 tcmux_init(struct tcmux *tc)
 {
     serialctx_init(&tc->port, COM1);
-    tc->cmd_ready = false;
+    tc->cmd_ready             = false;
+    tc->switch_ready          = false;
+    tc->last_cmd_client       = -1;
+    tc->last_cmd_was_switch   = false;
+    tc->last_switchcmd_client = -1;
 
     /* Initialize command queues */
     q_init(
@@ -136,6 +151,41 @@ tcmux_init(struct tcmux *tc)
     /* Start train command flusher */
     tc->flusher = Create(1, tcmux_cmd_flusher);
     assert(tc->flusher >= 0);
+
+    /* Start switch command delayer */
+    tc->switch_delayer = Create(1, &tcmux_switch_delayer);
+    assert(tc->switch_delayer >= 0);
+}
+
+static void
+tcmuxsrv_cmd_ready(struct tcmux *tc, tid_t client)
+{
+    int rc;
+    assert(client == tc->flusher);
+    tc->cmd_ready = true;
+    if (tc->last_cmd_was_switch) {
+        tc->switch_ready = false;
+        tc->last_switchcmd_client = tc->last_cmd_client;
+        rc = Reply(tc->switch_delayer, NULL, 0);
+        assertv(rc, rc == 0);
+    } else if (tc->last_cmd_client >= 0) {
+        rc = Reply(tc->last_cmd_client, NULL, 0);
+        assertv(rc, rc == 0);
+    }
+    tcmuxsrv_trcmd_trysend(tc);
+}
+
+static void
+tcmuxsrv_switch_ready(struct tcmux *tc, tid_t client)
+{
+    int rc;
+    assert(client == tc->switch_delayer);
+    tc->switch_ready = true;
+    if (tc->last_switchcmd_client >= 0) {
+        rc = Reply(tc->last_switchcmd_client, NULL, 0);
+        assertv(rc, rc == 0);
+    }
+    tcmuxsrv_trcmd_trysend(tc);
 }
 
 static void
@@ -147,9 +197,10 @@ tcmuxsrv_train_speed(
     int rc;
     struct train_cmd trcmd;
 
-    trcmd.cmd[0] = TRCMD_SPEED(m->speed);
-    trcmd.cmd[1] = (char)m->train;
-    trcmd.len    = 2;
+    trcmd.cmd[0]    = TRCMD_SPEED(m->speed);
+    trcmd.cmd[1]    = (char)m->train;
+    trcmd.len       = 2;
+    trcmd.is_switch = false;
     if (m->sync) {
         trcmd.client = client;
     } else {
@@ -172,9 +223,10 @@ tcmuxsrv_switch_curve(
     int rc;
     struct train_cmd trcmd;
 
-    trcmd.cmd[0] = m->curved ? TRCMD_SWITCH_CURVE : TRCMD_SWITCH_STRAIGHT;
-    trcmd.cmd[1] = (char)m->sw;
-    trcmd.len    = 2;
+    trcmd.cmd[0]    = m->curved ? TRCMD_SWITCH_CURVE : TRCMD_SWITCH_STRAIGHT;
+    trcmd.cmd[1]    = (char)m->sw;
+    trcmd.len       = 2;
+    trcmd.is_switch = true;
     if (m->sync) {
         trcmd.client = client;
     } else {
@@ -196,18 +248,24 @@ tcmuxsrv_trcmd_trysend(struct tcmux *tc)
     if (!tc->cmd_ready)
         return;
 
-    if (q_dequeue(&tc->switch_cmdq, &trcmd)) {
-        tc->solenoid_on = true;
-        tcmuxsrv_trcmd_send(tc, &trcmd);
-    } else if (tc->solenoid_on) {
-        trcmd.cmd[0] = TRCMD_SWITCH_OFF;
-        trcmd.len    = 1;
-        trcmd.client = -1;
-        tcmuxsrv_trcmd_send(tc, &trcmd);
-        tc->solenoid_on = false;
-    } else if (q_dequeue(&tc->speed_cmdq, &trcmd)) {
-        tcmuxsrv_trcmd_send(tc, &trcmd);
+    if (tc->switch_ready) {
+        if (q_dequeue(&tc->switch_cmdq, &trcmd)) {
+            tc->solenoid_on = true;
+            tcmuxsrv_trcmd_send(tc, &trcmd);
+            return;
+        } else if (tc->solenoid_on) {
+            trcmd.cmd[0] = TRCMD_SWITCH_OFF;
+            trcmd.len       = 1;
+            trcmd.client    = -1;
+            trcmd.is_switch = false;
+            tcmuxsrv_trcmd_send(tc, &trcmd);
+            tc->solenoid_on = false;
+            return;
+        }
     }
+
+    if (q_dequeue(&tc->speed_cmdq, &trcmd))
+        tcmuxsrv_trcmd_send(tc, &trcmd);
 }
 
 static void
@@ -220,6 +278,8 @@ tcmuxsrv_trcmd_send(struct tcmux *tc, struct train_cmd *trcmd)
     rc = Reply(tc->flusher, NULL, 0);
     assertv(rc, rc == 0);
     tc->cmd_ready = false;
+    tc->last_cmd_client = trcmd->client;
+    tc->last_cmd_was_switch = trcmd->is_switch;
 }
 
 static void
@@ -239,6 +299,26 @@ tcmux_cmd_flusher(void)
         assertv(rplylen, rplylen == 0);
         rc = Flush(&port);
         assertv(rc, rc == SERIAL_OK);
+    }
+}
+
+static void
+tcmux_switch_delayer(void)
+{
+    struct clkctx clock;
+    struct tcmuxmsg msg;
+    tid_t tcmux;
+    int rc, rplylen;
+
+    tcmux = MyParentTid();
+    clkctx_init(&clock);
+
+    msg.type = TCMUX_SWITCH_READY;
+    for (;;) {
+        rplylen = Send(tcmux, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
+        rc = Delay(&clock, 10);
+        assertv(rc, rc == CLOCK_OK);
     }
 }
 

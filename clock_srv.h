@@ -8,6 +8,11 @@ U_TID_H;
 
 #define HWCLOCK_Hz  508469
 
+enum {
+    CLOCK_OK         =  0,
+    CLOCK_DELAY_PAST = -3
+};
+
 struct clkctx;
 
 /* Initialize the clock so that it ticks at freq_Hz.

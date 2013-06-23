@@ -21,11 +21,6 @@ enum {
     CLKMSG_DELAYUNTIL
 };
 
-enum {
-    CLKRPLY_OK         =  0,
-    CLKRPLY_DELAY_PAST = -3
-};
-
 struct clkmsg {
     int type;
     int ticks;
@@ -163,7 +158,7 @@ clksrv_delayuntil(struct clksrv *clk, tid_t who, int when_ticks)
     } else {
         /* Reply immediately */
         int rc, rply;
-        rply = when_ticks == clk->ticks ? CLKRPLY_OK : CLKRPLY_DELAY_PAST;
+        rply = when_ticks == clk->ticks ? CLOCK_OK : CLOCK_DELAY_PAST;
         rc = Reply(who, &rply, sizeof (rply));
         assertv(rc, rc == 0);
     }
@@ -177,7 +172,7 @@ clksrv_undelay(struct clksrv *clk)
         int rc, rply;
         if (delay->key > clk->ticks)
             break; /* no more tasks ready to wake up; all times in future */
-        rply = CLKRPLY_OK;
+        rply = CLOCK_OK;
         rc = Reply((tid_t)delay->val, &rply, sizeof (rply));
         assertv(rc, rc == 0);
         pqueue_popmin(&clk->delays);
