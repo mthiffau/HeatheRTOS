@@ -131,24 +131,38 @@ uisrv_main(void)
 static void
 uisrv_init(struct uisrv *uisrv)
 {
+    static uint8_t switches[22] = {
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        0x99, 0x9a, 0x9b, 0x9c
+    };
     tid_t kbd_tid;
     tid_t time_tid;
+    unsigned i;
+    uint8_t last_switch;
 
+    /* Set up UI state */
     uisrv->cmdlen     = 0;
     uisrv->cmd[0]     = '\0';
     uisrv->nsensors   = 0;
     uisrv->lastsensor = MAX_SENSORS - 1;
 
+    /* Get contexts */
     clkctx_init(&uisrv->clock);
     serialctx_init(&uisrv->tty, COM2);
     tcmuxctx_init(&uisrv->tcmux);
 
-    kbd_tid = Create(1, &kbd_listen);
-    assertv(kbd_tid, kbd_tid >= 0);
+    /* Print initialization message */
+    Print(&uisrv->tty, TERM_RESET_DEVICE TERM_ERASE_ALL "Initializating...");
+    Flush(&uisrv->tty);
 
-    time_tid = Create(1, &time_listen);
-    assertv(time_tid, time_tid >= 0);
+    /* Set all switches to straight. */
+    for (i = 0; i < ARRAY_SIZE(switches) - 1; i++)
+        tcmux_switch_curve(&uisrv->tcmux, switches[i], false);
 
+    last_switch = switches[ARRAY_SIZE(switches) - 1];
+    tcmux_switch_curve_sync(&uisrv->tcmux, last_switch, false);
+
+    /* Print static screen portions */
     Print(&uisrv->tty,
         TERM_RESET_DEVICE
         TERM_ERASE_ALL
@@ -157,6 +171,16 @@ uisrv_init(struct uisrv *uisrv)
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
         CMD_PROMPT
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
+
+    Flush(&uisrv->tty);
+
+    /* Start listeners */
+    kbd_tid = Create(1, &kbd_listen);
+    assertv(kbd_tid, kbd_tid >= 0);
+
+    time_tid = Create(1, &time_listen);
+    assertv(time_tid, time_tid >= 0);
+
 }
 
 static void
