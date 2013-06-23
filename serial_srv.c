@@ -682,6 +682,21 @@ Print(struct serialctx *ctx, const char *s)
 }
 
 int
+Printf(struct serialctx *ctx, const char *fmt, ...)
+{
+    struct ringbuf r;
+    va_list args;
+    char mem[512];
+
+    rbuf_init(&r, mem, sizeof (mem));
+    va_start(args, fmt);
+    rbuf_vprintf(&r, fmt, args); /* FIXME */
+    va_end(args);
+
+    return Write(ctx, mem, r.len);
+}
+
+int
 Flush(struct serialctx *ctx)
 {
     struct serialmsg msg;

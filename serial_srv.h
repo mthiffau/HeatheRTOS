@@ -40,4 +40,6 @@ int Getc(struct serialctx *ctx);
 int Putc(struct serialctx *ctx, char c);
 int Write(struct serialctx *ctx, const void *buf, size_t n);
 int Print(struct serialctx *ctx, const char *s);
+int Printf(struct serialctx *ctx, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
 int Flush(struct serialctx *ctx);
