@@ -15,6 +15,7 @@
 #include "ns.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
+#include "tcmux_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -69,6 +70,7 @@ struct uimsg {
 struct uisrv {
     struct serialctx tty;
     struct clkctx    clock;
+    struct tcmuxctx  tcmux;
 
     char    cmd[CMD_MAXLEN + 1];
     int     cmdlen;
@@ -78,12 +80,14 @@ struct uisrv {
 };
 
 static int tokenize(char *cmd, char **ts, int max_ts);
+static int atou8(const char *s, uint8_t *ret);
 
 /* FIXME */
 static void uisrv_init(struct uisrv *uisrv);
 static void uisrv_kbd(struct uisrv *uisrv, char keypress);
 static void uisrv_runcmd(struct uisrv *uisrv);
 static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(struct uisrv *uisrv, uint8_t sensors[SENSOR_BYTES]);
 static void kbd_listen(void);
@@ -136,6 +140,7 @@ uisrv_init(struct uisrv *uisrv)
 
     clkctx_init(&uisrv->clock);
     serialctx_init(&uisrv->tty, COM2);
+    tcmuxctx_init(&uisrv->tcmux);
 
     kbd_tid = Create(1, &kbd_listen);
     assertv(kbd_tid, kbd_tid >= 0);
@@ -206,6 +211,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         /* ignore silently */
     } else if (!strcmp(tokens[0], "q")) {
         uisrv_cmd_q(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tr")) {
+        uisrv_cmd_tr(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -231,6 +238,29 @@ uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc)
     assertv(rc, rc == SERIAL_OK);
     rc = Delay(&uisrv->clock, 2); /* allow UART to shift out last character */
     Shutdown();
+}
+
+static void
+uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
+{
+    /* Parse arguments */
+    uint8_t which;
+    uint8_t speed;
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: tr TRAIN SPEED");
+        return;
+    }
+    if (atou8(argv[0], &which) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+    if (atou8(argv[1], &speed) != 0 || speed > 14) {
+        Printf(&uisrv->tty, "bad speed '%s'", argv[1]);
+        return;
+    }
+
+    /* Send out speed command */
+    tcmux_train_speed(&uisrv->tcmux, which, speed);
 }
 
 static void
@@ -341,4 +371,32 @@ tokenize(char *cmd, char **ts, int max_ts)
     }
 
     return n;
+}
+
+static int
+atou8(const char *s, uint8_t *ret)
+{
+    unsigned n = 0, base = 10;
+    char c;
+    if (s[0] == '0' && s[1] == 'x') {
+        base = 16;
+        s += 2;
+    }
+    while ((c = *s++) != '\0') {
+        if (c >= '0' && c <= '9') {
+            n = n * base + c - '0';
+        } else if (base == 16 && c >= 'a' && c <= 'f') {
+            n = n * base + c - 'a' + 10;
+        } else if (base == 16 && c >= 'A' && c <= 'F') {
+            n = n * base + c - 'A' + 10;
+        } else {
+            return -1;
+        }
+
+        if (n > 255)
+            return -1;
+    }
+
+    *ret = (uint8_t)n;
+    return 0;
 }

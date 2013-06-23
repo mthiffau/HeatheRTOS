@@ -12,6 +12,7 @@
 #include "clock_srv.h"
 #include "serial_srv.h"
 #include "ui_srv.h"
+#include "tcmux_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -19,7 +20,7 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid, tty_tid, train_tid, ui_tid;
+    tid_t ns_tid, clk_tid, tty_tid, train_tid, tcmux_tid, ui_tid;
     struct serialcfg ttycfg, traincfg;
     int rplylen;
 
@@ -65,6 +66,10 @@ u_init_main(void)
     };
     rplylen = Send(train_tid, &traincfg, sizeof (traincfg), NULL, 0);
     assertv(rplylen, rplylen == 0);
+
+    /* Start train control multiplexer */
+    tcmux_tid = Create(2, &tcmuxsrv_main);
+    assertv(tcmux_tid, tcmux_tid >= 0);
 
     /* Start UI server */
     ui_tid = Create(2, &uisrv_main);
