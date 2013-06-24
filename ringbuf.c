@@ -3,6 +3,9 @@
 #include "xarg.h"
 #include "ringbuf.h"
 
+#include "xassert.h"
+#include "xmemcpy.h"
+
 #include "bwio.h" /* for debug print */
 
 /* FIXME HACK */
@@ -20,12 +23,7 @@ void rbuf_init(struct ringbuf *r, char *mem, size_t size)
 
 void rbuf_putc(struct ringbuf *r, char c)
 {
-    /* FIXME */
-    if (r->len == r->size) {
-        bwprintf(COM2, "\e[20;1f buffer full!");
-        for (;;) { /* assertion failure */ }
-    }
-
+    assert(r->len < r->size); /* FIXME */
     r->mem[r->wr++] = c;
     r->wr %= r->size;
     r->len++;
@@ -51,12 +49,19 @@ bool rbuf_getc(struct ringbuf *r, char *c_out)
     return true;
 }
 
-void rbuf_write(struct ringbuf *r, const void *buf, int n)
+void rbuf_write(struct ringbuf *r, const void *buf, size_t n)
 {
-    int i;
-    const char *s = buf;
-    for (i = 0; i < n; i++)
-        rbuf_putc(r, *s++);
+    size_t space;
+    assert(r->len + n <= r->size);
+    space = r->size - r->wr;
+    if (n <= space) {
+        memcpy(r->mem + r->wr, buf,         n);
+    } else {
+        memcpy(r->mem + r->wr, buf,         space);
+        memcpy(r->mem,         buf + space, n - space);
+    }
+    r->wr   = (r->wr + n) % r->size;
+    r->len += n;
 }
 
 void rbuf_print(struct ringbuf *r, const char *s)
