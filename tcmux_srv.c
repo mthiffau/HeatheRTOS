@@ -425,14 +425,12 @@ tcmux_train_speed_impl(
     bool sync)
 {
     int rplylen;
-    struct tcmuxmsg msg = {
-        .type  = TCMUX_TRAIN_SPEED,
-        .speed = {
-            .train = train,
-            .speed = speed,
-            .sync  = sync
-        }
-    };
+    struct tcmuxmsg msg;
+    msg.type  = TCMUX_TRAIN_SPEED;
+    msg.speed.train = train;
+    msg.speed.speed = speed;
+    msg.speed.sync  = sync;
+
     rplylen = Send(tc->tcmuxsrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }
@@ -445,14 +443,12 @@ tcmux_switch_curve_impl(
     bool sync)
 {
     int rplylen;
-    struct tcmuxmsg msg = {
-        .type  = TCMUX_SWITCH_CURVE,
-        .sw = {
-            .sw     = sw,
-            .curved = curved,
-            .sync   = sync
-        }
-    };
+    struct tcmuxmsg msg;
+    msg.type  = TCMUX_SWITCH_CURVE;
+    msg.sw.sw = sw;
+    msg.sw.curved = curved;
+    msg.sw.sync   = sync;
+
     rplylen = Send(tc->tcmuxsrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }
