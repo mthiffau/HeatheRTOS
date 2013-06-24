@@ -21,12 +21,16 @@
 #include "xarg.h"
 #include "bwio.h"
 
-#define STR(x)          STR1(x)
-#define STR1(x)         #x
+#define STR(x)              STR1(x)
+#define STR1(x)             #x
 
-#define CMD_MAXLEN      63
-#define CMD_MAXTOKS     3
-#define MAX_SENSORS     10
+#define CMD_MAXLEN          63
+#define CMD_MAXTOKS         3
+#define MAX_SENSORS         10
+
+#define MAX_TRAINS          256
+#define REVERSE_DELAY_TICKS 200
+#define REVERSE_CMD         15
 
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
@@ -75,15 +79,33 @@
 enum {
     UIMSG_KEYBOARD,
     UIMSG_SET_TIME,
-    UIMSG_SENSORS
+    UIMSG_SENSORS,
+    UIMSG_REVERSE,
+    UIMSG_REVERSE_DONE
+};
+
+struct train {
+    uint8_t speed;
+    
+    bool    reversing;      /* Is the train reversing */
+    int     rv_start_time;  /* When did it start reversing */
+    int     reverse_count;  /* How many concurrent reversals */
+
+    int     next;           /* Next index if we're in a queue */
+};
+
+struct rv_msg {
+    uint8_t train;
+    int     time;
 };
 
 struct uimsg {
     int type;
     union {
-        int       time_tenths;
-        char      keypress;
-        sensors_t sensors[SENSOR_MODULES];
+        int           time_tenths;
+        char          keypress;
+        struct rv_msg rv;
+        sensors_t     sensors[SENSOR_MODULES];
     };
 };
 
@@ -97,6 +119,15 @@ struct uisrv {
 
     uint32_t sensors[MAX_SENSORS];
     int      nsensors, lastsensor;
+
+    struct train traintab[MAX_TRAINS];
+
+    tid_t reverse_timer;
+    bool  reverse_timer_running;
+
+    int   rvq_head;
+    int   rvq_tail;
+    int   rvq_count;
 };
 
 static int tokenize(char *cmd, char **ts, int max_ts);
@@ -109,13 +140,17 @@ static void uisrv_runcmd(struct uisrv *uisrv);
 static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
+static void start_reverse_timer(struct uisrv *uisrv);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(
     struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
+static void uisrv_finish_reverse(struct uisrv *uisrv);
 static void kbd_listen(void);
 static void time_listen(void);
+static void reverse_timer(void);
 
 void
 uisrv_main(void)
@@ -144,6 +179,9 @@ uisrv_main(void)
             break;
         case UIMSG_SENSORS:
             uisrv_sensors(&uisrv, msg.sensors);
+            break;
+        case UIMSG_REVERSE_DONE:
+            uisrv_finish_reverse(&uisrv);
             break;
         default:
             panic("Invalid UI server message type %d", msg.type);
@@ -174,8 +212,17 @@ uisrv_init(struct uisrv *uisrv)
     serialctx_init(&uisrv->tty, COM2);
     tcmuxctx_init(&uisrv->tcmux);
 
+    /* Initialize train table */
+    for (i = 0; i < MAX_TRAINS; i++) {
+        uisrv->traintab[i].speed         = 0;
+        uisrv->traintab[i].reversing     = false;
+        uisrv->traintab[i].rv_start_time = -1;
+        uisrv->traintab[i].reverse_count = 0;
+        uisrv->traintab[i].next          = -1;
+    }
+
     /* Print initialization message */
-    Print(&uisrv->tty, TERM_RESET_DEVICE TERM_ERASE_ALL "Initializating...");
+    Print(&uisrv->tty, TERM_RESET_DEVICE TERM_ERASE_ALL "Initializing...");
     Flush(&uisrv->tty);
 
     /* Set all switches to straight. */
@@ -207,6 +254,13 @@ uisrv_init(struct uisrv *uisrv)
 
     time_tid = Create(PRIORITY_UI - 1, &time_listen);
     assertv(time_tid, time_tid >= 0);
+
+    uisrv->reverse_timer = Create(PRIORITY_UI - 1, &reverse_timer);
+    uisrv->reverse_timer_running = false;
+    uisrv->rvq_head = -1;
+    uisrv->rvq_tail = -1;
+    uisrv->rvq_count = 0;
+    assert(uisrv->reverse_timer >= 0);
 }
 
 static void
@@ -266,6 +320,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_tr(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "sw")) {
         uisrv_cmd_sw(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "rv")) {
+        uisrv_cmd_rv(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -312,8 +368,12 @@ uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    /* Send out speed command */
-    tcmux_train_speed(&uisrv->tcmux, which, speed);
+    if (!uisrv->traintab[which].reversing) {
+        /* Send out speed command */
+        tcmux_train_speed(&uisrv->tcmux, which, speed);
+    }
+    /* Store state in train table */
+    uisrv->traintab[which].speed = speed;
 }
 
 static void
@@ -354,6 +414,75 @@ uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     tcmux_switch_curve(&uisrv->tcmux, sw, curved);
+}
+
+static void
+uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t which;
+    struct train* train;
+
+    /* Parse arguments */
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: rv TRAIN");
+        return;
+    }
+    if (atou8(argv[0], &which) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    train = &(uisrv->traintab[which]);
+
+    /* If the train is already reversing,
+       just increment it's reverse count */
+    if (train->reversing) {
+        train->reverse_count++;
+        return;
+    }
+
+    /* Mark the train as reversing */
+    train->reversing = true;
+    train->rv_start_time = Time(&uisrv->clock);
+    train->reverse_count = 1;
+    
+    /* Immediately stop the train */
+    tcmux_train_speed(&uisrv->tcmux, which, 0);
+
+    /* Add the train to the reverse queue */
+    if (uisrv->rvq_count == 0) {
+        uisrv->rvq_head = which;
+        uisrv->rvq_tail = which;
+    } else {
+        uisrv->traintab[uisrv->rvq_tail].next = which;
+        uisrv->rvq_tail = which;
+    }
+    uisrv->rvq_count++;
+
+    /* If the reverse timer isn't running, send message to the reverse timer */
+    start_reverse_timer(uisrv);
+}
+
+static void
+start_reverse_timer(struct uisrv *uisrv)
+{
+    int replylen;
+    struct uimsg msg;
+    struct train *train;
+
+    assert(uisrv->rvq_count > 0);
+    if (uisrv->reverse_timer_running)
+        return;
+
+    train = &uisrv->traintab[uisrv->rvq_head];
+
+    msg.type     = UIMSG_REVERSE;
+    msg.rv.train = uisrv->rvq_head;
+    msg.rv.time  = train->rv_start_time + REVERSE_DELAY_TICKS;
+
+    uisrv->reverse_timer_running = true;
+    replylen = Send(uisrv->reverse_timer, &msg, sizeof(msg), NULL, 0);
+    assertv(replylen, replylen == 0);
 }
 
 static bool
@@ -438,6 +567,39 @@ uisrv_sensors(struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES])
 }
 
 static void
+uisrv_finish_reverse(struct uisrv *uisrv)
+{
+    uisrv->reverse_timer_running = false;
+
+    /* Get the head of the reverse queue */
+    int train_ix = uisrv->rvq_head;
+    assert(train_ix > 0);
+    struct train *train = &(uisrv->traintab[train_ix]);
+
+    /* If it turns out we are reversing, send the reverse command */
+    if (train->reverse_count % 2 == 1)
+        tcmux_train_speed(&uisrv->tcmux, train_ix, REVERSE_CMD);
+    tcmux_train_speed(&uisrv->tcmux, train_ix, train->speed);
+    
+    /* The train isn't reversing any more */
+    train->reversing = false;
+    train->reverse_count = 0;
+
+    /* Take it off the queue */
+    uisrv->rvq_head = train->next;
+    uisrv->rvq_count--;
+    train->next = -1;
+
+    /* If the queue is empty now, we're done */
+    if (uisrv->rvq_count == 0) {
+        uisrv->rvq_tail = -1;
+        return;
+    }
+
+    start_reverse_timer(uisrv);
+}
+
+static void
 kbd_listen(void)
 {
     tid_t uisrv;
@@ -478,6 +640,36 @@ time_listen(void)
         now_clock += 10;
         msg.time_tenths++;
         DelayUntil(&clock, now_clock);
+    }
+}
+
+static void
+reverse_timer(void)
+{
+    int rc;
+    tid_t uisrv;
+    struct uimsg msg;
+    struct clkctx clock;
+
+    clkctx_init(&clock);
+
+    for (;;) {
+        /* Receive a reversal message from UI */
+        rc = Receive(&uisrv, &msg, sizeof(msg));
+        assertv(rc, rc == sizeof(msg));
+        assert(msg.type == UIMSG_REVERSE);
+        /* Reply immediately to unblock it */
+        rc = Reply(uisrv, NULL, 0);
+        assertv(rc, rc == 0);
+
+        /* Delay for the specified time */
+        rc = DelayUntil(&clock, msg.rv.time);
+        assertv(rc, rc == 0);
+        
+        /* Tell the UI server we're done */
+        msg.type = UIMSG_REVERSE_DONE;
+        rc = Send(uisrv, &msg, sizeof(msg), NULL, 0);
+        assertv(rc, rc == 0);
     }
 }
 
