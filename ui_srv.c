@@ -67,7 +67,10 @@
 #define SWITCHES_COL                1
 #define SWITCHES_ENTRY_WIDTH        3
 #define SENSORS_ROW                 11
-#define SENSORS_COL                 20
+#define SENSORS_COL                 17
+#define SENSORS_LBL_ROW             11
+#define SENSORS_LBL_COL             1
+#define SENSORS_LBL                 "Recent sensors: "
 
 enum {
     UIMSG_KEYBOARD,
@@ -92,8 +95,8 @@ struct uisrv {
     char    cmd[CMD_MAXLEN + 1];
     int     cmdlen;
 
-    uint8_t sensors[MAX_SENSORS];
-    int     nsensors, lastsensor;
+    uint32_t sensors[MAX_SENSORS];
+    int      nsensors, lastsensor;
 };
 
 static int tokenize(char *cmd, char **ts, int max_ts);
@@ -190,6 +193,8 @@ uisrv_init(struct uisrv *uisrv)
         TIME_MSG
         TERM_FORCE_CURSOR(STR(SWITCHES_LBL_ROW), STR(SWITCHES_LBL_COL))
         SWITCHES_LBL
+        TERM_FORCE_CURSOR(STR(SENSORS_LBL_ROW), STR(SENSORS_LBL_COL))
+        SENSORS_LBL
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
         CMD_PROMPT
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
@@ -197,12 +202,11 @@ uisrv_init(struct uisrv *uisrv)
     Flush(&uisrv->tty);
 
     /* Start listeners */
-    kbd_tid = Create(1, &kbd_listen);
+    kbd_tid = Create(PRIORITY_UI - 1, &kbd_listen);
     assertv(kbd_tid, kbd_tid >= 0);
 
-    time_tid = Create(1, &time_listen);
+    time_tid = Create(PRIORITY_UI - 1, &time_listen);
     assertv(time_tid, time_tid >= 0);
-
 }
 
 static void
@@ -296,10 +300,7 @@ uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
     uint8_t which;
     uint8_t speed;
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: tr TRAIN SPEED (");
-        int i;
-        for (i = 0; i < argc; i++)
-            Printf(&uisrv->tty, "%s%c", argv[i], i == argc - 1 ? ')' : ' ');
+        Print(&uisrv->tty, "usage: tr TRAIN SPEED");
         return;
     }
     if (atou8(argv[0], &which) != 0) {
@@ -394,28 +395,46 @@ uisrv_set_time(struct uisrv *uisrv, int tenths)
 static void
 uisrv_sensors(struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES])
 {
-    int i;
-    bool ok = false;
+    int i, j, bit;
+    sensors_t sensor;
+    bool change;
+
+    change = false;
     for (i = 0; i < SENSOR_MODULES; i++) {
-        if (sensors[i] != 0) {
-            ok = true;
-            break;
+        sensor = sensors[i];
+        if (sensor == 0)
+            continue;
+
+        change = true;
+        for (j = 0, bit = 1; j < SENSORS_PER_MODULE; j++, bit <<= 1) {
+            if ((sensor & bit) == 0)
+                continue;
+            uisrv->lastsensor++;
+            uisrv->lastsensor %= MAX_SENSORS;
+            uisrv->sensors[uisrv->lastsensor] = (i << 16) | j;
+            if (uisrv->nsensors < MAX_SENSORS)
+                uisrv->nsensors++;
         }
     }
 
-    if (!ok)
+    if (!change)
         return;
 
-    Printf(&uisrv->tty,
+    /* The most recent sensor list changed. Update it on screen */
+    Print(&uisrv->tty,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(SENSORS_ROW), STR(SENSORS_COL))
-        "A:%04x B:%04x C:%04x D:%04x E:%04x"
-        TERM_RESTORE_CURSOR,
-        sensors[0],
-        sensors[1],
-        sensors[2],
-        sensors[3],
-        sensors[4]);
+        TERM_ERASE_EOL);
+
+    j = uisrv->lastsensor;
+    for (i = 0; i < uisrv->nsensors; i++) {
+        uint32_t sens = uisrv->sensors[j];
+        Printf(&uisrv->tty, "%c%d ", (sens >> 16) + 'A', (sens & 0xffff) + 1);
+        if (--j < 0)
+            j += MAX_SENSORS;
+    }
+
+    Print(&uisrv->tty, TERM_RESTORE_CURSOR);
 }
 
 static void
