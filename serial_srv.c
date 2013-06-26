@@ -20,6 +20,11 @@
 #include "static_assert.h"
 #include "xmemcpy.h"
 
+#ifdef SERIAL_STATS
+#include "stats.h"
+static struct stats *tx_delay_stats[2];
+#endif
+
 #define WRITE_MAXLEN  32
 #define GETC_BUF_SIZE 512
 #define PUTC_BUF_SIZE 512
@@ -73,6 +78,9 @@ struct serialmsg {
             int     len;
             uint8_t buf[WRITE_MAXLEN];
         } write;
+#ifdef SERIAL_STATS
+        int32_t txr_time;
+#endif
     };
 };
 
@@ -95,11 +103,17 @@ struct serialsrv {
     /* Buffer memory */
     char getc_buf_mem[GETC_BUF_SIZE];
     char putc_buf_mem[PUTC_BUF_SIZE];
+
+#ifdef SERIAL_STATS
+    int32_t        txr_intr_time;
+    struct stats   tx_delay_stats;
+#endif
 };
 
 static void serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg);
 static void serialsrv_cleanup1(void);
 static void serialsrv_cleanup2(void);
+static void serialsrv_cleanup(int port);
 static void serialsrv_uart_setup(struct serialcfg *cfg, 
                                  bool intrs, 
                                  volatile struct uart *uart);
@@ -176,6 +190,15 @@ serialsrv_main(void)
             serial_rx(&srv, client, msg.rx_data);
             break;
         case SERIALMSG_TXR:
+#ifdef SERIAL_STATS
+            {
+                char c;
+                if (rbuf_peekc(&srv.putc_buf, &c))
+                    srv.txr_intr_time = msg.txr_time;
+                else
+                    srv.txr_intr_time = -1;
+            }
+#endif
             serial_txr(&srv, client);
             break;
         case SERIALMSG_CTS:
@@ -230,6 +253,12 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     srv->cts = srv->nocts || (bool)(srv->uart->flag & CTS_MASK);
     rbuf_init(&srv->putc_buf, srv->putc_buf_mem, sizeof (srv->putc_buf_mem));
     srv->flush_client = -1;
+
+    /* Initialize stats */
+#ifdef SERIAL_STATS
+    stats_init(&srv->tx_delay_stats);
+    tx_delay_stats[cfg->uart] = &srv->tx_delay_stats;
+#endif
 
     /* Start notifiers */
     tid = Create(PRIORITY_MAX, &serialrx_notif);
@@ -304,16 +333,25 @@ static struct serialcfg default_cfg = {
     .bits        = 8
 };
 
-static void
-serialsrv_cleanup1(void)
-{
-    serialsrv_uart_setup(&default_cfg, false, get_uart(COM1));
-}
+static void serialsrv_cleanup1(void) { serialsrv_cleanup(COM1); }
+static void serialsrv_cleanup2(void) { serialsrv_cleanup(COM2); }
 
 static void
-serialsrv_cleanup2(void)
+serialsrv_cleanup(int port)
 {
-    serialsrv_uart_setup(&default_cfg, false, get_uart(COM2));
+    serialsrv_uart_setup(&default_cfg, false, get_uart(port));
+#ifdef SERIAL_STATS
+    int32_t mean, var, min, max;
+    mean = stats_mean(tx_delay_stats[port]);
+    var  = stats_var(tx_delay_stats[port]);
+    min  = tx_delay_stats[port]->min;
+    max  = tx_delay_stats[port]->max;
+    bwprintf(COM2, "serial%d transmit response time:\n", port + 1);
+    bwprintf(COM2, "  mean: %d us\n",   mean * 1000 / 983);
+    bwprintf(COM2, "  min:  %d us\n",   min  * 1000 / 983);
+    bwprintf(COM2, "  max:  %d us\n",   max  * 1000 / 983);
+    bwprintf(COM2, "  var:  %d us^2\n", var  * 1000 / 983);
+#endif
 }
 
 static void
@@ -418,6 +456,10 @@ serial_writechar(struct serialsrv *srv, char c)
     srv->uart->ctrl |= TIEN_MASK;
     srv->txr = false;
     srv->cts = srv->nocts;
+#ifdef SERIAL_STATS
+    if (srv->txr_intr_time >= 0)
+        stats_accum(&srv->tx_delay_stats, tmr40_get() - srv->txr_intr_time);
+#endif
 }
 
 static void
@@ -521,37 +563,47 @@ serialrx_notif_cb(void *untyped_uart, size_t n)
 }
 
 /* Tx Ready Notifier and Callback */
+struct serialtx_info {
+    volatile struct uart *uart;
+    int32_t               txr_time;
+};
+
 static void
 serialtx_notif(void)
 {
     static int tx_evts[2]  = { EV_UART1_TX, EV_UART2_TX };
     static int tx_intrs[2] = { IRQ_UART1_TX, IRQ_UART2_TX };
-    volatile struct uart *uart;
     struct serialcfg cfg;
-    tid_t server;
     struct serialmsg msg;
+    struct serialtx_info info;
+    tid_t server;
     int rc;
 
     server = serial_notif_init(tx_evts, tx_intrs, &serialtx_notif_cb, &cfg);
-    uart = get_uart(cfg.uart);
+    info.uart = get_uart(cfg.uart);
 
     /* Start actual loop */
     msg.type = SERIALMSG_TXR;
     for (;;) {
-        rc = AwaitEvent((void*)uart, 0);
+        rc = AwaitEvent(&info, 0);
         assert(rc == 0);
+#ifdef SERIAL_STATS
+        msg.txr_time = info.txr_time;
+#endif
         rc = Send(server, &msg, sizeof (msg), NULL, 0);
         assertv(rc, rc == 0);
     }
 }
 
 static int
-serialtx_notif_cb(void *untyped_uart, size_t n)
+serialtx_notif_cb(void *untyped_info, size_t n)
 {
-    volatile struct uart *uart;
+    struct serialtx_info *info = untyped_info;
     (void)n; /* ignore */
-    uart = (volatile struct uart*)untyped_uart;
-    uart->ctrl &= ~TIEN_MASK;
+#ifdef SERIAL_STATS
+    info->txr_time = tmr40_get();
+#endif
+    info->uart->ctrl &= ~TIEN_MASK;
     return 0;
 }
 
