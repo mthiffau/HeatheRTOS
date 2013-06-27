@@ -61,7 +61,7 @@ kern_main(struct kparam *kp)
         kern_handle_intr(&kern, active, intr);
         assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
     }
-    
+
     kern_cleanup(&kern);
     return 0;
 }
@@ -71,10 +71,6 @@ kern_init(struct kern *kern, struct kparam *kp)
 {
     uint32_t i, mem_avail;
     tid_t tid;
-
-    /* Turn off UART FIFOs. */
-    bwsetfifo(COM1, OFF);
-    bwsetfifo(COM2, OFF);
 
     /* Install SWI and IRQ handlers. */
     *EXC_VEC_SWI = EXC_VEC_INSTR;

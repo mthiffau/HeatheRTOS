@@ -20,14 +20,30 @@
 #include "static_assert.h"
 #include "xmemcpy.h"
 
+#define SERIAL_STATS
+
 #ifdef SERIAL_STATS
 #include "stats.h"
 static struct stats *tx_delay_stats[2];
+static struct stats *esc_time_stats[2];
+enum {
+    ESC_STATE_OFF,
+    ESC_STATE_BEGIN,
+    ESC_STATE_BRACKET,
+    ESC_STATE_ROWDIGIT,
+    ESC_STATE_SEMICOLON,
+    ESC_STATE_COLDIGIT
+};
 #endif
 
 #define WRITE_MAXLEN  32
 #define GETC_BUF_SIZE 512
 #define PUTC_BUF_SIZE 512
+#define UART_FIFO_SIZE 16
+
+/* It's possible for a character to come in while we're draining the FIFO,
+ * but (as far as we know) no more than 1. But paranoia, so 4. */
+#define RX_BUF_SIZE    (UART_FIFO_SIZE + 4)
 
 #define NOTIFY_PRIO_RX          0
 #define NOTIFY_PRIO_RXTO        1
@@ -71,13 +87,16 @@ enum {
 struct serialmsg {
     int type;
     union {
-        uint8_t rx_data;
         bool    cts_status;
         uint8_t putc_arg;
         struct {
             int     len;
             uint8_t buf[WRITE_MAXLEN];
         } write;
+        struct {
+            int     len;
+            uint8_t buf[RX_BUF_SIZE];
+        } rx;
 #ifdef SERIAL_STATS
         int32_t txr_time;
 #endif
@@ -106,7 +125,10 @@ struct serialsrv {
 
 #ifdef SERIAL_STATS
     int32_t        txr_intr_time;
+    int32_t        esc_start;
+    int            esc_state;
     struct stats   tx_delay_stats;
+    struct stats   esc_time_stats;
 #endif
 };
 
@@ -118,9 +140,9 @@ static void serialsrv_uart_setup(struct serialcfg *cfg,
                                  bool intrs, 
                                  volatile struct uart *uart);
 
-static void serial_writechar(struct serialsrv *srv, char c);
+static void serial_writechars(struct serialsrv *srv);
 static void serial_all_ready(struct serialsrv *srv);
-static void serial_rx(struct serialsrv *srv, tid_t client, int rx_data);
+static void serial_rx(struct serialsrv*, tid_t, uint8_t[RX_BUF_SIZE], int);
 static void serial_txr(struct serialsrv *srv, tid_t notifier);
 static void serial_cts(struct serialsrv *srv, tid_t notifier, bool cts);
 static void serial_putc(struct serialsrv *srv, tid_t client, char c);
@@ -136,17 +158,10 @@ serial_notif_init(
     int (*cb)(void*,size_t),
     struct serialcfg *cfg);
 
-static void serialrx_notif(void);
-static int  serialrx_notif_cb(void*, size_t);
-
-static void serialtx_notif(void);
-static int  serialtx_notif_cb(void*, size_t);
-
-/* This notifier is for the rest of the
- UART interrupts which aren't indivually
- registerable (like modem status) */
-static void serialgen_notif(void);
-static int  serialgen_notif_cb(void*, size_t);
+/* Notifier for all UART interrupts,
+ * including those that aren't separately signalled. */
+static void serial_notif(void);
+static int  serial_notif_cb(void*, size_t);
 
 static volatile struct uart *get_uart(int which);
 
@@ -168,7 +183,6 @@ serialsrv_main(void)
     assertv(msglen, msglen == sizeof (cfg));
     assert(cfg.uart == 0 || cfg.uart == 1);
     assert(!cfg.fifos || cfg.nocts);
-    assert(!cfg.fifos); /* FIXME */
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
 
@@ -187,7 +201,7 @@ serialsrv_main(void)
 
         switch(msg.type) {
         case SERIALMSG_RX:
-            serial_rx(&srv, client, msg.rx_data);
+            serial_rx(&srv, client, msg.rx.buf, msg.rx.len);
             break;
         case SERIALMSG_TXR:
 #ifdef SERIAL_STATS
@@ -257,26 +271,17 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     /* Initialize stats */
 #ifdef SERIAL_STATS
     stats_init(&srv->tx_delay_stats);
+    stats_init(&srv->esc_time_stats);
     tx_delay_stats[cfg->uart] = &srv->tx_delay_stats;
+    esc_time_stats[cfg->uart] = &srv->esc_time_stats;
+    srv->esc_state = ESC_STATE_OFF;
 #endif
 
     /* Start notifiers */
-    tid = Create(PRIORITY_MAX, &serialrx_notif);
+    tid = Create(PRIORITY_MAX, &serial_notif);
     assertv(tid, tid >= 0);
     rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
     assertv(rc, rc == 0);
-
-    tid = Create(PRIORITY_MAX, &serialtx_notif);
-    assertv(tid, tid >= 0);
-    rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
-    assertv(rc, rc == 0);
-
-    if (!cfg->nocts) {
-        tid = Create(PRIORITY_MAX, &serialgen_notif);
-        assertv(tid, tid >= 0);
-        rc = Send(tid, cfg, sizeof (*cfg), NULL, 0);
-        assertv(rc, rc == 0);
-    }
 }
 
 static void
@@ -316,6 +321,8 @@ serialsrv_uart_setup(struct serialcfg* cfg, bool intrs, volatile struct uart *ua
     ctrl = UARTEN_MASK;
     if (intrs) {
         ctrl |= RIEN_MASK | TIEN_MASK;
+        if (cfg->fifos)
+            ctrl |= RTIEN_MASK;
         if (!cfg->nocts)
             ctrl |= MSIEN_MASK;
     }
@@ -324,7 +331,7 @@ serialsrv_uart_setup(struct serialcfg* cfg, bool intrs, volatile struct uart *ua
 
 static struct serialcfg default_cfg = {
     .uart        = 0xff,  /* Arbitrary */
-    .fifos       = true,
+    .fifos       = false,
     .nocts       = true,  /* Arbitrary */
     .baud        = 115200,
     .parity      = false,
@@ -336,36 +343,54 @@ static struct serialcfg default_cfg = {
 static void serialsrv_cleanup1(void) { serialsrv_cleanup(COM1); }
 static void serialsrv_cleanup2(void) { serialsrv_cleanup(COM2); }
 
+#ifdef SERIAL_STATS
+static void
+bwprint_stats(struct stats *stats)
+{
+    int32_t mean, var, min, max;
+    mean = stats_mean(stats);
+    var  = stats_var(stats);
+    min  = stats->min;
+    max  = stats->max;
+    bwprintf(COM2, "  mean: %d us\n",   mean * 1000 / 983);
+    bwprintf(COM2, "  min:  %d us\n",   min  * 1000 / 983);
+    bwprintf(COM2, "  max:  %d us\n",   max  * 1000 / 983);
+    bwprintf(COM2, "  var:  %d us^2\n", var  * 1000 / 983);
+    bwprintf(COM2, "  n:    %d\n",      stats->n);
+}
+#endif
+
 static void
 serialsrv_cleanup(int port)
 {
     serialsrv_uart_setup(&default_cfg, false, get_uart(port));
 #ifdef SERIAL_STATS
-    int32_t mean, var, min, max;
-    mean = stats_mean(tx_delay_stats[port]);
-    var  = stats_var(tx_delay_stats[port]);
-    min  = tx_delay_stats[port]->min;
-    max  = tx_delay_stats[port]->max;
     bwprintf(COM2, "serial%d transmit response time:\n", port + 1);
-    bwprintf(COM2, "  mean: %d us\n",   mean * 1000 / 983);
-    bwprintf(COM2, "  min:  %d us\n",   min  * 1000 / 983);
-    bwprintf(COM2, "  max:  %d us\n",   max  * 1000 / 983);
-    bwprintf(COM2, "  var:  %d us^2\n", var  * 1000 / 983);
+    bwprint_stats(tx_delay_stats[port]);
+    bwprintf(COM2, "serial%d full escape sequence transmit time:\n", port + 1);
+    bwprint_stats(esc_time_stats[port]);
 #endif
 }
 
 static void
-serial_rx(struct serialsrv *srv, tid_t notifier, int rx_data)
+serial_rx(
+    struct serialsrv *srv,
+    tid_t notifier,
+    uint8_t buf[RX_BUF_SIZE],
+    int len)
 {
-    int rc;
+    int rc, rply;
     rc = Reply(notifier, NULL, 0);
     assertv(rc, rc == 0);
+    assert(len >= 1);
     if (srv->getc_client < 0) {
-        rbuf_putc(&srv->getc_buf, (char)rx_data);
+        rbuf_write(&srv->getc_buf, buf, len);
     } else {
-        rc = Reply(srv->getc_client, &rx_data, sizeof (rx_data));
+        rply = buf[0];
+        rc = Reply(srv->getc_client, &rply, sizeof (rply));
         assertv(rc, rc == 0);
         srv->getc_client = -1;
+        rbuf_write(&srv->getc_buf, buf + 1, len - 1);
     }
 }
 
@@ -374,18 +399,9 @@ serial_putc(struct serialsrv *srv, tid_t client, char c)
 {
     int rc, rply;
 
-    if (!srv->cts || !srv->txr) {
-        rbuf_putc(&srv->putc_buf, c);
-    } else {
-        char dummy;
-        /* If there are characters waiting, then we should never be
-         * ready, since on becoming ready with a character waiting,
-         * we immediately send it and stop being ready. */
-        assert(!rbuf_peekc(&srv->putc_buf, &dummy));
-
-        /* Ready to send this character! :D */
-        serial_writechar(srv, c);
-    }
+    rbuf_putc(&srv->putc_buf, c);
+    if (srv->cts && srv->txr)
+        serial_writechars(srv);
 
     rply = SERIAL_OK;
     rc = Reply(client, &rply, sizeof (rply));
@@ -450,9 +466,65 @@ serial_flush(struct serialsrv *srv, tid_t client)
 }
 
 static void
-serial_writechar(struct serialsrv *srv, char c)
+serial_writechars(struct serialsrv *srv)
 {
-    srv->uart->data = (uint8_t)c;
+    char c;
+    /* This is safe even when heeding CTS, because we require
+     * that FIFOs are disabled in that case. */
+    if (!rbuf_getc(&srv->putc_buf, &c))
+        return;
+
+    for (;;) {
+#ifdef SERIAL_STATS
+        switch (srv->esc_state) {
+        case ESC_STATE_OFF:
+            if (c != '\e')
+                break;
+            srv->esc_state = ESC_STATE_BEGIN;
+            srv->esc_start = tmr40_get();
+            break;
+        case ESC_STATE_BEGIN:
+            if (c == '[')
+                srv->esc_state = ESC_STATE_BRACKET;
+            else
+                srv->esc_state = ESC_STATE_OFF;
+            break;
+        case ESC_STATE_BRACKET:
+            if (c >= '0' && c <= '9')
+                srv->esc_state = ESC_STATE_ROWDIGIT;
+            else
+                srv->esc_state = ESC_STATE_OFF;
+            break;
+        case ESC_STATE_ROWDIGIT:
+            if (c >= '0' && c <= '9')
+                srv->esc_state = ESC_STATE_ROWDIGIT;
+            else if (c == ';')
+                srv->esc_state = ESC_STATE_SEMICOLON;
+            else
+                srv->esc_state = ESC_STATE_OFF;
+            break;
+        case ESC_STATE_SEMICOLON:
+            if (c >= '0' && c <= '9')
+                srv->esc_state = ESC_STATE_COLDIGIT;
+            else
+                srv->esc_state = ESC_STATE_OFF;
+            break;
+        case ESC_STATE_COLDIGIT:
+            if (c >= '0' && c <= '9')
+                srv->esc_state = ESC_STATE_COLDIGIT;
+            else if (c == 'f')
+                stats_accum(&srv->esc_time_stats, tmr40_get() - srv->esc_start);
+            srv->esc_state = ESC_STATE_OFF;
+            break;
+        }
+#endif
+        srv->uart->data = (uint8_t)c;
+        if (srv->uart->flag & TXFF_MASK)
+            break;
+        if (!rbuf_getc(&srv->putc_buf, &c))
+            break;
+    }
+
     srv->uart->ctrl |= TIEN_MASK;
     srv->txr = false;
     srv->cts = srv->nocts;
@@ -467,9 +539,7 @@ serial_all_ready(struct serialsrv *srv)
 {
     int rc, rply;
     char c;
-    if (!rbuf_getc(&srv->putc_buf, &c))
-        return;
-    serial_writechar(srv, c);
+    serial_writechars(srv);
     if (srv->flush_client >= 0 && !rbuf_peekc(&srv->putc_buf, &c)) {
         rply = SERIAL_OK;
         rc   = Reply(srv->flush_client, &rply, sizeof (rply));
@@ -525,106 +595,24 @@ serial_notif_init(
     return server;
 }
 
-/* Rx Ready Notifier and Callback */
-static void
-serialrx_notif(void)
-{
-    static int rx_evts[2]  = { EV_UART1_RX, EV_UART2_RX };
-    static int rx_intrs[2] = { IRQ_UART1_RX, IRQ_UART2_RX };
-    volatile struct uart *uart;
-    struct serialcfg cfg;
-    tid_t server;
-    struct serialmsg msg;
-    int rc;
-
-    server = serial_notif_init(rx_evts, rx_intrs, &serialrx_notif_cb, &cfg);
-    uart = get_uart(cfg.uart);
-
-    /* Start actual loop */
-    msg.type = SERIALMSG_RX;
-    for (;;) {
-        rc = AwaitEvent((void*)uart, 0);
-        assert(rc >= 0x0 && rc <= 0xff);
-        msg.rx_data = rc;
-        rc = Send(server, &msg, sizeof (msg), NULL, 0);
-        assertv(rc, rc == 0);
-    }
-}
-
-static int
-serialrx_notif_cb(void *untyped_uart, size_t n)
-{
-    volatile struct uart *uart;
-    (void)n; /* ignore */
-
-    /* FIXME: fill buffer while !RXFE */
-    uart = (volatile struct uart*)untyped_uart;
-    return uart->data;
-}
-
-/* Tx Ready Notifier and Callback */
-struct serialtx_info {
-    volatile struct uart *uart;
-    int32_t               txr_time;
-};
-
-static void
-serialtx_notif(void)
-{
-    static int tx_evts[2]  = { EV_UART1_TX, EV_UART2_TX };
-    static int tx_intrs[2] = { IRQ_UART1_TX, IRQ_UART2_TX };
-    struct serialcfg cfg;
-    struct serialmsg msg;
-    struct serialtx_info info;
-    tid_t server;
-    int rc;
-
-    server = serial_notif_init(tx_evts, tx_intrs, &serialtx_notif_cb, &cfg);
-    info.uart = get_uart(cfg.uart);
-
-    /* Start actual loop */
-    msg.type = SERIALMSG_TXR;
-    for (;;) {
-        rc = AwaitEvent(&info, 0);
-        assert(rc == 0);
-#ifdef SERIAL_STATS
-        msg.txr_time = info.txr_time;
-#endif
-        rc = Send(server, &msg, sizeof (msg), NULL, 0);
-        assertv(rc, rc == 0);
-    }
-}
-
-static int
-serialtx_notif_cb(void *untyped_info, size_t n)
-{
-    struct serialtx_info *info = untyped_info;
-    (void)n; /* ignore */
-#ifdef SERIAL_STATS
-    info->txr_time = tmr40_get();
-#endif
-    info->uart->ctrl &= ~TIEN_MASK;
-    return 0;
-}
-
 /* General UART IRQ Notifier */
-struct serialgen_info {
+struct snotify_info {
     volatile struct uart *uart;
     struct serialmsg      msg;
 };
 
 static void
-serialgen_notif(void)
+serial_notif(void)
 {
     static int gen_evts[2]  = { EV_UART1_GEN, EV_UART2_GEN };
     static int gen_intrs[2] = { IRQ_UART1_GEN, IRQ_UART2_GEN };
     volatile struct uart *uart;
     struct serialcfg cfg;
     tid_t server;
-    struct serialgen_info info;
+    struct snotify_info info;
     int rc;
 
-    server = serial_notif_init(gen_evts, gen_intrs, &serialgen_notif_cb, &cfg);
+    server = serial_notif_init(gen_evts, gen_intrs, &serial_notif_cb, &cfg);
     uart = get_uart(cfg.uart);
 
     /* Start actual loop */
@@ -638,22 +626,38 @@ serialgen_notif(void)
 }
 
 static int
-serialgen_notif_cb(void *untyped_info, size_t n)
+serial_notif_cb(void *untyped_info, size_t dummy)
 {
-    struct serialgen_info *info = (struct serialgen_info*)untyped_info;
+    struct snotify_info *info = (struct snotify_info*)untyped_info;
     uint32_t intr;
-    (void)n; /* ignore */
+    (void)dummy; /* ignore */
 
     /* Check interrupt - just modem status for now. */
     intr = info->uart->intr;
-    if(!(intr & 0x1)) {
-        bwprintf(COM2, "!%x\n", (unsigned)intr);
-        return -1; /* not for us */
+    if (intr & (RIS_MASK | RTIS_MASK)) {
+        int n;
+        info->msg.type = SERIALMSG_RX;
+        n = 0;
+        do {
+            info->msg.rx.buf[n++] = info->uart->data;
+        } while (!(info->uart->flag & RXFE_MASK));
+        info->msg.rx.len = n;
+        if (n == 0)
+            panic("read zero characters from 0x%x\n", (uint32_t)info->uart);
+    } else if (intr & TIS_MASK) {
+        info->msg.type = SERIALMSG_TXR;
+#ifdef SERIAL_STATS
+        info->msg.txr_time = tmr40_get();
+#endif
+        info->uart->ctrl &= ~TIEN_MASK;
+    } else if (intr & MIS_MASK) {
+        info->msg.type = SERIALMSG_CTS;
+        info->msg.cts_status = (bool)(info->uart->flag & CTS_MASK);
+        info->uart->intr = 0; /* clear modem status interrupt */
+    } else {
+        panic("fatal: mystery UART interrupt");
     }
-    info->uart->intr = 0; /* clear modem status interrupt */
 
-    info->msg.type       = SERIALMSG_CTS;
-    info->msg.cts_status = (bool)(info->uart->flag & CTS_MASK);
     return 0;
 }
 

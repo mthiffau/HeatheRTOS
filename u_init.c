@@ -42,7 +42,7 @@ u_init_main(void)
     assertv(tty_tid, tty_tid >= 0);
     ttycfg = (struct serialcfg) {
         .uart   = COM2,
-        .fifos  = false,
+        .fifos  = true,
         .nocts  = true,
         .baud   = 115200,
         .parity = false,
