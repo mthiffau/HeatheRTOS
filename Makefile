@@ -13,8 +13,10 @@ BUILD   = build
 # Files
 MAIN    = $(BUILD)/rt.elf
 TEST    = $(BUILD)/test.elf
+REPEATER= $(BUILD)/repeater.elf
 MAP     = $(BUILD)/rt.map
 TMAP    = $(BUILD)/test.map
+RMAP    = $(BUILD)/repeater.map
 LINK    = link.ld
 SRCS    = $(wildcard *.c)
 ASMS    = $(wildcard *.S)
@@ -28,19 +30,27 @@ KOBJS   = $(OBJS) $(addprefix $(BUILD)/, $(KSRCS:.c=.c.o))
 TSRCS   = $(wildcard test/*.c)
 TOBJS   = $(OBJS) $(addprefix $(BUILD)/, $(TSRCS:.c=.c.o))
 
-BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern
+# Repeater files
+RSRCS   = $(wildcard repeater/*.c)
+ROBJS   = $(OBJS) $(addprefix $(BUILD)/, $(RSRCS:.c=.c.o))
+
+BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern $(BUILD)/repeater
 
 .SUFFIXES:
 .SECONDARY:
 .PHONY: all clean install
 
-all: $(MAIN) $(TEST)
+all: $(MAIN) $(TEST) $(REPEATER)
 
 $(MAIN): $(LINK) $(KOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(MAP) -o $@ $(KOBJS) $(LIBS)
 
 $(TEST): $(LINK) $(TOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(TMAP) -o $@ $(TOBJS) $(LIBS)
+
+$(REPEATER): $(LINK) $(ROBJS)
+	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(RMAP) -o $@ $(ROBJS) $(LIBS)
+
 
 $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD_DIRS)
 	$(AS) -o $@ $(ASFLAGS) $<
@@ -63,9 +73,10 @@ $(BUILD_DIRS):
 clean:
 	rm -rf $(BUILD)
 
-install: $(MAIN) $(TEST)
+install: $(MAIN) $(TEST) $(REPEATER)
 	cp $(MAIN) $$tftp && chmod a+r $$tftp/$(notdir $(MAIN))
 	cp $(TEST) $$tftp && chmod a+r $$tftp/$(notdir $(TEST))
+	cp $(REPEATER) $$tftp && chmod a+r $$tftp/$(notdir $(REPEATER))
 
 -include $(BUILD)/*.c.d
 -include $(BUILD)/*.S.d
