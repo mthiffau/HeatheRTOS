@@ -24,3 +24,4 @@ int   AwaitEvent(void*, size_t);
 
 /* Instruct the kernel to shut down immediately. */
 void Shutdown(void) __attribute__((noreturn));
+void Panic(const char *msg) __attribute__((noreturn));

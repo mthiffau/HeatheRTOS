@@ -74,3 +74,9 @@ AwaitEvent:
 Shutdown:
     swi #SYSCALL_SHUTDOWN
     mov pc, lr
+
+    .global Panic
+    .type   Panic, %function
+Panic:
+    swi #SYSCALL_PANIC
+    mov pc, lr

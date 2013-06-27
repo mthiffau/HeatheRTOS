@@ -17,3 +17,4 @@
 #define SYSCALL_REGISTEREVENT   0xa
 #define SYSCALL_AWAITEVENT      0xb
 #define SYSCALL_SHUTDOWN        0xc
+#define SYSCALL_PANIC           0xd

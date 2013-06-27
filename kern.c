@@ -188,6 +188,8 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         kern->shutdown = true;
         task_free(kern, active); /* must move out of ACTIVE state */
         break;
+    case SYSCALL_PANIC:
+        panic("%s", (const char*)active->regs->r0);
     default:
         panic("received unknown syscall 0x%x\n", syscall);
     }
