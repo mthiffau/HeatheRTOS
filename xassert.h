@@ -11,14 +11,8 @@ XBOOL_H;
 #define assert(x)       assertv(0, x)
 #else
 #define assertv(v,x)    assert(x)
-#define assert(x)                                      \
-    do {                                               \
-        if (!__builtin_expect((x), 0))                 \
-            panic("%s:%d: %s",                         \
-                  __FILE__,                            \
-                  __LINE__,                            \
-                  "assertion (" #x ") failed!");       \
-    } while (0)
+#define assert(x)       _assert((x), __FILE__, __LINE__, #x)
 #endif
 
 void panic(const char *fmt, ...) __attribute__((noreturn));
+void _assert(bool x, const char *file, int line, const char *expr);
