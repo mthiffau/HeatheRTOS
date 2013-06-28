@@ -86,7 +86,7 @@ enum {
 
 struct train {
     uint8_t speed;
-    
+
     bool    reversing;      /* Is the train reversing */
     int     rv_start_time;  /* When did it start reversing */
     int     reverse_count;  /* How many concurrent reversals */
@@ -141,6 +141,7 @@ static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
 static void start_reverse_timer(struct uisrv *uisrv);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
@@ -322,6 +323,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_sw(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "rv")) {
         uisrv_cmd_rv(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "lt")) {
+        uisrv_cmd_lt(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -445,7 +448,7 @@ uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc)
     train->reversing = true;
     train->rv_start_time = Time(&uisrv->clock);
     train->reverse_count = 1;
-    
+
     /* Immediately stop the train */
     tcmux_train_speed(&uisrv->tcmux, which, 0);
 
@@ -461,6 +464,39 @@ uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc)
 
     /* If the reverse timer isn't running, send message to the reverse timer */
     start_reverse_timer(uisrv);
+}
+
+static void
+uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc)
+{
+    /* Parse arguments */
+    uint8_t which;
+    bool    light;
+    int     i;
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: lt TRAIN (on|off)");
+        return;
+    }
+    if (atou8(argv[0], &which) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+    /* convert second argument to lower case */
+    for (i = 0; argv[1][i] != '\0'; i++) {
+        if (argv[1][i] >= 'A' && argv[1][i] <= 'Z')
+            argv[1][i] += 'a' - 'A';
+    }
+    if (strcmp(argv[1], "on") == 0) {
+        light = true;
+    } else if (strcmp(argv[1], "off") == 0) {
+        light = false;
+    } else {
+        Print(&uisrv->tty, "usage: lt TRAIN (on|off)");
+        return;
+    }
+
+    /* Store state in train table */
+    tcmux_train_light(&uisrv->tcmux, which, light);
 }
 
 static void
@@ -580,7 +616,7 @@ uisrv_finish_reverse(struct uisrv *uisrv)
     if (train->reverse_count % 2 == 1)
         tcmux_train_speed(&uisrv->tcmux, train_ix, REVERSE_CMD);
     tcmux_train_speed(&uisrv->tcmux, train_ix, train->speed);
-    
+
     /* The train isn't reversing any more */
     train->reversing = false;
     train->reverse_count = 0;
@@ -665,7 +701,7 @@ reverse_timer(void)
         /* Delay for the specified time */
         rc = DelayUntil(&clock, msg.rv.time);
         assertv(rc, rc == 0);
-        
+
         /* Tell the UI server we're done */
         msg.type = UIMSG_REVERSE_DONE;
         rc = Send(uisrv, &msg, sizeof(msg), NULL, 0);

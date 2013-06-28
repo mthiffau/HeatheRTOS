@@ -22,8 +22,11 @@
 #define SPEED_QUEUE_SIZE        64
 #define SWITCH_QUEUE_SIZE       64
 
-#define TRCMD_SPEED(n)         ((char)n)
+/* NB. light on and off are added to speed */
+#define TRCMD_SPEED(n)         ((char)(n))
 #define TRCMD_REVERSE          ((char)15)
+#define TRCMD_LIGHT_ON         ((char)16)
+#define TRCMD_LIGHT_OFF        ((char)0)
 #define TRCMD_SWITCH_STRAIGHT  ((char)33)
 #define TRCMD_SWITCH_CURVE     ((char)34)
 #define TRCMD_SWITCH_OFF       ((char)32)
@@ -35,6 +38,7 @@ enum {
     TCMUX_CMD_READY,
     TCMUX_SWITCH_READY,
     TCMUX_SENSOR_POLL,
+    TCMUX_TRAIN_LIGHT,
 };
 
 struct speed_msg {
@@ -46,6 +50,12 @@ struct speed_msg {
 struct switch_msg {
     uint8_t sw;
     bool    curved;
+    bool    sync;
+};
+
+struct light_msg {
+    uint8_t train;
+    bool    enable;
     bool    sync;
 };
 
@@ -61,10 +71,12 @@ struct tcmuxmsg {
     union {
         struct speed_msg  speed;
         struct switch_msg sw;
+        struct light_msg  light;
     };
 };
 
 struct tcmux {
+    /* General/command state */
     struct serialctx  port;
     bool              cmd_ready;
     bool              switch_ready;
@@ -75,14 +87,21 @@ struct tcmux {
 
     /* Command queues */
     bool              want_sensor_poll;
-    struct queue      speed_cmdq, switch_cmdq;
+    struct queue      speed_cmdq, switch_cmdq, light_cmdq;
     struct train_cmd  speed_cmdq_mem[SPEED_QUEUE_SIZE];
     struct train_cmd  switch_cmdq_mem[SWITCH_QUEUE_SIZE];
+    struct train_cmd  light_cmdq_mem[SWITCH_QUEUE_SIZE];
 
     /* Satellite tasks */
     tid_t flusher;
     tid_t switch_delayer;
     tid_t sensor_listener;
+
+    /* Train speeds and light states. These need to be remembered,
+     * since the speed has to be re-sent when changing the light
+     * and vice versa. */
+    uint8_t speeds[256];
+    bool    lights[256];
 };
 
 static inline uint8_t
@@ -97,6 +116,8 @@ static void tcmuxsrv_train_speed(
     struct tcmux *tc, tid_t client, struct speed_msg *m);
 static void tcmuxsrv_switch_curve(
     struct tcmux *tc, tid_t client, struct switch_msg *m);
+static void tcmuxsrv_train_light(
+    struct tcmux *tc, tid_t client, struct light_msg *m);
 static void tcmuxsrv_cmd_ready(struct tcmux *tc, tid_t client);
 static void tcmuxsrv_switch_ready(struct tcmux *tc, tid_t client);
 static void tcmuxsrv_sensor_poll(struct tcmux *tc, tid_t client);
@@ -138,6 +159,9 @@ tcmuxsrv_main(void)
         case TCMUX_SWITCH_CURVE:
             tcmuxsrv_switch_curve(&tc, client, &msg.sw);
             break;
+        case TCMUX_TRAIN_LIGHT:
+            tcmuxsrv_train_light(&tc, client, &msg.light);
+            break;
         default:
             panic("Invalid tcmux message type %d\n", msg.type);
         }
@@ -147,6 +171,7 @@ tcmuxsrv_main(void)
 static void
 tcmux_init(struct tcmux *tc)
 {
+    int i;
     serialctx_init(&tc->port, COM1);
     tc->cmd_ready             = false;
     tc->switch_ready          = false;
@@ -165,9 +190,20 @@ tcmux_init(struct tcmux *tc)
         tc->switch_cmdq_mem,
         sizeof (tc->switch_cmdq_mem[0]),
         sizeof (tc->switch_cmdq_mem));
+    q_init(
+        &tc->light_cmdq,
+        tc->light_cmdq_mem,
+        sizeof (tc->light_cmdq_mem[0]),
+        sizeof (tc->light_cmdq_mem));
 
     tc->solenoid_on = false;
     tc->want_sensor_poll = false;
+
+    /* Initialize 'last known' train speeds and light settings. */
+    for (i = 0; i < 256; i++) {
+        tc->speeds[i] = 0;
+        tc->lights[i] = false;
+    }
 
     /* Start train command flusher */
     tc->flusher = Create(PRIORITY_TCMUX - 1, tcmux_cmd_flusher);
@@ -234,6 +270,7 @@ tcmuxsrv_train_speed(
     int rc;
     struct train_cmd trcmd;
 
+    /* Light value added when command goes out. */
     trcmd.cmd[0]    = TRCMD_SPEED(m->speed);
     trcmd.cmd[1]    = (char)m->train;
     trcmd.len       = 2;
@@ -279,6 +316,35 @@ tcmuxsrv_switch_curve(
 }
 
 static void
+tcmuxsrv_train_light(
+    struct tcmux *tc,
+    tid_t client,
+    struct light_msg *m)
+{
+    int rc;
+    struct train_cmd trcmd;
+
+    /* Speed is added as appropriate when the command goes out.
+     * Can't rely on current speed being still in effect at that time. */
+    trcmd.cmd[0]    = m->enable ? TRCMD_LIGHT_ON : TRCMD_LIGHT_OFF;
+    trcmd.cmd[1]    = (char)m->train;
+    trcmd.len       = 2;
+    trcmd.is_switch = false;
+    if (m->sync) {
+        trcmd.client = client;
+    } else {
+        rc = Reply(client, NULL, 0);
+        assertv(rc, rc == 0);
+        trcmd.client = -1;
+    }
+
+    rc = q_enqueue(&tc->light_cmdq, &trcmd);
+    assertv(rc, rc == 0);
+
+    tcmuxsrv_trcmd_trysend(tc);
+}
+
+static void
 tcmuxsrv_trcmd_trysend(struct tcmux *tc)
 {
     struct train_cmd trcmd;
@@ -311,8 +377,20 @@ tcmuxsrv_trcmd_trysend(struct tcmux *tc)
         }
     }
 
-    if (q_dequeue(&tc->speed_cmdq, &trcmd))
+    if (q_dequeue(&tc->speed_cmdq, &trcmd)) {
+        int train = (uint8_t)trcmd.cmd[1];
+        tc->speeds[train] = trcmd.cmd[0];
+        trcmd.cmd[0] += tc->lights[train] ? TRCMD_LIGHT_ON : TRCMD_LIGHT_OFF;
         tcmuxsrv_trcmd_send(tc, &trcmd);
+        return;
+    }
+
+    if (q_dequeue(&tc->light_cmdq, &trcmd)) {
+        int train = (uint8_t)trcmd.cmd[1];
+        tc->lights[train] = trcmd.cmd[0] == TRCMD_LIGHT_ON;
+        trcmd.cmd[0] += tc->speeds[train];
+        tcmuxsrv_trcmd_send(tc, &trcmd);
+    }
 }
 
 static void
@@ -453,6 +531,23 @@ tcmux_switch_curve_impl(
     assertv(rplylen, rplylen == 0);
 }
 
+static void
+tcmux_train_light_impl(
+    struct tcmuxctx *tc,
+    uint8_t train,
+    bool enable,
+    bool sync)
+{
+    int rplylen;
+    struct tcmuxmsg msg;
+    msg.type         = TCMUX_TRAIN_LIGHT;
+    msg.light.train  = train;
+    msg.light.enable = enable;
+    msg.light.sync   = sync;
+    rplylen = Send(tc->tcmuxsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
 void
 tcmux_train_speed(struct tcmuxctx *tc, uint8_t train, uint8_t speed)
 {
@@ -475,4 +570,16 @@ void
 tcmux_switch_curve_sync(struct tcmuxctx *tc, uint8_t sw, bool curved)
 {
     tcmux_switch_curve_impl(tc, sw, curved, true);
+}
+
+void
+tcmux_train_light(struct tcmuxctx *tc, uint8_t train, bool enable)
+{
+    tcmux_train_light_impl(tc, train, enable, false);
+}
+
+void
+tcmux_train_light_sync(struct tcmuxctx *tc, uint8_t train, bool enable)
+{
+    tcmux_train_light_impl(tc, train, enable, true);
 }
