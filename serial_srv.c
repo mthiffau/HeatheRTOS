@@ -20,22 +20,6 @@
 #include "static_assert.h"
 #include "xmemcpy.h"
 
-#define SERIAL_STATS
-
-#ifdef SERIAL_STATS
-#include "stats.h"
-static struct stats *tx_delay_stats[2];
-static struct stats *esc_time_stats[2];
-enum {
-    ESC_STATE_OFF,
-    ESC_STATE_BEGIN,
-    ESC_STATE_BRACKET,
-    ESC_STATE_ROWDIGIT,
-    ESC_STATE_SEMICOLON,
-    ESC_STATE_COLDIGIT
-};
-#endif
-
 #define WRITE_MAXLEN  32
 #define GETC_BUF_SIZE 512
 #define PUTC_BUF_SIZE 512
@@ -97,9 +81,6 @@ struct serialmsg {
             int     len;
             uint8_t buf[RX_BUF_SIZE];
         } rx;
-#ifdef SERIAL_STATS
-        int32_t txr_time;
-#endif
     };
 };
 
@@ -122,14 +103,6 @@ struct serialsrv {
     /* Buffer memory */
     char getc_buf_mem[GETC_BUF_SIZE];
     char putc_buf_mem[PUTC_BUF_SIZE];
-
-#ifdef SERIAL_STATS
-    int32_t        txr_intr_time;
-    int32_t        esc_start;
-    int            esc_state;
-    struct stats   tx_delay_stats;
-    struct stats   esc_time_stats;
-#endif
 };
 
 static void serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg);
@@ -141,7 +114,6 @@ static void serialsrv_uart_setup(struct serialcfg *cfg,
                                  volatile struct uart *uart);
 
 static void serial_writechars(struct serialsrv *srv);
-static void serial_all_ready(struct serialsrv *srv);
 static void serial_rx(struct serialsrv*, tid_t, uint8_t[RX_BUF_SIZE], int);
 static void serial_txr(struct serialsrv *srv, tid_t notifier);
 static void serial_cts(struct serialsrv *srv, tid_t notifier, bool cts);
@@ -204,15 +176,6 @@ serialsrv_main(void)
             serial_rx(&srv, client, msg.rx.buf, msg.rx.len);
             break;
         case SERIALMSG_TXR:
-#ifdef SERIAL_STATS
-            {
-                char c;
-                if (rbuf_peekc(&srv.putc_buf, &c))
-                    srv.txr_intr_time = msg.txr_time;
-                else
-                    srv.txr_intr_time = -1;
-            }
-#endif
             serial_txr(&srv, client);
             break;
         case SERIALMSG_CTS:
@@ -267,15 +230,6 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     srv->cts = srv->nocts || (bool)(srv->uart->flag & CTS_MASK);
     rbuf_init(&srv->putc_buf, srv->putc_buf_mem, sizeof (srv->putc_buf_mem));
     srv->flush_client = -1;
-
-    /* Initialize stats */
-#ifdef SERIAL_STATS
-    stats_init(&srv->tx_delay_stats);
-    stats_init(&srv->esc_time_stats);
-    tx_delay_stats[cfg->uart] = &srv->tx_delay_stats;
-    esc_time_stats[cfg->uart] = &srv->esc_time_stats;
-    srv->esc_state = ESC_STATE_OFF;
-#endif
 
     /* Start notifiers */
     tid = Create(PRIORITY_MAX, &serial_notif);
@@ -343,33 +297,10 @@ static struct serialcfg default_cfg = {
 static void serialsrv_cleanup1(void) { serialsrv_cleanup(COM1); }
 static void serialsrv_cleanup2(void) { serialsrv_cleanup(COM2); }
 
-#ifdef SERIAL_STATS
-static void
-bwprint_stats(struct stats *stats)
-{
-    int32_t mean, var, min, max;
-    mean = stats_mean(stats);
-    var  = stats_var(stats);
-    min  = stats->min;
-    max  = stats->max;
-    bwprintf(COM2, "  mean: %d us\n",   mean * 1000 / 983);
-    bwprintf(COM2, "  min:  %d us\n",   min  * 1000 / 983);
-    bwprintf(COM2, "  max:  %d us\n",   max  * 1000 / 983);
-    bwprintf(COM2, "  var:  %d us^2\n", var  * 1000 / 983);
-    bwprintf(COM2, "  n:    %d\n",      stats->n);
-}
-#endif
-
 static void
 serialsrv_cleanup(int port)
 {
     serialsrv_uart_setup(&default_cfg, false, get_uart(port));
-#ifdef SERIAL_STATS
-    bwprintf(COM2, "serial%d transmit response time:\n", port + 1);
-    bwprint_stats(tx_delay_stats[port]);
-    bwprintf(COM2, "serial%d full escape sequence transmit time:\n", port + 1);
-    bwprint_stats(esc_time_stats[port]);
-#endif
 }
 
 static void
@@ -415,7 +346,7 @@ serial_write(struct serialsrv *srv, tid_t client, uint8_t *buf, int len)
 
     rbuf_write(&srv->putc_buf, buf, len);
     if (len > 0 && srv->cts && srv->txr)
-        serial_all_ready(srv);
+        serial_writechars(srv);
 
     rply = SERIAL_OK;
     rc = Reply(client, &rply, sizeof (rply));
@@ -468,79 +399,26 @@ serial_flush(struct serialsrv *srv, tid_t client)
 static void
 serial_writechars(struct serialsrv *srv)
 {
+    int i, lim;
     char c;
-    /* This is safe even when heeding CTS, because we require
-     * that FIFOs are disabled in that case. */
-    if (!rbuf_getc(&srv->putc_buf, &c))
-        return;
-
-    for (;;) {
-#ifdef SERIAL_STATS
-        switch (srv->esc_state) {
-        case ESC_STATE_OFF:
-            if (c != '\e')
-                break;
-            srv->esc_state = ESC_STATE_BEGIN;
-            srv->esc_start = tmr40_get();
-            break;
-        case ESC_STATE_BEGIN:
-            if (c == '[')
-                srv->esc_state = ESC_STATE_BRACKET;
-            else
-                srv->esc_state = ESC_STATE_OFF;
-            break;
-        case ESC_STATE_BRACKET:
-            if (c >= '0' && c <= '9')
-                srv->esc_state = ESC_STATE_ROWDIGIT;
-            else
-                srv->esc_state = ESC_STATE_OFF;
-            break;
-        case ESC_STATE_ROWDIGIT:
-            if (c >= '0' && c <= '9')
-                srv->esc_state = ESC_STATE_ROWDIGIT;
-            else if (c == ';')
-                srv->esc_state = ESC_STATE_SEMICOLON;
-            else
-                srv->esc_state = ESC_STATE_OFF;
-            break;
-        case ESC_STATE_SEMICOLON:
-            if (c >= '0' && c <= '9')
-                srv->esc_state = ESC_STATE_COLDIGIT;
-            else
-                srv->esc_state = ESC_STATE_OFF;
-            break;
-        case ESC_STATE_COLDIGIT:
-            if (c >= '0' && c <= '9')
-                srv->esc_state = ESC_STATE_COLDIGIT;
-            else if (c == 'f')
-                stats_accum(&srv->esc_time_stats, tmr40_get() - srv->esc_start);
-            srv->esc_state = ESC_STATE_OFF;
-            break;
-        }
-#endif
-        srv->uart->data = (uint8_t)c;
-        if (srv->uart->flag & TXFF_MASK)
-            break;
+    /* With FIFOs off, the TXFF flag doesn't always get set quickly
+     * enough here for us to rely on it. So we need to explicitly
+     * limit our write to a single character. */
+    lim = srv->fifos ? 8 : 1;
+    for (i = 0; i < lim; i++) {
         if (!rbuf_getc(&srv->putc_buf, &c))
             break;
+        srv->uart->data = (uint8_t)c;
     }
+
+    if (i == 0)
+        return;
 
     srv->uart->ctrl |= TIEN_MASK;
     srv->txr = false;
     srv->cts = srv->nocts;
-#ifdef SERIAL_STATS
-    if (srv->txr_intr_time >= 0)
-        stats_accum(&srv->tx_delay_stats, tmr40_get() - srv->txr_intr_time);
-#endif
-}
-
-static void
-serial_all_ready(struct serialsrv *srv)
-{
-    int rc, rply;
-    char c;
-    serial_writechars(srv);
     if (srv->flush_client >= 0 && !rbuf_peekc(&srv->putc_buf, &c)) {
+        int rc, rply;
         rply = SERIAL_OK;
         rc   = Reply(srv->flush_client, &rply, sizeof (rply));
         assertv(rc, rc == 0);
@@ -556,7 +434,7 @@ serial_txr(struct serialsrv *srv, tid_t notifier)
     assertv(rc, rc == 0);
     srv->txr = true;
     if (srv->cts)
-        serial_all_ready(srv);
+        serial_writechars(srv);
 }
 
 static void
@@ -568,7 +446,7 @@ serial_cts(struct serialsrv *srv, tid_t notifier, bool cts)
     assert(!srv->nocts);
     srv->cts = cts;
     if (srv->cts && srv->txr)
-        serial_all_ready(srv);
+        serial_writechars(srv);
 }
 
 static tid_t
@@ -646,9 +524,6 @@ serial_notif_cb(void *untyped_info, size_t dummy)
             panic("read zero characters from 0x%x\n", (uint32_t)info->uart);
     } else if (intr & TIS_MASK) {
         info->msg.type = SERIALMSG_TXR;
-#ifdef SERIAL_STATS
-        info->msg.txr_time = tmr40_get();
-#endif
         info->uart->ctrl &= ~TIEN_MASK;
     } else if (intr & MIS_MASK) {
         info->msg.type = SERIALMSG_CTS;
