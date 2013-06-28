@@ -78,7 +78,7 @@ kern_init(struct kern *kern, struct kparam *kp)
     EXC_VEC_FP(EXC_VEC_SWI) = &kern_entry_swi;
     EXC_VEC_FP(EXC_VEC_IRQ) = &kern_entry_irq;
 
-    /* Enable IRQs */
+    /* Initialize event system */
     evt_init(&kern->eventab);
 
     /* 1MB reserved for kernel stack, move down to next 4k boundary */
@@ -194,20 +194,21 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
 void
 kern_handle_irq(struct kern *kern, struct task_desc *active)
 {
-    int event_id;
+    int irq;
     struct event *evt;
     struct task_desc *wake;
     int rc, cb_rc;
 
+    /* Interrupted task as always ready */
+    task_ready(kern, active);
+
     /* Find the current event. */
-    event_id = evt_cur();
-    evt      = &kern->eventab.events[event_id];
+    irq = evt_cur();
+    evt = &kern->eventab.events[irq];
+    assert(evt->tid >= 0);
 
     /* Run the associated callback. */
     cb_rc = evt->cb(evt->ptr, evt->size);
-    task_ready(kern, active);
-    evt_clear(&kern->eventab, event_id);
-
     assert(cb_rc >= -1);
     if (cb_rc == -1)
         return; /* callback says to ignore this interrupt */
@@ -219,7 +220,7 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
     kern->evblk_count--;
 
     /* Ignore this interrupt until we get another AwaitEvent() for it */
-    evt_disable(&kern->eventab, event_id);
+    evt_disable(&kern->eventab, irq);
 
     /* Return from AwaitEvent() with the result of the callback */
     wake->regs->r0 = cb_rc;
@@ -230,13 +231,12 @@ void
 kern_cleanup(struct kern *kern)
 {
     unsigned int i;
-    evt_cleanup();
-
     for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
         struct task_desc *td = &kern->tasks[i];
         if (TASK_STATE(td) != TASK_STATE_FREE && td->cleanup != NULL)
             td->cleanup();
     }
+    evt_cleanup();
 }
 
 static void
@@ -249,28 +249,31 @@ kern_RegisterCleanup(struct kern *kern, struct task_desc *active)
 static void
 kern_RegisterEvent(struct kern *kern, struct task_desc *active)
 {
-    int event_id = (int)active->regs->r0;
-    if (active->event >= 0) {
+    int rc, irq;
+    if (active->irq >= 0) {
         active->regs->r0 = EVT_DBL_REG;
         task_ready(kern, active);
         return;
     }
 
-    active->regs->r0 = evt_register(
+    irq = (int)active->regs->r0;
+    rc  = evt_register(
         &kern->eventab,
         TASK_TID(kern, active),
-        event_id,
-        (int)active->regs->r1,
-        (int(*)(void*,size_t))active->regs->r2);
+        irq,
+        (int(*)(void*,size_t))active->regs->r1);
 
-    active->event = event_id;
+    active->regs->r0 = rc;
+    if (rc == 0)
+        active->irq = irq;
+
     task_ready(kern, active);
 }
 
 static void
 kern_AwaitEvent(struct kern *kern, struct task_desc *active)
 {
-    if (active->event < 0) {
+    if (active->irq < 0) {
         active->regs->r0 = -1;
         task_ready(kern, active);
     }
@@ -278,7 +281,7 @@ kern_AwaitEvent(struct kern *kern, struct task_desc *active)
     TASK_SET_STATE(active, TASK_STATE_EVENT_BLOCKED);
     evt_enable(
         &kern->eventab,
-        active->event,
+        active->irq,
         (void*)active->regs->r0,
         (size_t)active->regs->r1);
     kern->evblk_count++;

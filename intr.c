@@ -4,6 +4,7 @@
 
 #include "xdef.h"
 #include "static_assert.h"
+#include "bithack.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -40,20 +41,6 @@ STATIC_ASSERT(vic_vectaddrs_offs,   offsetof(struct vic, vectaddrs  ) == 0x100);
 STATIC_ASSERT(vic_vectcntls_offs,   offsetof(struct vic, vectcntls  ) == 0x200);
 
 void
-vintr_setup(volatile struct vic *vic, int vintr, int intr, uint32_t isr)
-{
-    /* Set up the vectored interrupt slot vintr to refer to intr,
-     * set its ISR address, and enable it. */
-    vintr_set(   vic, vintr, intr);
-    vintr_setisr(vic, vintr, isr);
-    vintr_enable(vic, vintr, true);
-
-    /* Enable the actual IRQ (not FIQ) */
-    intr_setfiq(vic, intr, false);
-    intr_enable(vic, intr, true);
-}
-
-void
 intr_enable(volatile struct vic *vic, int intr, bool enable)
 {
     if (enable)
@@ -86,49 +73,11 @@ intr_assert_mask(volatile struct vic *vic, uint32_t mask, bool assert)
         vic->softclear = mask;
 }
 
-
-void
-vintr_set(volatile struct vic *vic, int vintr, int intr)
+int
+intr_cur(volatile struct vic *vic)
 {
-    volatile uint32_t *cntl = &vic->vectcntls[vintr];
-    *cntl = (*cntl & ~0x1f) | (intr & 0x1f);
-}
-
-void
-vintr_enable(volatile struct vic *vic, int vintr, bool enable)
-{
-    volatile uint32_t *cntl = &vic->vectcntls[vintr];
-    if (enable)
-        *cntl |= 1 << 5;
-    else
-        *cntl &= ~(1 << 5);
-}
-
-void
-vintr_setdefisr(volatile struct vic *vic, uint32_t isr)
-{
-    vic->defvectaddr = isr;
-}
-
-void
-vintr_setisr(volatile struct vic *vic, int vintr, uint32_t isr)
-{
-    vic->vectaddrs[vintr] = isr;
-}
-
-bool
-vintr_cur(volatile struct vic *vic, uint32_t *cur_out)
-{
-    if (!vic->irqstat)
-        return false;
-    *cur_out = vic->vectaddr;
-    return true;
-}
-
-void
-vintr_clear(volatile struct vic *vic)
-{
-    vic->vectaddr = 0;
+    uint32_t irqs = vic->irqstat;
+    return irqs == 0 ? -1 : ctz32(irqs);
 }
 
 void
@@ -143,7 +92,7 @@ intr_reset(volatile struct vic *vic)
 {
     int i;
     vic->select      = 0;          /* All interrupts act as IRQ   */
-    vic->enable      = 0;          /* All interrupts disabled     */
+    vic->enclear     = 0xffffffff; /* All interrupts disabled     */
     vic->softclear   = 0xffffffff; /* No soft interrupts asserted */
     vic->defvectaddr = 0;
     for (i = 0; i < 16; i++) {     /* No vectored interrupts      */

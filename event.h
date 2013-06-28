@@ -14,12 +14,10 @@ CONFIG_H;
 
 /* Error codes. */
 enum {
-    EVT_OOR     = -1,
-    EVT_IN_USE  = -2,
-    IRQ_OOR     = -3,
-    IRQ_IN_USE  = -4,
-    EVT_NOT_REG = -5,
-    EVT_DBL_REG = -6
+    IRQ_OOR     = -1,
+    IRQ_IN_USE  = -2,
+    EVT_NOT_REG = -3,
+    EVT_DBL_REG = -4
 };
 
 /* An event slot. Each registered event belongs to a particular task.
@@ -27,7 +25,6 @@ enum {
  * Events are triggered based on IRQs, and prioritized using the VIC.
  * Events have priority in order of their event ID. */
 struct event {
-    int    irq;                 /* which IRQ */
     tid_t  tid;                 /* owning task */
     int  (*cb)(void*, size_t);  /* callback supplied by owning task */
     void  *ptr;                 /* AwaitEvent() arguments */
@@ -36,10 +33,7 @@ struct event {
 
 /* Event table. Accounts for all event registration data. */
 struct eventab {
-    /* Event slots. */
-    struct event events[IRQ_PRIORITIES];
-    /* Bitmask for IRQs: 1 if in use, 0 if free. */
-    uint32_t     irq_used[IRQ_COUNT / 32 + (IRQ_COUNT % 32 ? 1 : 0)];
+    struct event events[IRQ_COUNT];
 };
 
 /* Initialize the event table. This resets the interrupt controller. */
@@ -55,7 +49,6 @@ void evt_init(struct eventab *tab);
 int evt_register(
     struct eventab *tab,
     tid_t tid,
-    int event,
     int irq,
     int (*cb)(void*, size_t));
 
@@ -63,14 +56,8 @@ int evt_register(
  * EVT_NOT_REG if that event is not registered. */
 int  evt_unregister(struct eventab *tab, int event);
 
-/* Get the event ID of the current event (in an IRQ handler).
- * Each call to evt_cur() must be followed by a later call to evt_clear(). */
+/* Get the number of the next IRQ to handle. */
 int  evt_cur(void);
-
-/* Clear the interrupt from the interrupt controller.
- * This allows lower-priority interrupts through.
- * event must be the result of evt_cur(). */
-void evt_clear(struct eventab *tab, int event);
 
 /* Enable the IRQ corresponding to the given event.
  * This accepts parameters for AwaitEvent, which need to be saved

@@ -75,8 +75,8 @@ struct task_desc {
     /* Registered cleanup function */
     void (*cleanup)(void);
 
-    /* Registered event */
-    int8_t event;
+    /* Registered event (IRQ number) */
+    int8_t irq;
 };
 STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 20);
 

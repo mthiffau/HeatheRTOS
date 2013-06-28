@@ -6,6 +6,8 @@
 
 #include "xdef.h"
 #include "static_assert.h"
+#include "bithack.h"
+
 #include "sensor.h"
 #include "u_syscall.h"
 #include "ns.h"
@@ -103,13 +105,6 @@ struct tcmux {
     uint8_t speeds[256];
     bool    lights[256];
 };
-
-static inline uint8_t
-bit_reverse(uint8_t n)
-{
-    /* http://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64Bits */
-    return ((n * 0x80200802ULL) & 0x0884422110ULL) * 0x0101010101ULL >> 32;
-}
 
 static void tcmux_init(struct tcmux*);
 static void tcmuxsrv_train_speed(
@@ -478,8 +473,8 @@ tcmux_sensor_listener(void)
             assertv(hi, hi >= 0 && hi <= 0xff);
 
             /* Sensor bits from the train controller are backwards */
-            lo8  = bit_reverse((uint8_t)lo);
-            hi8  = bit_reverse((uint8_t)hi);
+            lo8  = bitrev8((uint8_t)lo);
+            hi8  = bitrev8((uint8_t)hi);
             sens = (hi8 << 8) | lo8;
 
             new_sensors[i]  = sens & ~last_sensors[i];

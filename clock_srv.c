@@ -118,7 +118,7 @@ clksrv_notify(void)
     rc = clock_init(100);
     assertv(rc, rc == 0);
 
-    rc = RegisterEvent(EV_CLOCK_TICK, IRQ_CLOCK_TICK, &clksrv_notify_cb);
+    rc = RegisterEvent(IRQ_CLOCK_TICK, &clksrv_notify_cb);
     assert(rc == 0);
 
     clksrv_tid = WhoIs("clock");

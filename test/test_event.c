@@ -24,7 +24,7 @@
 
 #define EVLOG_BUFSIZE   128
 
-static void test_event(const char *name, int foo, int bar, const char *exp);
+static void test_event(void);
 static void test_event_main(void);
 static void u_clock(void);
 static int  u_clock_cb(void*, size_t);
@@ -35,9 +35,8 @@ static int  bar_cb(void*, size_t);
 
 static char evlog_buf[EVLOG_BUFSIZE];
 static struct testlog evlog;
-static int foo_event, bar_event;
 
-static const char *expected_foo_first =
+static const char *expected =
     "tick 1\n"
     "tick 2\n"
     "tick 3\n"
@@ -50,40 +49,22 @@ static const char *expected_foo_first =
     "tick 8\n"
     "foo 2\n"
     "bar 2\n"
-    "tick 9\n";
-
-static const char *expected_bar_first =
-    "tick 1\n"
-    "tick 2\n"
-    "tick 3\n"
-    "tick 4\n"
-    "bar 1\n"
-    "foo 1\n"
-    "tick 5\n"
-    "tick 6\n"
-    "tick 7\n"
-    "tick 8\n"
-    "bar 2\n"
-    "foo 2\n"
     "tick 9\n";
 
 void
 test_event_all(void)
 {
-    test_event("test_event_foo_first", 10, 11, expected_foo_first);
-    test_event("test_event_bar_first", 12,  7, expected_bar_first);
+    test_event();
 }
 
 static void
-test_event(const char *name, int foo, int bar, const char *expected)
+test_event(void)
 {
     struct kparam kp = {
         .init      = &test_event_main,
         .init_prio = 8
     };
-    bwprintf(COM2, "%s...", name);
-    foo_event = foo;
-    bar_event = bar;
+    bwputstr(COM2, "test_event...");
     tlog_init(&evlog, evlog_buf, EVLOG_BUFSIZE);
     kern_main(&kp);
     tlog_check(&evlog, expected);
@@ -104,7 +85,7 @@ u_clock(void)
     int ticks, rc;
 
     clock_init(100);
-    rc = RegisterEvent(2, 51, &u_clock_cb);
+    rc = RegisterEvent(51, &u_clock_cb);
     assert(rc == 0);
 
     ticks = 0;
@@ -133,7 +114,7 @@ foo(void)
 {
     int ticks, rc;
 
-    rc = RegisterEvent(foo_event, 21, &foo_cb);
+    rc = RegisterEvent(21, &foo_cb);
     assert(rc == 0);
 
     ticks = 0;
@@ -158,7 +139,7 @@ bar(void)
 {
     int ticks, rc;
 
-    rc = RegisterEvent(bar_event, 22, &bar_cb);
+    rc = RegisterEvent(22, &bar_cb);
     assert(rc == 0);
 
     ticks = 0;

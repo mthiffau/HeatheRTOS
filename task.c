@@ -7,13 +7,12 @@
 
 #include "xbool.h"
 #include "xassert.h"
+#include "bithack.h"
 
 #include "event.h"
 #include "kern.h"
 #include "cpumode.h"
 #include "u_syscall.h"
-
-static inline int ctz16(uint16_t x);
 
 int
 get_task(struct kern *kern, tid_t tid, struct task_desc **td_out)
@@ -65,7 +64,7 @@ task_create(
     td->regs->lr   = (uint32_t)&Exit; /* call Exit on return of task_entry */
     td->regs->pc   = (uint32_t)task_entry;
     td->cleanup    = NULL;
-    td->event      = (int8_t)-1;
+    td->irq        = (int8_t)-1;
 
     taskq_init(&td->senders);
 
@@ -115,9 +114,9 @@ task_free(struct kern *kern, struct task_desc *td)
 {
     TASK_SET_STATE(td, TASK_STATE_FREE);
     td->tid_seq++;
-    if (td->event >= 0) {
+    if (td->irq >= 0) {
         int rc;
-        rc = evt_unregister(&kern->eventab, td->event);
+        rc = evt_unregister(&kern->eventab, td->irq);
         assertv(rc, rc == 0);
     }
     task_enqueue(kern, td, &kern->free_tasks);
@@ -157,24 +156,3 @@ task_dequeue(struct kern *kern, struct task_queue *q)
     td->next_ix = TASK_IX_NOTINQUEUE;
     return td;
 }
-
-static inline int
-ctz16(uint16_t x)
-{
-    int tz = 1;
-    if ((x & 0xff) == 0) {
-        x >>= 8;
-        tz += 8;
-    }
-    if ((x & 0xf) == 0) {
-        x >>= 4;
-        tz += 4;
-    }
-    if ((x & 0x3) == 0) {
-        x >>= 2;
-        tz += 2;
-    }
-    tz -= x & 0x1;
-    return tz;
-}
-

@@ -19,7 +19,7 @@ int   Reply(int TID, const void* reply, int replylen);
 
 void  RegisterCleanup(void (*cleanup_cb)(void));
 
-int   RegisterEvent(int priority, int irq, int (*cb)(void*, size_t));
+int   RegisterEvent(int irq, int (*cb)(void*, size_t));
 int   AwaitEvent(void*, size_t);
 
 /* Instruct the kernel to shut down immediately. */

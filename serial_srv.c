@@ -123,12 +123,8 @@ static void serial_write(
 static void serial_getc(struct serialsrv *srv, tid_t client);
 static void serial_flush(struct serialsrv *srv, tid_t client);
 
-static tid_t
-serial_notif_init(
-    int evts[2],
-    int intrs[2],
-    int (*cb)(void*,size_t),
-    struct serialcfg *cfg);
+static tid_t serial_notif_init(
+    const int irqs[2], int (*cb)(void*,size_t), struct serialcfg *cfg);
 
 /* Notifier for all UART interrupts,
  * including those that aren't separately signalled. */
@@ -451,8 +447,7 @@ serial_cts(struct serialsrv *srv, tid_t notifier, bool cts)
 
 static tid_t
 serial_notif_init(
-    int evts[2],
-    int intrs[2],
+    const int irqs[2],
     int (*cb)(void*,size_t),
     struct serialcfg *cfg)
 {
@@ -467,7 +462,7 @@ serial_notif_init(
 
     /* Register for UART interrupt */
     assert(cfg->uart < 2);
-    rc = RegisterEvent(evts[cfg->uart], intrs[cfg->uart], cb);
+    rc = RegisterEvent(irqs[cfg->uart], cb);
     assertv(rc, rc == 0);
 
     return server;
@@ -482,15 +477,14 @@ struct snotify_info {
 static void
 serial_notif(void)
 {
-    static int gen_evts[2]  = { EV_UART1_GEN, EV_UART2_GEN };
-    static int gen_intrs[2] = { IRQ_UART1_GEN, IRQ_UART2_GEN };
+    static const int gen_irqs[2] = { IRQ_UART1_GEN, IRQ_UART2_GEN };
     volatile struct uart *uart;
     struct serialcfg cfg;
     tid_t server;
     struct snotify_info info;
     int rc;
 
-    server = serial_notif_init(gen_evts, gen_intrs, &serial_notif_cb, &cfg);
+    server = serial_notif_init(gen_irqs, &serial_notif_cb, &cfg);
     uart = get_uart(cfg.uart);
 
     /* Start actual loop */
