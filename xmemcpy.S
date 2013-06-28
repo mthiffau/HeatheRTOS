@@ -68,3 +68,14 @@ memcpy_done:
     ldmfd sp!, {r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12}
     mov pc, lr
 
+    .global memset
+    .type memset, %function
+memset:
+    mov r3, r0
+    and r1, r1, #0xff
+    add r2, r2, #1
+memset_loop:
+    subs r2, r2, #1
+    moveq pc, lr
+    strb r1, [r3], #+1
+    b memset_loop

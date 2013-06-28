@@ -9,3 +9,4 @@ void test_xmemcpy_unalign(void);
 void test_xmemcpy_mismatch(void);
 void test_xmemcpy_large(void);
 void test_xmemcpy_large_unalign(void);
+void test_memset(void);

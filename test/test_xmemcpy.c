@@ -18,6 +18,7 @@ test_xmemcpy_all(void)
     test_xmemcpy_mismatch();
     test_xmemcpy_large();
     test_xmemcpy_large_unalign();
+    test_memset();
 }
 
 void
@@ -148,3 +149,17 @@ test_xmemcpy_large_unalign(void)
     bwputstr(COM2, "ok\n");
 }
 
+void
+test_memset(void)
+{
+    char data[217];
+    unsigned i;
+    bwputstr(COM2, "test_memset...");
+    memset(data, '\0', sizeof (data));
+    for (i = 0; i < sizeof (data); i++)
+        assert(data[i] == '\0');
+    memset(data, '!', sizeof (data));
+    for (i = 0; i < sizeof (data); i++)
+        assert(data[i] == '!');
+    bwputstr(COM2, "ok\n");
+}
