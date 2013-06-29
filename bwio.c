@@ -58,7 +58,7 @@ int bwsetspeed( int channel, int speed ) {
 		return 0;
 	case 2400:
 		*high = 0x0;
-		*low = 0x90;
+		*low = 0xbf;
 		return 0;
 	default:
 		return -1;
