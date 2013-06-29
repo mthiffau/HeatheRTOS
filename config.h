@@ -22,4 +22,5 @@
 #define PRIORITY_SERIAL1    3
 #define PRIORITY_SERIAL2    2
 #define PRIORITY_TCMUX      6
+#define PRIORITY_SENSOR     6
 #define PRIORITY_UI         PRIORITY_MIN

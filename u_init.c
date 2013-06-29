@@ -15,6 +15,7 @@
 #include "serial_srv.h"
 #include "ui_srv.h"
 #include "tcmux_srv.h"
+#include "sensor_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -22,7 +23,7 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid, tty_tid, train_tid, tcmux_tid, ui_tid;
+    tid_t ns_tid, clk_tid, tty_tid, train_tid, tcmux_tid, sensor_tid, ui_tid;
     struct serialcfg ttycfg, traincfg;
     int rplylen;
 
@@ -72,6 +73,10 @@ u_init_main(void)
     /* Start train control multiplexer */
     tcmux_tid = Create(PRIORITY_TCMUX, &tcmuxsrv_main);
     assertv(tcmux_tid, tcmux_tid >= 0);
+
+    /* Start sensor server */
+    sensor_tid = Create(PRIORITY_SENSOR, &sensrv_main);
+    assertv(sensor_tid, sensor_tid >= 0);
 
     /* Start UI server */
     ui_tid = Create(PRIORITY_UI, &uisrv_main);

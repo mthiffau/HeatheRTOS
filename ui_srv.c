@@ -17,6 +17,7 @@
 #include "clock_srv.h"
 #include "serial_srv.h"
 #include "tcmux_srv.h"
+#include "sensor_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -151,6 +152,7 @@ static void uisrv_sensors(
 static void uisrv_finish_reverse(struct uisrv *uisrv);
 static void kbd_listen(void);
 static void time_listen(void);
+static void sensor_listen(void);
 static void reverse_timer(void);
 
 void
@@ -197,8 +199,7 @@ uisrv_init(struct uisrv *uisrv)
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
         0x99, 0x9a, 0x9b, 0x9c
     };
-    tid_t kbd_tid;
-    tid_t time_tid;
+    tid_t kbd_tid, time_tid, sensor_tid;
     unsigned i;
     uint8_t last_switch;
 
@@ -255,6 +256,9 @@ uisrv_init(struct uisrv *uisrv)
 
     time_tid = Create(PRIORITY_UI - 1, &time_listen);
     assertv(time_tid, time_tid >= 0);
+
+    sensor_tid = Create(PRIORITY_UI - 1, &sensor_listen);
+    assertv(sensor_tid, sensor_tid >= 0);
 
     uisrv->reverse_timer = Create(PRIORITY_UI - 1, &reverse_timer);
     uisrv->reverse_timer_running = false;
@@ -676,6 +680,26 @@ time_listen(void)
         now_clock += 10;
         msg.time_tenths++;
         DelayUntil(&clock, now_clock);
+    }
+}
+
+static void
+sensor_listen(void)
+{
+    struct sensorctx sens;
+    struct uictx ui;
+    int rc;
+    uictx_init(&ui);
+    sensorctx_init(&sens);
+    for (;;) {
+        sensors_t sensors[SENSOR_MODULES];
+        unsigned i;
+        for (i = 0; i < ARRAY_SIZE(sensors); i++)
+            sensors[i] = (sensors_t)-1;
+
+        rc = sensor_wait(&sens, sensors, -1);
+        assertv(rc, rc == SENSOR_TRIPPED);
+        ui_sensors(&ui, sensors);
     }
 }
 

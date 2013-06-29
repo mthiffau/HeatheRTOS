@@ -13,7 +13,7 @@
 #include "ns.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
-#include "ui_srv.h" /* for ui_sensors() */
+#include "sensor_srv.h"
 
 #include "queue.h"
 
@@ -448,14 +448,14 @@ tcmux_sensor_listener(void)
     sensors_t last_sensors[SENSOR_MODULES] = { 0 };
     sensors_t new_sensors[SENSOR_MODULES];
     struct serialctx port;
-    struct uictx ui;
+    struct sensorctx sens;
     struct tcmuxmsg msg;
     tid_t tcmux;
     int rplylen;
 
     tcmux = MyParentTid();
     serialctx_init(&port, COM1);
-    uictx_init(&ui);
+    sensorctx_init(&sens);
 
     msg.type = TCMUX_SENSOR_POLL;
     for (;;) {
@@ -480,7 +480,7 @@ tcmux_sensor_listener(void)
             new_sensors[i]  = sens & ~last_sensors[i];
             last_sensors[i] = sens;
         }
-        ui_sensors(&ui, new_sensors);
+        sensor_report(&sens, new_sensors);
     }
 }
 
