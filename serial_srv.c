@@ -109,9 +109,8 @@ static void serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg);
 static void serialsrv_cleanup1(void);
 static void serialsrv_cleanup2(void);
 static void serialsrv_cleanup(int port);
-static void serialsrv_uart_setup(struct serialcfg *cfg, 
-                                 bool intrs, 
-                                 volatile struct uart *uart);
+static void serialsrv_uart_setup(
+    const struct serialcfg *cfg, bool intrs, volatile struct uart *uart);
 
 static void serial_writechars(struct serialsrv *srv);
 static void serial_rx(struct serialsrv*, tid_t, uint8_t[RX_BUF_SIZE], int);
@@ -199,7 +198,7 @@ serialsrv_main(void)
 static void
 serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
 {
-    static void (*cleanups[2])(void) = {
+    static void (*const cleanups[2])(void) = {
         &serialsrv_cleanup1,
         &serialsrv_cleanup2
     };
@@ -213,7 +212,6 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     srv->nocts = cfg->nocts;
 
     RegisterCleanup(cleanups[cfg->uart]);
-
     serialsrv_uart_setup(cfg, true, srv->uart);
 
     /* Initialize getc state */
@@ -235,9 +233,16 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
 }
 
 static void
-serialsrv_uart_setup(struct serialcfg* cfg, bool intrs, volatile struct uart *uart)
+serialsrv_uart_setup(
+    const struct serialcfg* cfg,
+    bool intrs,
+    volatile struct uart *uart)
 {
     uint32_t ctrl;
+
+    /* Initial UART setup */
+    uart_ctrl_delay();
+    uart->ctrl = 0; /* disabled */
 
     /* Set baud rate */
     uart_ctrl_delay();
@@ -254,9 +259,6 @@ serialsrv_uart_setup(struct serialcfg* cfg, bool intrs, volatile struct uart *ua
         panic("invalid baud rate %d", cfg->baud);
     }
 
-    /* Initial UART setup */
-    uart_ctrl_delay();
-    uart->ctrl = 0; /* disabled */
     uart_ctrl_delay();
     uart->lcrh =
           ((cfg->bits - 5) << 5)
@@ -279,7 +281,7 @@ serialsrv_uart_setup(struct serialcfg* cfg, bool intrs, volatile struct uart *ua
     uart->ctrl = ctrl;
 }
 
-static struct serialcfg default_cfg = {
+static const struct serialcfg default_cfg = {
     .uart        = 0xff,  /* Arbitrary */
     .fifos       = false,
     .nocts       = true,  /* Arbitrary */
@@ -515,7 +517,7 @@ serial_notif_cb(void *untyped_info, size_t dummy)
         } while (!(info->uart->flag & RXFE_MASK));
         info->msg.rx.len = n;
         if (n == 0)
-            panic("read zero characters from 0x%x\n", (uint32_t)info->uart);
+            panic("read zero characters from 0x%x", (uint32_t)info->uart);
     } else if (intr & TIS_MASK) {
         info->msg.type = SERIALMSG_TXR;
         info->uart->ctrl &= ~TIEN_MASK;
