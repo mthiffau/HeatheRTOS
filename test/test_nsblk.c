@@ -99,8 +99,9 @@ static void
 test_nsblk(bool low_prio)
 {
     static struct kparam kp = {
-        .init       = &nsblk_init_main,
-        .init_prio  = 0
+        .init      = &nsblk_init_main,
+        .init_prio = 0,
+        .show_top  = false
     };
 
     bwprintf(COM2, "test_nsblk%s...", low_prio ? "_low_prio" : "");

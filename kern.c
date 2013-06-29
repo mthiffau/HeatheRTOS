@@ -33,6 +33,7 @@
 #define EXC_VEC_IRQ         ((unsigned int*)0x18)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
 static void kern_RegisterEvent(struct kern *kern, struct task_desc *active);
 static void kern_AwaitEvent(struct kern *kern, struct task_desc *active);
@@ -41,28 +42,38 @@ static void kern_idle(void);
 /* Default kernel parameters */
 struct kparam def_kparam = {
     .init       = &u_init_main,
-    .init_prio  = U_INIT_PRIORITY
+    .init_prio  = U_INIT_PRIORITY,
+    .show_top   = true
 };
 
 int
 kern_main(struct kparam *kp)
 {
     struct kern kern;
+    uint32_t start_time, end_time, time;
 
     /* Set up kernel state and create initial user task */
     kern_init(&kern, kp);
 
     /* Main loop */
+    start_time = tmr40_get();
     while (!kern.shutdown && (kern.rdy_count > 1 || kern.evblk_count > 0)) {
         struct task_desc *active;
         uint32_t          intr;
         active = task_schedule(&kern);
+        time   = tmr40_get();
         intr   = ctx_switch(active);
+        active->time += tmr40_get() - time;
         kern_handle_intr(&kern, active, intr);
         assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
     }
 
+    end_time = tmr40_get();
     kern_cleanup(&kern);
+
+    if (kp->show_top)
+        kern_top(&kern, end_time - start_time);
+
     return 0;
 }
 
@@ -182,7 +193,7 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         break;
     case SYSCALL_SHUTDOWN:
         kern->shutdown = true;
-        task_free(kern, active); /* must move out of ACTIVE state */
+        task_ready(kern, active); /* must move out of ACTIVE state */
         break;
     case SYSCALL_PANIC:
         panic("%s", (const char*)active->regs->r0);
@@ -237,6 +248,27 @@ kern_cleanup(struct kern *kern)
             td->cleanup();
     }
     evt_cleanup();
+}
+
+static void
+kern_top(struct kern *kern, uint32_t total_time)
+{
+    unsigned i;
+    bwprintf(COM2, "--------\nran for %d ms\n", total_time / 983);
+    for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
+        struct task_desc *td = &kern->tasks[i];
+        tid_t tid;
+        if (TASK_STATE(td) == TASK_STATE_FREE)
+            continue;
+        tid = TASK_TID(kern, td);
+        if (tid == 0)
+            bwputstr(COM2, "idle");
+        else
+            bwprintf(COM2, "%d", (int)tid);
+        /* This is directly in debug clock units.
+         * TODO: convert to nice percentages */
+        bwprintf(COM2, "\t%u\n", td->time);
+    }
 }
 
 static void

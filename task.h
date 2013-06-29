@@ -77,8 +77,11 @@ struct task_desc {
 
     /* Registered event (IRQ number) */
     int8_t irq;
+
+    /* Time spent in task. */
+    uint32_t time;
 };
-STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 20);
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 24);
 
 /* Context switch assumes this memory layout */
 struct task_regs {

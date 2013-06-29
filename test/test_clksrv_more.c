@@ -39,7 +39,8 @@ test_clksrv_more(void)
 {
     struct kparam kp = {
         .init      = &test_clksrv_more_init,
-        .init_prio = 8
+        .init_prio = 8,
+        .show_top  = false
     };
     bwputstr(COM2, "test_clksrv_more...");
     tlog_init(&clksrv_log, clksrv_log_buf, ARRAY_SIZE(clksrv_log_buf));

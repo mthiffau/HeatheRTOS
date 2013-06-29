@@ -62,7 +62,8 @@ test_event(void)
 {
     struct kparam kp = {
         .init      = &test_event_main,
-        .init_prio = 8
+        .init_prio = 8,
+        .show_top  = false
     };
     bwputstr(COM2, "test_event...");
     tlog_init(&evlog, evlog_buf, EVLOG_BUFSIZE);

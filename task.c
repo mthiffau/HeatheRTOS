@@ -65,6 +65,7 @@ task_create(
     td->regs->pc   = (uint32_t)task_entry;
     td->cleanup    = NULL;
     td->irq        = (int8_t)-1;
+    td->time       = 0;
 
     taskq_init(&td->senders);
 

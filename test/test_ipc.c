@@ -49,7 +49,7 @@ test_ipc_all(void)
 
 static void test_ipc_kern(const char *name, void (*init)(void))
 {
-    struct kparam kp = { .init = init, .init_prio = 8 };
+    struct kparam kp = { .init = init, .init_prio = 8, .show_top = false };
     bwprintf(COM2, "%s...", name);
     kern_main(&kp);
     bwputstr(COM2, "ok\n");

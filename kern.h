@@ -26,11 +26,11 @@ struct kern {
     int  evblk_count;
 };
 
-/* TODO: cache, IRQ settings. Maybe a hook run every kernel loop */
 struct kparam {
     /* Initial user task entry point and priority. */
     void (*init)(void);
     int  init_prio;
+    bool show_top; /* print the time taken by each task? */
 };
 
 extern struct kparam def_kparam;
