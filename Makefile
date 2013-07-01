@@ -18,7 +18,9 @@ MAP     = $(BUILD)/rt.map
 TMAP    = $(BUILD)/test.map
 RMAP    = $(BUILD)/repeater.map
 LINK    = link.ld
-SRCS    = $(wildcard *.c)
+TRACKS  = $(wildcard track/*.in)
+TR_SRCS = $(TRACKS:.in=.c)
+SRCS    = $(wildcard *.c) $(TR_SRCS)
 ASMS    = $(wildcard *.S)
 OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o) $(ASMS:.S=.S.o))
 
@@ -34,7 +36,7 @@ TOBJS   = $(OBJS) $(addprefix $(BUILD)/, $(TSRCS:.c=.c.o))
 RSRCS   = $(wildcard repeater/*.c)
 ROBJS   = $(OBJS) $(addprefix $(BUILD)/, $(RSRCS:.c=.c.o))
 
-BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern $(BUILD)/repeater
+BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern $(BUILD)/repeater $(BUILD)/track
 
 .SUFFIXES:
 .SECONDARY:
@@ -58,7 +60,7 @@ $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD_DIRS)
 $(BUILD)/%.c.s: $(BUILD)/%.c.i $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -S -o $@ $(CFLAGS) $<
 
-$(BUILD)/%.c.i: %.c $(CFLAGS_FILE) |$(BUILD_DIRS)
+$(BUILD)/%.c.i: %.c $(CFLAGS_FILE) |$(BUILD_DIRS) track/list.h
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD)/%.S.o: $(BUILD)/%.S.s |$(BUILD_DIRS)
@@ -67,11 +69,17 @@ $(BUILD)/%.S.o: $(BUILD)/%.S.s |$(BUILD_DIRS)
 $(BUILD)/%.S.s: %.S $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
+track/%.c: track/%.in track/gentrack.py track/list.h
+	python track/gentrack.py $(notdir $(@:.c=)) < $< > $@.tmp && mv $@.tmp $@
+
+track/list.h: $(TRACKS)
+	cd track && bash list.sh
+
 $(BUILD_DIRS):
 	mkdir $@
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(TR_SRCS) track/*.[ch]
 
 install: $(MAIN) $(TEST) $(REPEATER)
 	cp $(MAIN) $$tftp && chmod a+r $$tftp/$(notdir $(MAIN))
@@ -82,3 +90,4 @@ install: $(MAIN) $(TEST) $(REPEATER)
 -include $(BUILD)/*.S.d
 -include $(BUILD)/kern/*.c.d
 -include $(BUILD)/test/*.c.d
+-include $(BUILD)/track/*.c.d

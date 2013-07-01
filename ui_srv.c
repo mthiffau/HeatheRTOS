@@ -18,6 +18,7 @@
 #include "serial_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
+#include "track_graph.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -143,6 +144,7 @@ static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
 static void start_reverse_timer(struct uisrv *uisrv);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
@@ -329,6 +331,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_rv(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "lt")) {
         uisrv_cmd_lt(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "path")) {
+        uisrv_cmd_path(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -499,8 +503,48 @@ uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    /* Store state in train table */
+    /* Send light command */
     tcmux_train_light(&uisrv->tcmux, which, light);
+}
+
+static void
+uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
+{
+    /* Parse arguments */
+    const struct track_graph *track;
+    const struct track_node  *nodes[2];
+    const struct track_node  *path[TRACK_NODES_MAX];
+    int                       i, path_len;
+    track = &track_a;
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: path START STOP");
+        return;
+    }
+    for (i = 0; i < 2; i++) {
+        int j;
+        nodes[i] = NULL;
+        for (j = 0; j < track->n_nodes; j++) {
+            if (!strcmp(argv[i], track->nodes[j].name)) {
+                nodes[i] = &track->nodes[j];
+                break;
+            }
+        }
+        if (nodes[i] == NULL) {
+            Printf(&uisrv->tty, "error: unknown node %s", argv[i]);
+            return;
+        }
+    }
+
+    /* Find the path! */
+    path_len = track_pathfind(track, nodes[0], nodes[1], path);
+    assertv(path_len, path_len >= -1);
+    if (path_len == -1) {
+        Print(&uisrv->tty, "no (directed) path");
+    } else {
+        for (i = 0; i < path_len; i++) {
+            Printf(&uisrv->tty, "%s ", path[i]->name);
+        }
+    }
 }
 
 static void
