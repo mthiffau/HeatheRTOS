@@ -14,7 +14,7 @@
 
 /* Select priority queue implementation. */
 #define PQ_RING
-/* #define PQ_HEAP */
+//#define PQ_HEAP
 
 /* Application task priorities */
 #define PRIORITY_NS         PRIORITY_MIN

@@ -15,7 +15,9 @@
 #include "bwio.h"
 
 static void test_pqueue_add_peekmin(void);
-static void test_pqueue_add_fail(void);
+static void test_pqueue_add_fail_val_oor(void);
+static void test_pqueue_add_fail_duplicate0(void);
+static void test_pqueue_add_fail_duplicate1(void);
 static void test_pqueue_add2_peekmin_fst(void);
 static void test_pqueue_add2_peekmin_snd(void);
 static void test_pqueue_add2_popmin_peekmin_fst(void);
@@ -28,7 +30,9 @@ void
 test_pqueue_all(void)
 {
     test_pqueue_add_peekmin();
-    test_pqueue_add_fail();
+    test_pqueue_add_fail_val_oor();
+    test_pqueue_add_fail_duplicate0();
+    test_pqueue_add_fail_duplicate1();
     test_pqueue_add2_peekmin_fst();
     test_pqueue_add2_peekmin_snd();
     test_pqueue_add2_popmin_peekmin_fst();
@@ -47,31 +51,64 @@ test_pqueue_add_peekmin(void)
     int rc;
     bwputstr(COM2, "test_pqueue_add_peekmin...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, 42, -77);
+    rc = pqueue_add(&q, 0, 42);
     assert(rc == 0);
     min = pqueue_peekmin(&q);
     assert(min != NULL);
-    assert(min->key =  42);
-    assert(min->val = -77);
+    assert(min->key == 42);
+    assert(min->val ==  0);
     bwputstr(COM2, "ok\n");
 }
 
 static void
-test_pqueue_add_fail(void)
+test_pqueue_add_fail_val_oor(void)
+{
+    struct pqueue q;
+    struct pqueue_node nodes[1];
+    int rc;
+    bwputstr(COM2, "test_pqueue_add_fail_val_oor...");
+    pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
+    rc = pqueue_add(&q, 1, 42);
+    assert(rc == -1);
+    rc = pqueue_add(&q, 2, 42);
+    assert(rc == -1);
+    bwputstr(COM2, "ok\n");
+}
+
+static void
+test_pqueue_add_fail_duplicate0(void)
 {
     struct pqueue q;
     struct pqueue_node nodes[2];
     int rc;
-    bwputstr(COM2, "test_pqueue_add_fail...");
+    bwputstr(COM2, "test_pqueue_add_fail_duplicate0...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, 42, -77);
+    rc = pqueue_add(&q, 0, 42);
     assert(rc == 0);
-    rc = pqueue_add(&q, 3, 100);
+    rc = pqueue_add(&q, 1, 3);
     assert(rc == 0);
-    rc = pqueue_add(&q, 55, 12);
-    assert(rc == -1);
+    rc = pqueue_add(&q, 0, 55);
+    assert(rc == -2);
     bwputstr(COM2, "ok\n");
 }
+
+static void
+test_pqueue_add_fail_duplicate1(void)
+{
+    struct pqueue q;
+    struct pqueue_node nodes[2];
+    int rc;
+    bwputstr(COM2, "test_pqueue_add_fail_duplicate1...");
+    pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
+    rc = pqueue_add(&q, 0, 42);
+    assert(rc == 0);
+    rc = pqueue_add(&q, 1, 3);
+    assert(rc == 0);
+    rc = pqueue_add(&q, 1, 55);
+    assert(rc == -2);
+    bwputstr(COM2, "ok\n");
+}
+
 
 static void
 test_pqueue_add2_peekmin_fst(void)
@@ -82,14 +119,14 @@ test_pqueue_add2_peekmin_fst(void)
     int rc;
     bwputstr(COM2, "test_pqueue_add2_peekmin_fst...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, -1, 13);
+    rc = pqueue_add(&q, 1, -1);
     assert(rc == 0);
-    rc = pqueue_add(&q, 0, 31);
+    rc = pqueue_add(&q, 0, 0);
     assert(rc == 0);
     min = pqueue_peekmin(&q);
     assert(min != NULL);
     assert(min->key == -1);
-    assert(min->val == 13);
+    assert(min->val == 1);
     bwputstr(COM2, "ok\n");
 }
 
@@ -102,14 +139,14 @@ test_pqueue_add2_peekmin_snd(void)
     int rc;
     bwputstr(COM2, "test_pqueue_add2_peekmin_snd...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, 1, 13);
+    rc = pqueue_add(&q, 0, 1);
     assert(rc == 0);
-    rc = pqueue_add(&q, 0, 31);
+    rc = pqueue_add(&q, 1, 0);
     assert(rc == 0);
     min = pqueue_peekmin(&q);
     assert(min != NULL);
     assert(min->key == 0);
-    assert(min->val == 31);
+    assert(min->val == 1);
     bwputstr(COM2, "ok\n");
 }
 
@@ -122,15 +159,15 @@ test_pqueue_add2_popmin_peekmin_fst(void)
     int rc;
     bwputstr(COM2, "test_pqueue_add2_popmin_peekmin_fst...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, -1, 13);
+    rc = pqueue_add(&q, 0, -1);
     assert(rc == 0);
-    rc = pqueue_add(&q, 0, 31);
+    rc = pqueue_add(&q, 1, 0);
     pqueue_popmin(&q);
     assert(rc == 0);
     min = pqueue_peekmin(&q);
     assert(min != NULL);
     assert(min->key == 0);
-    assert(min->val == 31);
+    assert(min->val == 1);
     bwputstr(COM2, "ok\n");
 }
 
@@ -143,15 +180,15 @@ test_pqueue_add2_popmin_peekmin_snd(void)
     int rc;
     bwputstr(COM2, "test_pqueue_add2_popmin_peekmin_snd...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, 1, 13);
+    rc = pqueue_add(&q, 1, 1);
     assert(rc == 0);
-    rc = pqueue_add(&q, 0, 31);
+    rc = pqueue_add(&q, 0, 0);
     assert(rc == 0);
     pqueue_popmin(&q);
     min = pqueue_peekmin(&q);
     assert(min != NULL);
     assert(min->key == 1);
-    assert(min->val == 13);
+    assert(min->val == 1);
     bwputstr(COM2, "ok\n");
 }
 
@@ -164,9 +201,9 @@ test_pqueue_add2_popmin2_peekmin(void)
     int rc;
     bwputstr(COM2, "test_pqueue_add2_popmin2_peekmin...");
     pqueue_init(&q, ARRAY_SIZE(nodes), nodes);
-    rc = pqueue_add(&q, 1, 13);
+    rc = pqueue_add(&q, 0, 1);
     assert(rc == 0);
-    rc = pqueue_add(&q, 0, 31);
+    rc = pqueue_add(&q, 1, 0);
     assert(rc == 0);
     pqueue_popmin(&q);
     pqueue_popmin(&q);
@@ -191,7 +228,7 @@ test_pqueue_peekmin_empty(void)
 static void test_pqueue_many(void)
 {
     struct pqueue q;
-    struct pqueue_node nodes[16];
+    struct pqueue_node nodes[32];
     struct pqueue_entry *min;
     int keys[32] = {
         1, 20, 28, 0, 12, 12, 21, 29, 25, 22, 13, 18, 2, 31, 21, 8,
@@ -204,15 +241,15 @@ static void test_pqueue_many(void)
         incl[i] = false;
 
     bwputstr(COM2, "test_pqueue_many...");
-    pqueue_init(&q, 16, nodes);
+    pqueue_init(&q, 32, nodes);
 
     count = 0;
     i = 0;
     while (count <= 16 - 2) {
-        rc = pqueue_add(&q, keys[i], i);
+        rc = pqueue_add(&q, i, keys[i]);
         assert(rc == 0);
         incl[i++] = true;
-        rc = pqueue_add(&q, keys[i], i);
+        rc = pqueue_add(&q, i, keys[i]);
         assert(rc == 0);
         incl[i++] = true;
         min = pqueue_peekmin(&q);
@@ -236,6 +273,15 @@ static void test_pqueue_many(void)
         incl[min->val] = false;
         pqueue_popmin(&q);
         count--;
+        if (count > 0 && count % 2 == 0) {
+            for (i = 0; i < 32; i++) {
+                if (incl[i])
+                    break;
+            }
+            keys[i] = -i;
+            rc = pqueue_decreasekey(&q, i, -i);
+            assert(rc == 0);
+        }
     }
 
     min = pqueue_peekmin(&q);

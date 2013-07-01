@@ -11,8 +11,11 @@ XDEF_H;
 /*
  * Integer-keyed, integer-valued priority queue.
  *
- * The key and value are actually of type intptr_t, so that pointers
- * may be stored if desired. Lower keys have higher priority.
+ * For a queue with maximum size N, only the values 0 through N-1
+ * can be stored, and no duplicate values are allowed.
+ *
+ * The key is actually of type intptr_t, so that pointers
+ * may be used as keys if desired. Lower keys have higher priority.
  *
  * Exactly one of PQ_RING and PQ_HEAP must be #defined in order to
  * select implementation.
@@ -27,12 +30,18 @@ XDEF_H;
 #endif
 
 struct pqueue_entry {
-    intptr_t key, val;
+    intptr_t key;
+    size_t   val;
 };
 
-/* Must be user-visible so that users can allocate fixed-size arrays. */
+/* Must be user-visible so that users can allocate fixed-size arrays.
+ *
+ * Each implementation employs an array of maxsize of these.
+ * The entries are placed differently dependending on implementation,
+ * but nodes[i] always has the position for value i. */
 struct pqueue_node {
     struct pqueue_entry entry;
+    size_t              pos;
 #ifdef PQ_RING
     /* No PQ_RING-specific members */
 #else
@@ -56,9 +65,17 @@ struct pqueue {
  * Maxsize must be positive. */
 void pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem);
 
-/* Add a key/value entry to the priority queue. Returns 0 if the entry
- * was successfully added, and -1 if there was no space. */
-int pqueue_add(struct pqueue *q, intptr_t key, intptr_t val);
+/* Add a key/value entry to the priority queue. Returns:
+ *    0 if the entry was successfully added,
+ *   -1 if the value was out of range,
+ *   -2 if if the value was already in the queue. */
+int pqueue_add(struct pqueue *q, size_t val, intptr_t key);
+
+/* Decrease the key of a value in the priority queue. Returns:
+ *    0 if the value's key was successfully decreased,
+ *   -1 if the value is not in the queue, or
+ *   -2 if the new key is not less than the previous key. */
+int pqueue_decreasekey(struct pqueue *q, size_t val, intptr_t new_key);
 
 /* Peek at the minimum-key entry the priority queue. Returns NULL if
  * the queue is empty. The result is valid until pq_pop() is called. */

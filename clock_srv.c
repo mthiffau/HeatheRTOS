@@ -28,7 +28,8 @@ struct clkmsg {
 
 struct clksrv {
     int ticks;
-    struct pqueue      delays; /* TIDs keyed on wakeup time */
+    tid_t              tids[MAX_TASKS];
+    struct pqueue      delays; /* TIDs' low bytes keyed on wakeup time */
     struct pqueue_node delay_nodes[MAX_TASKS];
 };
 
@@ -153,7 +154,8 @@ clksrv_delayuntil(struct clksrv *clk, tid_t who, int when_ticks)
     if (when_ticks > clk->ticks) {
         /* Add to priority queue */
         int rc;
-        rc = pqueue_add(&clk->delays, when_ticks, who);
+        clk->tids[who & 0xff] = who;
+        rc = pqueue_add(&clk->delays, who & 0xff, when_ticks);
         assertv(rc, rc == 0); /* we should always have enough space */
     } else {
         /* Reply immediately */
@@ -173,7 +175,7 @@ clksrv_undelay(struct clksrv *clk)
         if (delay->key > clk->ticks)
             break; /* no more tasks ready to wake up; all times in future */
         rply = CLOCK_OK;
-        rc = Reply((tid_t)delay->val, &rply, sizeof (rply));
+        rc = Reply(clk->tids[delay->val], &rply, sizeof (rply));
         assertv(rc, rc == 0);
         pqueue_popmin(&clk->delays);
     }

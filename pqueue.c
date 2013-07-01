@@ -14,16 +14,21 @@ static inline void pqueue_swap(struct pqueue *q, int i, int j)
     tmp = q->nodes[i].entry;
     q->nodes[i].entry = q->nodes[j].entry;
     q->nodes[j].entry = tmp;
+    q->nodes[q->nodes[i].entry.val].pos = i;
+    q->nodes[q->nodes[j].entry.val].pos = j;
 }
 #endif
 
 void
 pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem)
 {
+    size_t i;
     assert(maxsize > 0);
     q->nodes   = mem;
     q->maxsize = maxsize;
     q->count   = 0;
+    for (i = 0; i < maxsize; i++)
+        q->nodes[i].pos = maxsize;
 #ifdef PQ_RING
     q->start   = 0;
 #else
@@ -32,13 +37,22 @@ pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem)
 }
 
 int
-pqueue_add(struct pqueue* q, intptr_t key, intptr_t val)
+pqueue_add(struct pqueue* q, size_t val, intptr_t key)
 {
+    size_t i;
 #ifdef PQ_RING
-    size_t i, start;
-    if (q->count == q->maxsize)
-        return -1; /* no space */
+    size_t start;
+#endif
+    if (val >= q->maxsize)
+        return -1; /* value too large */
+    if (q->nodes[val].pos < q->maxsize)
+        return -2; /* already exists */
 
+    /* Should be impossible to more than fill the queue given
+     * constraints on values stored in the queue. */
+    assert (q->count < q->maxsize);
+
+#ifdef PQ_RING
     start = q->start;
     i = (start + q->count) % q->maxsize;
     while (i != start) {
@@ -46,25 +60,66 @@ pqueue_add(struct pqueue* q, intptr_t key, intptr_t val)
         if (q->nodes[prev].entry.key <= key)
             break;
         q->nodes[i].entry = q->nodes[prev].entry;
+        q->nodes[q->nodes[i].entry.val].pos = i;
         i = prev;
     }
 
     q->nodes[i].entry.key = key;
     q->nodes[i].entry.val = val;
+    q->nodes[val].pos     = i;
     q->count++;
     return 0;
 #else
-    size_t i;
-    if (q->count == q->maxsize)
-        return -1; /* no space */
-
     i = q->count++;
     q->nodes[i].entry.key = key;
     q->nodes[i].entry.val = val;
+    q->nodes[val].pos = i;
 
     while (i > 0) {
         size_t parent = (i - 1) / 2;
         if (q->nodes[parent].entry.key <= key)
+            break;
+        pqueue_swap(q, i, parent);
+        i = parent;
+    }
+    return 0;
+#endif
+}
+
+int
+pqueue_decreasekey(struct pqueue *q, size_t val, intptr_t new_key)
+{
+#ifdef PQ_RING
+    size_t start;
+#endif
+    size_t i = q->nodes[val].pos;
+    if (i == q->maxsize)
+        return -1; /* value not in queue */
+
+    assert(q->nodes[i].entry.val == val);
+    if (new_key >= q->nodes[i].entry.key)
+        return -2; /* new_key is not a decrease */
+
+#ifdef PQ_RING
+    start = q->start;
+    while (i != start) {
+        size_t prev = i == 0 ? q->maxsize - 1 : i - 1;
+        if (q->nodes[prev].entry.key <= new_key)
+            break;
+        q->nodes[i].entry = q->nodes[prev].entry;
+        q->nodes[q->nodes[i].entry.val].pos = i;
+        i = prev;
+    }
+
+    q->nodes[i].entry.key = new_key;
+    q->nodes[i].entry.val = val;
+    q->nodes[val].pos     = i;
+    return 0;
+#else
+    q->nodes[i].entry.key = new_key;
+    while (i > 0) {
+        size_t parent = (i - 1) / 2;
+        if (q->nodes[parent].entry.key <= new_key)
             break;
         pqueue_swap(q, i, parent);
         i = parent;
@@ -89,11 +144,14 @@ pqueue_popmin(struct pqueue *q)
 #ifdef PQ_RING
     assert(q->count > 0);
     q->count--;
+    q->nodes[q->nodes[q->start].entry.val].pos = q->maxsize;
     q->start += 1;
     q->start %= q->maxsize;
 #else
     size_t i;
+    size_t popped_val;
     assert(q->count > 0);
+    popped_val = q->nodes[0].entry.val;
     q->count--;
     pqueue_swap(q, 0, q->count);
     i = 0;
@@ -114,5 +172,6 @@ pqueue_popmin(struct pqueue *q)
         pqueue_swap(q, i, min);
         i = min;
     }
+    q->nodes[popped_val].pos = q->maxsize;
 #endif
 }
