@@ -149,6 +149,7 @@ static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
@@ -344,6 +345,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_addtrain(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "goto")) {
         uisrv_cmd_goto(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "speed")) {
+        uisrv_cmd_speed(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "stop")) {
         uisrv_cmd_stop(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tr!")) {
@@ -488,6 +491,40 @@ uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     train_moveto(&uisrv->traintab[train].task, dest);
+}
+
+static void
+uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    uint8_t speed;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: speed TRAIN SPEED");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (atou8(argv[1], &speed) != 0 || speed <= 0 || speed >= 15) {
+        Printf(&uisrv->tty, "bad speed '%s'", argv[1]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_setspeed(&uisrv->traintab[train].task, speed);
 }
 
 static void
