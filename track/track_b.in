@@ -1,0 +1,150 @@
+sensor A1 : 0 -> MR12  @ A2 : 1 -> EX5
+sensor A3 : 2 -> BR14  @ A4 : 3 -> B16
+sensor A5 : 4 -> MR3   @ A6 : 5 -> B10
+sensor A7 : 6 -> B12   @ A8 : 7 -> MR2
+sensor A9 : 8 -> B8    @ A10: 9 -> MR1
+sensor A11:10 -> MR1   @ A12:11 -> A16
+sensor A13:12 -> MR4   @ A14:13 -> EX4
+sensor A15:14 -> A11   @ A16:15 -> MR4
+sensor B1 :16 -> D14   @ B2 :17 -> MR16
+sensor B3 :18 -> C2    @ B4 :19 -> MR16
+sensor B5 :20 -> D3    @ B6 :21 -> MR13
+sensor B7 :22 -> A10   @ B8 :23 -> EX7
+sensor B9 :24 -> A5    @ B10:25 -> EX9
+sensor B11:26 -> A8    @ B12:27 -> EX10
+sensor B13:28 -> MR154 @ B14:29 -> D16
+sensor B15:30 -> A3    @ B16:31 -> BR15
+sensor C1 :32 -> B4    @ C2 :33 -> MR153
+sensor C3 :34 -> EX3   @ C4 :35 -> MR5
+sensor C5 :36 -> BR6   @ C6 :37 -> MR15
+sensor C7 :38 -> MR18  @ C8 :39 -> BR3
+sensor C9 :40 -> MR15  @ C10:41 -> BR16
+sensor C11:42 -> BR13  @ C12:43 -> MR14
+sensor C13:44 -> E7    @ C14:45 -> BR11
+sensor C15:46 -> D12   @ C16:47 -> MR6
+sensor D1 :48 -> MR155 @ D2 :49 -> E4
+sensor D3 :50 -> MR10  @ D4 :51 -> B6
+sensor D5 :52 -> E6    @ D6 :53 -> MR9
+sensor D7 :54 -> MR9   @ D8 :55 -> E8
+sensor D9 :56 -> E12   @ D10:57 -> MR8
+sensor D11:58 -> C16   @ D12:59 -> MR7
+sensor D13:60 -> B2    @ D14:61 -> MR17
+sensor D15:62 -> B13   @ D16:63 -> MR17
+sensor E1 :64 -> MR156 @ E2 :65 -> E15
+sensor E3 :66 -> D1    @ E4 :67 -> MR10
+sensor E5 :68 -> D6    @ E6 :69 -> BR10
+sensor E7 :70 -> D7    @ E8 :71 -> C14
+sensor E9 :72 -> MR8   @ E10:73 -> E13
+sensor E11:74 -> D10   @ E12:75 -> BR7
+sensor E13:76 -> BR17  @ E14:77 -> E9
+sensor E15:78 -> MR13  @ E16:79 -> E1
+
+switch BR1  :  1 -> A12  /(A9)   @ MR1   -> MR2
+switch BR2  :  2 -> BR1  /(A7)   @ MR2   -> MR3
+switch BR3  :  3 -> A6   /(BR2)  @ MR3   -> C7
+switch BR4  :  4 -> A15  /(A14)  @ MR4   -> MR12
+switch BR5  :  5 -> C3   /(MR7)  @ MR5   -> BR18
+switch BR6  :  6 -> C15  /(MR18) @ MR6   -> C6
+switch BR7  :  7 -> D11  /(MR5)  @ MR7   -> E11
+switch BR8  :  8 -> D9   /(E10)  @ MR8   -> BR9
+switch BR9  :  9 -> D8   /(D5)   @ MR9   -> BR8
+switch BR10 : 10 -> D4   /(E3)   @ MR10  -> E5
+switch BR11 : 11 -> BR12 /(MR14) @ MR11  -> C13
+switch BR12 : 12 -> A2   /(BR4)  @ MR12  -> MR11
+switch BR13 : 13 -> B5   /(E16)  @ MR13  -> C12
+switch BR14 : 14 -> MR11 /(C11)  @ MR14  -> A4
+switch BR15 : 15 -> C5   /(C10)  @ MR15  -> B15
+switch BR16 : 16 -> B1   /(B3)   @ MR16  -> C9
+switch BR17 : 17 -> D13  /(D15)  @ MR17  -> E14
+switch BR18 : 18 -> C8   /(MR6)  @ MR18  -> BR5
+switch BR153:153 -> EX1  /(C1)   @ MR153 -> MR154
+switch BR154:154 -> BR153/(B14)  @ MR154 -> BR156
+switch BR155:155 -> EX2  /(D2)   @ MR155 -> MR156
+switch BR156:156 -> BR155/(E2)   @ MR156 -> BR154
+
+enter  EN1  -> MR153 @ EX1
+enter  EN2  -> MR155 @ EX2
+enter  EN3  -> C4 @ EX3
+enter  EN4  -> A13 @ EX4
+enter  EN5  -> A1 @ EX5
+enter  EN7  -> B7 @ EX7
+enter  EN9  -> B9 @ EX9
+enter  EN10 -> B11 @ EX10
+
+dist A1    MR12  231mm
+dist A2    EX5   504mm
+dist A3    BR14   43mm
+dist A4    B16   437mm
+dist A5    MR3   231mm
+dist A6    B10   642mm
+dist A7    B12   470mm
+dist A8    MR2   229mm
+dist A9    B8    289mm
+dist A10   MR1   229mm
+dist A11   MR1   282mm
+dist A12   A16   814mm
+dist A13   MR4   236mm
+dist A14   EX4   325mm
+dist A16   MR4   275mm
+dist B1    D14   404mm
+dist B2    MR16  231mm
+dist B3    C2    201mm
+dist B4    MR16  239mm
+dist B5    D3    404mm
+dist B6    MR13  231mm
+dist B8    EX7    43mm
+dist B10   EX9    50mm
+dist B12   EX10   50mm
+dist B13   MR154 239mm
+dist B14   D16   201mm
+dist B16   BR15   50mm
+dist C2    MR153 246mm
+dist C3    EX3   514mm
+dist C4    MR5   239mm
+dist C5    BR6    61mm
+dist C6    MR15  433mm
+dist C7    MR18  231mm
+dist C8    BR3   128mm
+dist C9    MR15  326mm
+dist C10   BR16  128mm
+dist C11   BR13  120mm
+dist C12   MR14  333mm
+dist C13   E7    780mm
+dist C14   BR11   50mm
+dist C15   D12   404mm
+dist C16   MR6   239mm
+dist D1    MR155 246mm
+dist D2    E4    201mm
+dist D3    MR10  239mm
+dist D5    E6    282mm
+dist D6    MR9   229mm
+dist D7    MR9   309mm
+dist D8    E8    376mm
+dist D9    E12   282mm
+dist D10   MR8   316mm
+dist D12   MR7   231mm
+dist D14   MR17  239mm
+dist D16   MR17  246mm
+dist E1    MR156 239mm
+dist E2    E15   201mm
+dist E4    MR10  239mm
+dist E6    BR10   50mm
+dist E9    MR8   239mm
+dist E10   E13   282mm
+dist E12   BR7    43mm
+dist E13   BR17   43mm
+dist E15   MR13  246mm
+dist MR1   MR2   188mm
+dist MR2   MR3   185mm
+dist MR4   MR12  185mm
+dist BR5   MR7   371mm
+dist MR5   BR18  155mm
+dist BR6   MR18  371mm
+dist MR8   BR9   155mm
+dist BR11  BR12  188mm
+dist BR11  MR14  495mm
+dist BR153 EX1   253mm
+dist MR153 MR154   0mm
+dist MR154 BR156   0mm
+dist BR155 EX2   282mm
+dist MR155 MR156   0mm
