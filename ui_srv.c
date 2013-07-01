@@ -11,6 +11,7 @@
 #include "xmemcpy.h"
 #include "xstring.h"
 #include "array_size.h"
+#include "track_graph.h"
 
 #include "u_syscall.h"
 #include "ns.h"
@@ -18,7 +19,7 @@
 #include "serial_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
-#include "track_graph.h"
+#include "train_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -94,6 +95,9 @@ struct train {
     int     reverse_count;  /* How many concurrent reversals */
 
     int     next;           /* Next index if we're in a queue */
+
+    struct trainctx task;
+    bool            running;
 };
 
 struct rv_msg {
@@ -130,6 +134,8 @@ struct uisrv {
     int   rvq_head;
     int   rvq_tail;
     int   rvq_count;
+
+    const struct track_graph *track;
 };
 
 static int tokenize(char *cmd, char **ts, int max_ts);
@@ -140,6 +146,10 @@ static void uisrv_init(struct uisrv *uisrv);
 static void uisrv_kbd(struct uisrv *uisrv, char keypress);
 static void uisrv_runcmd(struct uisrv *uisrv);
 static void uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
@@ -152,6 +162,8 @@ static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(
     struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
 static void uisrv_finish_reverse(struct uisrv *uisrv);
+static const struct track_node* uisrv_lookup_node(
+    struct uisrv *uisrv, const char *name);
 static void kbd_listen(void);
 static void time_listen(void);
 static void sensor_listen(void);
@@ -205,6 +217,8 @@ uisrv_init(struct uisrv *uisrv)
     unsigned i;
     uint8_t last_switch;
 
+    uisrv->track = NULL;
+
     /* Set up UI state */
     uisrv->cmdlen     = 0;
     uisrv->cmd[0]     = '\0';
@@ -223,6 +237,7 @@ uisrv_init(struct uisrv *uisrv)
         uisrv->traintab[i].rv_start_time = -1;
         uisrv->traintab[i].reverse_count = 0;
         uisrv->traintab[i].next          = -1;
+        uisrv->traintab[i].running       = false;
     }
 
     /* Print initialization message */
@@ -323,13 +338,21 @@ uisrv_runcmd(struct uisrv *uisrv)
         /* ignore silently */
     } else if (!strcmp(tokens[0], "q")) {
         uisrv_cmd_q(uisrv, &tokens[1], ntokens - 1);
-    } else if (!strcmp(tokens[0], "tr")) {
+    } else if (!strcmp(tokens[0], "track")) {
+        uisrv_cmd_track(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "addtrain")) {
+        uisrv_cmd_addtrain(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "goto")) {
+        uisrv_cmd_goto(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "stop")) {
+        uisrv_cmd_stop(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tr!")) {
         uisrv_cmd_tr(uisrv, &tokens[1], ntokens - 1);
-    } else if (!strcmp(tokens[0], "sw")) {
+    } else if (!strcmp(tokens[0], "sw!")) {
         uisrv_cmd_sw(uisrv, &tokens[1], ntokens - 1);
-    } else if (!strcmp(tokens[0], "rv")) {
+    } else if (!strcmp(tokens[0], "rv!")) {
         uisrv_cmd_rv(uisrv, &tokens[1], ntokens - 1);
-    } else if (!strcmp(tokens[0], "lt")) {
+    } else if (!strcmp(tokens[0], "lt!")) {
         uisrv_cmd_lt(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "path")) {
         uisrv_cmd_path(uisrv, &tokens[1], ntokens - 1);
@@ -358,6 +381,135 @@ uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc)
     assertv(rc, rc == SERIAL_OK);
     rc = Delay(&uisrv->clock, 2); /* allow UART to shift out last character */
     Shutdown();
+}
+
+static void
+uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc)
+{
+    int track;
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: track (a|b)");
+        return;
+    }
+
+    if (!strcmp(argv[0], "a")) {
+        track = 0;
+    } else if (!strcmp(argv[0], "b")) {
+        track = 1;
+    } else {
+        Print(&uisrv->tty, "usage: track (a|b)");
+        return;
+    }
+
+    if (uisrv->track != NULL) {
+        Print(&uisrv->tty, "track already selected");
+        return;
+    }
+
+    uisrv->track = all_tracks[track];
+}
+
+static void
+uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
+{
+    struct traincfg cfg;
+    int rplylen;
+    tid_t tid;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: addtrain TRAIN");
+        return;
+    }
+
+    for (cfg.track_id = 0; cfg.track_id < TRACK_COUNT; cfg.track_id++) {
+        if (all_tracks[cfg.track_id] == uisrv->track)
+            break;
+    }
+    assert(all_tracks[cfg.track_id] == uisrv->track);
+
+    if (atou8(argv[0], &cfg.train_id) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    /* Start train server for the requested train */
+    tid = Create(PRIORITY_TRAIN, &trainsrv_main);
+    if (tid < 0) {
+        Printf(&uisrv->tty, "error %d: failed to start train task", tid);
+        return;
+    }
+
+    rplylen = Send(tid, &cfg, sizeof (cfg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+
+    /* FIXME hard-coded track */
+    uisrv->traintab[cfg.train_id].running = true;
+    trainctx_init(
+        &uisrv->traintab[cfg.train_id].task,
+        uisrv->track,
+        cfg.train_id);
+}
+
+static void
+uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    const struct track_node *dest;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: goto TRAIN NODE");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    dest = uisrv_lookup_node(uisrv, argv[1]);
+    if (dest == NULL) {
+        Printf(&uisrv->tty, "unknown node '%s'", argv[1]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_moveto(&uisrv->traintab[train].task, dest);
+}
+
+static void
+uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: stop TRAIN");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_stop(&uisrv->traintab[train].task);
 }
 
 static void
@@ -511,24 +663,22 @@ static void
 uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
 {
     /* Parse arguments */
-    const struct track_graph *track;
     const struct track_node  *nodes[2];
     const struct track_node  *path[TRACK_NODES_MAX];
     int                       i, path_len;
-    track = &track_a;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
     if (argc != 2) {
         Print(&uisrv->tty, "usage: path START STOP");
         return;
     }
+
     for (i = 0; i < 2; i++) {
-        int j;
-        nodes[i] = NULL;
-        for (j = 0; j < track->n_nodes; j++) {
-            if (!strcmp(argv[i], track->nodes[j].name)) {
-                nodes[i] = &track->nodes[j];
-                break;
-            }
-        }
+        nodes[i] = uisrv_lookup_node(uisrv, argv[i]);
         if (nodes[i] == NULL) {
             Printf(&uisrv->tty, "error: unknown node %s", argv[i]);
             return;
@@ -536,7 +686,7 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     /* Find the path! */
-    path_len = track_pathfind(track, nodes[0], nodes[1], path);
+    path_len = track_pathfind(uisrv->track, nodes[0], nodes[1], path);
     assertv(path_len, path_len >= -1);
     if (path_len == -1) {
         Print(&uisrv->tty, "no (directed) path");
@@ -545,6 +695,18 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
             Printf(&uisrv->tty, "%s ", path[i]->name);
         }
     }
+}
+
+static const struct track_node*
+uisrv_lookup_node(struct uisrv *uisrv, const char *name)
+{
+    int j;
+    assert(uisrv->track != NULL);
+    for (j = 0; j < uisrv->track->n_nodes; j++) {
+        if (!strcmp(name, uisrv->track->nodes[j].name))
+            return &uisrv->track->nodes[j];
+    }
+    return NULL;
 }
 
 static void
