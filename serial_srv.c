@@ -214,6 +214,12 @@ serialsrv_init(struct serialsrv *srv, struct serialcfg *cfg)
     RegisterCleanup(cleanups[cfg->uart]);
     serialsrv_uart_setup(cfg, true, srv->uart);
 
+    /* Make sure there's no left-over input in the UART holding register */
+    while (!(srv->uart->flag & RXFE_MASK)) {
+        int dummy = srv->uart->data;
+        (void)dummy;
+    }
+
     /* Initialize getc state */
     srv->getc_client = -1;
     rbuf_init(&srv->getc_buf, srv->getc_buf_mem, sizeof (srv->getc_buf_mem));
