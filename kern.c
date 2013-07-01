@@ -33,6 +33,7 @@
 #define EXC_VEC_IRQ         ((unsigned int*)0x18)
 #define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
 
+static void kern_top_pct(uint32_t total, uint32_t amt);
 static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
 static void kern_RegisterEvent(struct kern *kern, struct task_desc *active);
@@ -251,24 +252,38 @@ kern_cleanup(struct kern *kern)
 }
 
 static void
+kern_top_pct(uint32_t total, uint32_t amt)
+{
+    uint32_t pct, pct10;
+    pct10  = 1000 * amt / total;
+    pct    = pct10 / 10;
+    pct10 %= 10;
+    bwprintf(COM2, "\t%s%u.%u%%\n", pct >= 10 ? "" : " ", pct, pct10);
+}
+
+static void
 kern_top(struct kern *kern, uint32_t total_time)
 {
     unsigned i;
-    bwprintf(COM2, "--------\nran for %d ms\n", total_time / 983);
+    uint32_t total_ms  = total_time / 983;
+    uint32_t user_time = 0;
+    bwprintf(COM2, "--------\nran for %d ms\n", total_ms);
     for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
-        struct task_desc *td = &kern->tasks[i];
+        struct task_desc *td;
         tid_t tid;
+        td = &kern->tasks[i];
         if (TASK_STATE(td) == TASK_STATE_FREE)
             continue;
         tid = TASK_TID(kern, td);
         if (tid == 0)
-            bwputstr(COM2, "idle");
+            bwputstr(COM2, "IDLE");
         else
             bwprintf(COM2, "%d", (int)tid);
-        /* This is directly in debug clock units.
-         * TODO: convert to nice percentages */
-        bwprintf(COM2, "\t%u\n", td->time);
+        kern_top_pct(total_ms, td->time / 983);
+        user_time += td->time;
     }
+    bwputstr(COM2, "KERNEL");
+    kern_top_pct(total_ms, (total_time - user_time) / 983);
 }
 
 static void
