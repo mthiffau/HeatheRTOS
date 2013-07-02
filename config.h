@@ -10,7 +10,6 @@
 #define PRIORITY_MAX         0
 #define PRIORITY_MIN        14
 #define PRIORITY_IDLE       15
-#define IRQ_PRIORITIES      16
 
 /* Select priority queue implementation. */
 #define PQ_RING
@@ -24,4 +23,5 @@
 #define PRIORITY_TCMUX      6
 #define PRIORITY_SENSOR     6
 #define PRIORITY_TRAIN      8
-#define PRIORITY_UI         PRIORITY_MIN
+#define PRIORITY_DBGLOG     1
+#define PRIORITY_UI         13

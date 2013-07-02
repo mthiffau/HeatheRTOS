@@ -13,9 +13,10 @@
 #include "cpumode.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
-#include "ui_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
+#include "dbglog_srv.h"
+#include "ui_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -23,7 +24,9 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid, tty_tid, train_tid, tcmux_tid, sensor_tid, ui_tid;
+    tid_t ns_tid, clk_tid, tty_tid, train_tid;
+    tid_t tcmux_tid, sensor_tid;
+    tid_t dbglog_tid, ui_tid;
     struct serialcfg ttycfg, traincfg;
     int rplylen;
 
@@ -77,6 +80,10 @@ u_init_main(void)
     /* Start sensor server */
     sensor_tid = Create(PRIORITY_SENSOR, &sensrv_main);
     assertv(sensor_tid, sensor_tid >= 0);
+
+    /* Start debug log server */
+    dbglog_tid = Create(PRIORITY_DBGLOG, &dbglogsrv_main);
+    assertv(dbglog_tid, dbglog_tid >= 0);
 
     /* Start UI server */
     ui_tid = Create(PRIORITY_UI, &uisrv_main);

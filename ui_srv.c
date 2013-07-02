@@ -8,8 +8,10 @@
 
 #include "xassert.h"
 #include "xdef.h"
+#include "xarg.h"
 #include "xmemcpy.h"
 #include "xstring.h"
+#include "ringbuf.h"
 #include "array_size.h"
 #include "track_graph.h"
 
@@ -20,8 +22,8 @@
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "train_srv.h"
+#include "dbglog_srv.h"
 
-#include "xarg.h"
 #include "bwio.h"
 
 #define STR(x)              STR1(x)
@@ -42,6 +44,7 @@
 #define TERM_ERASE_EOL              "\e[K"
 #define TERM_SAVE_CURSOR            "\e[s"
 #define TERM_RESTORE_CURSOR         "\e[u"
+
 #define TERM_FORCE_CURSOR_START     "\e["
 #define TERM_FORCE_CURSOR_MID       ";"
 #define TERM_FORCE_CURSOR_END       "f"
@@ -49,6 +52,16 @@
     TERM_FORCE_CURSOR_START         \
     row TERM_FORCE_CURSOR_MID col   \
     TERM_FORCE_CURSOR_END
+
+#define TERM_SCROLL_DOWN            "\eD"
+#define TERM_SCROLL_UP              "\eM"
+#define TERM_SETSCROLL_START        "\e["
+#define TERM_SETSCROLL_MID          ";"
+#define TERM_SETSCROLL_END          "r"
+#define TERM_SETSCROLL(a, b)        \
+    TERM_SETSCROLL_START            \
+    a TERM_SETSCROLL_MID b          \
+    TERM_SETSCROLL_END
 
 /* Screen positions and messages */
 #define TIME_ROW                    2
@@ -78,13 +91,17 @@
 #define SENSORS_LBL_ROW             11
 #define SENSORS_LBL_COL             1
 #define SENSORS_LBL                 "Recent sensors: "
+#define DBGLOG_TOP_ROW              15
+#define DBGLOG_BTM_ROW              30
+#define DBGLOG_COL                  1
 
 enum {
     UIMSG_KEYBOARD,
     UIMSG_SET_TIME,
     UIMSG_SENSORS,
+    UIMSG_DBGLOG,
     UIMSG_REVERSE,
-    UIMSG_REVERSE_DONE
+    UIMSG_REVERSE_DONE,
 };
 
 struct train {
@@ -112,6 +129,10 @@ struct uimsg {
         char          keypress;
         struct rv_msg rv;
         sensors_t     sensors[SENSOR_MODULES];
+        struct {
+            int       len;
+            char      buf[32];
+        } dbglog;
     };
 };
 
@@ -136,6 +157,10 @@ struct uisrv {
     int   rvq_count;
 
     const struct track_graph *track;
+
+    struct ringbuf dbglog;
+    char           dbglog_mem[4096];
+    int            n_loglines;
 };
 
 static int tokenize(char *cmd, char **ts, int max_ts);
@@ -162,12 +187,14 @@ static bool uisrv_update_switch_table(
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(
     struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
+static void uisrv_dbglog(struct uisrv *uisrv, char *buf, int len);
 static void uisrv_finish_reverse(struct uisrv *uisrv);
 static const struct track_node* uisrv_lookup_node(
     struct uisrv *uisrv, const char *name);
 static void kbd_listen(void);
 static void time_listen(void);
 static void sensor_listen(void);
+static void dbglog_listen(void);
 static void reverse_timer(void);
 
 void
@@ -198,6 +225,9 @@ uisrv_main(void)
         case UIMSG_SENSORS:
             uisrv_sensors(&uisrv, msg.sensors);
             break;
+        case UIMSG_DBGLOG:
+            uisrv_dbglog(&uisrv, msg.dbglog.buf, msg.dbglog.len);
+            break;
         case UIMSG_REVERSE_DONE:
             uisrv_finish_reverse(&uisrv);
             break;
@@ -214,11 +244,13 @@ uisrv_init(struct uisrv *uisrv)
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
         0x99, 0x9a, 0x9b, 0x9c
     };
-    tid_t kbd_tid, time_tid, sensor_tid;
+    tid_t kbd_tid, time_tid, sensor_tid, dbglog_tid;
     unsigned i;
     uint8_t last_switch;
 
     uisrv->track = NULL;
+    rbuf_init(&uisrv->dbglog, uisrv->dbglog_mem, sizeof (uisrv->dbglog_mem));
+    uisrv->n_loglines = 0;
 
     /* Set up UI state */
     uisrv->cmdlen     = 0;
@@ -262,6 +294,7 @@ uisrv_init(struct uisrv *uisrv)
         SWITCHES_LBL
         TERM_FORCE_CURSOR(STR(SENSORS_LBL_ROW), STR(SENSORS_LBL_COL))
         SENSORS_LBL
+        TERM_SETSCROLL(STR(DBGLOG_TOP_ROW), STR(DBGLOG_BTM_ROW))
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
         CMD_PROMPT
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
@@ -277,6 +310,9 @@ uisrv_init(struct uisrv *uisrv)
 
     sensor_tid = Create(PRIORITY_UI - 1, &sensor_listen);
     assertv(sensor_tid, sensor_tid >= 0);
+
+    dbglog_tid = Create(PRIORITY_UI + 1, &dbglog_listen);
+    assertv(dblog_tid, dbglog_tid >= 0);
 
     uisrv->reverse_timer = Create(PRIORITY_UI - 1, &reverse_timer);
     uisrv->reverse_timer_running = false;
@@ -850,6 +886,38 @@ uisrv_sensors(struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES])
 }
 
 static void
+uisrv_dbglog(struct uisrv *uisrv, char *buf, int len)
+{
+    int i;
+
+    rbuf_write(&uisrv->dbglog, buf, len);
+    for (i = 0; i < len; i++) {
+        if (buf[i] == '\n')
+            uisrv->n_loglines++;
+    }
+
+    if (uisrv->n_loglines == 0)
+        return;
+
+    Print(&uisrv->tty,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(DBGLOG_BTM_ROW), STR(DBGLOG_COL)));
+    while (uisrv->n_loglines > 0) {
+        char write_buf[32];
+        char c;
+        int max = sizeof (write_buf);
+        len = 0;
+        while (len < max && rbuf_getc(&uisrv->dbglog, &c)) {
+            write_buf[len++] = c;
+            if (c == '\n' && --uisrv->n_loglines == 0)
+                break;
+        }
+        Write(&uisrv->tty, write_buf, len);
+    }
+    Print(&uisrv->tty, TERM_RESTORE_CURSOR);
+}
+
+static void
 uisrv_finish_reverse(struct uisrv *uisrv)
 {
     uisrv->reverse_timer_running = false;
@@ -943,6 +1011,29 @@ sensor_listen(void)
         rc = sensor_wait(&sens, sensors, -1);
         assertv(rc, rc == SENSOR_TRIPPED);
         ui_sensors(&ui, sensors);
+    }
+}
+
+static void
+dbglog_listen(void)
+{
+    struct dbglogctx dbglog;
+    struct uimsg msg;
+    tid_t uisrv;
+    int rplylen;
+
+    uisrv = MyParentTid();
+    dbglogctx_init(&dbglog);
+
+    msg.type = UIMSG_DBGLOG;
+    for (;;) {
+        msg.dbglog.len = dbglog_read(
+            &dbglog,
+            msg.dbglog.buf,
+            sizeof (msg.dbglog.buf));
+        assert(msg.dbglog.len > 0);
+        rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
     }
 }
 
