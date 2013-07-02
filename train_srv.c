@@ -1,5 +1,7 @@
+#include "config.h"
 #include "xbool.h"
 #include "xint.h"
+#include "bithack.h"
 #include "static_assert.h"
 #include "sensor.h"
 #include "track_graph.h"
@@ -9,13 +11,16 @@
 #include "xdef.h"
 #include "xarg.h"
 #include "xassert.h"
+#include "xmemcpy.h"
 #include "ringbuf.h"
 
 #include "u_syscall.h"
 #include "ns.h"
 #include "tcmux_srv.h"
+#include "sensor_srv.h"
 
 #define TRAIN_DEFSPEED      8
+#define TRAIN_CRAWLSPEED    2
 
 enum {
     TRAINMSG_SETSPEED,
@@ -27,9 +32,15 @@ enum {
 struct trainmsg {
     int type;
     union {
-        uint8_t speed;
-        int     dest_node_id;
+        uint8_t   speed;
+        int       dest_node_id;
+        sensors_t sensors[SENSOR_MODULES];
     };
+};
+
+struct sensor_reply {
+    sensors_t sensors[SENSOR_MODULES];
+    int       timeout;
 };
 
 struct train {
@@ -39,13 +50,15 @@ struct train {
     const struct track_node  *landmark;
     const struct track_node  *dest;
     uint8_t                   speed;
+    tid_t                     sensor_tid;
 };
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
 static void trainsrv_moveto(struct train *tr, const struct track_node *dest);
 static void trainsrv_stop(struct train *tr);
-static void trainsrv_sensor(struct train *tr);
+static void trainsrv_sensor(
+    struct train *tr, sensors_t sensors[SENSOR_MODULES]);
 
 static void trainsrv_sensor_listen(void);
 static void trainsrv_empty_reply(tid_t client);
@@ -88,7 +101,8 @@ trainsrv_main(void)
             trainsrv_stop(&tr);
             break;
         case TRAINMSG_SENSOR:
-            trainsrv_sensor(&tr);
+            assert(client == tr.sensor_tid);
+            trainsrv_sensor(&tr, msg.sensors);
             break;
         default:
             panic("invalid train message type %d", msg.type);
@@ -102,11 +116,12 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->track    = all_tracks[cfg->track_id];
     tr->train_id = cfg->train_id;
     tr->speed    = TRAIN_DEFSPEED;
-    tr->landmark = &tr->track->nodes[24]; /* B9 - FIXME */
+    tr->landmark = NULL;
     tr->dest     = NULL;
     tcmuxctx_init(&tr->tcmux);
 
-    (void)trainsrv_sensor_listen; /* TODO start sensor listener task */
+    tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);
+    assert(tr->sensor_tid >= 0);
 }
 
 static void
@@ -123,6 +138,8 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
 {
     const struct track_node *path[TRACK_NODES_MAX];
     int i, path_len;
+    if (tr->landmark == NULL)
+        return;
     path_len = track_pathfind(tr->track, tr->landmark, dest, path);
     if (path_len < 0)
         return;
@@ -145,16 +162,59 @@ trainsrv_stop(struct train *tr)
 }
 
 static void
-trainsrv_sensor(struct train *tr)
+trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES])
 {
-    /* TODO */
-    (void)tr;
+    if (tr->landmark == NULL) {
+        int i;
+        bool all_zero = true;
+        for (i = 0; i < SENSOR_MODULES; i++) {
+            if (sensors[i] != 0) {
+                all_zero = false;
+                break;
+            }
+        }
+        if (all_zero) {
+            /* Startup! Find the train. */
+            struct sensor_reply reply;
+            int rc;
+            reply.timeout = -1;
+            for (i = 0; i < SENSOR_MODULES; i++)
+                reply.sensors[i] = (sensors_t)-1;
+            rc = Reply(tr->sensor_tid, &reply, sizeof (reply));
+            assertv(rc, rc == 0);
+            tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
+        } else {
+            /* Startup part two! A sensor came in! */
+            tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
+            int sensor = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
+            tr->landmark = &tr->track->nodes[sensor];
+        }
+    }
 }
 
 static void
 trainsrv_sensor_listen(void)
 {
-    /* TODO */
+    struct sensorctx sens;
+    struct trainmsg msg;
+    struct sensor_reply reply;
+    int rc, rplylen;
+    tid_t train;
+
+    train = MyParentTid();
+    sensorctx_init(&sens);
+
+    rc = SENSOR_TIMEOUT;
+    for (;;) {
+        msg.type = TRAINMSG_SENSOR;
+        if (rc == SENSOR_TIMEOUT)
+            memset(msg.sensors, '\0', sizeof (msg.sensors));
+        else
+            memcpy(msg.sensors, reply.sensors, sizeof (msg.sensors));
+        rplylen = Send(train, &msg, sizeof (msg), &reply, sizeof (reply));
+        assertv(rplylen, rplylen == sizeof (reply));
+        rc = sensor_wait(&sens, reply.sensors, reply.timeout);
+    }
 }
 
 static void
