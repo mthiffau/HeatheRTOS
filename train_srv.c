@@ -51,6 +51,7 @@ struct train {
     const struct track_node  *dest;
     uint8_t                   speed;
     tid_t                     sensor_tid;
+    bool                      sensor_rdy;
 };
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
@@ -102,6 +103,7 @@ trainsrv_main(void)
             break;
         case TRAINMSG_SENSOR:
             assert(client == tr.sensor_tid);
+            assert(!tr.sensor_rdy);
             trainsrv_sensor(&tr, msg.sensors);
             break;
         default:
@@ -120,6 +122,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->dest     = NULL;
     tcmuxctx_init(&tr->tcmux);
 
+    tr->sensor_rdy = false;
     tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);
     assert(tr->sensor_tid >= 0);
 }
@@ -137,12 +140,37 @@ static void
 trainsrv_moveto(struct train *tr, const struct track_node *dest)
 {
     const struct track_node *path[TRACK_NODES_MAX];
-    int i, path_len;
-    if (tr->landmark == NULL)
+    int i, rc, path_len, end_module, end_sensor;
+    struct sensor_reply srep = {
+        .timeout = -1,
+        .sensors = { 0 }
+    };
+
+    if (tr->landmark == NULL || !tr->sensor_rdy)
         return;
+
+    /* Get path to follow */
     path_len = track_pathfind(tr->track, tr->landmark, dest, path);
     if (path_len < 0)
         return;
+    for (i = path_len - 1; i >= 0; i--) {
+        if (path[i]->type == TRACK_NODE_SENSOR)
+            break;
+    }
+    if (i < 0 || path[i]->type != TRACK_NODE_SENSOR)
+        return;
+
+    /* Watch for last sensor on path. */
+    end_sensor  = path[i]->num;
+    end_module  = end_sensor / SENSORS_PER_MODULE;
+    end_sensor %= SENSORS_PER_MODULE;
+    srep.timeout = -1;
+    srep.sensors[end_module] = 1 << end_sensor;
+    rc = Reply(tr->sensor_tid, &srep, sizeof (srep));
+    assertv(rc, rc == 0);
+    tr->sensor_rdy = false;
+
+    /* Switch all switches and go. */
     tr->dest = dest;
     for (i = 0; i < path_len - 1; i++) {
         bool curved;
@@ -188,7 +216,11 @@ trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES])
             tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
             int sensor = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
             tr->landmark = &tr->track->nodes[sensor];
+            tr->sensor_rdy = true;
         }
+    } else {
+        trainsrv_stop(tr);
+        tr->sensor_rdy = true;
     }
 }
 
