@@ -24,6 +24,7 @@ struct sensmsg {
     int type;
     sensors_t sensors[SENSOR_MODULES];
     int       wait_timeout;
+    int       trigger_time;
 };
 
 struct sensclient {
@@ -125,6 +126,7 @@ sensrv_report(struct sensrv *srv, tid_t client, struct sensmsg *msg)
             if (sensors[i] & msg->sensors[i]) {
                 reply = true;
                 replymsg.type = SENSOR_TRIPPED;
+                replymsg.trigger_time = now;
                 memcpy(
                     replymsg.sensors,
                     msg->sensors,
@@ -138,6 +140,7 @@ sensrv_report(struct sensrv *srv, tid_t client, struct sensmsg *msg)
             if (timeout >= 0 && timeout <= now) {
                 reply = true;
                 replymsg.type = SENSOR_TIMEOUT;
+                replymsg.trigger_time = now;
             }
         }
 

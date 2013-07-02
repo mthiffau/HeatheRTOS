@@ -52,6 +52,7 @@ struct train {
     uint8_t                   speed;
     tid_t                     sensor_tid;
     bool                      sensor_rdy;
+    const struct track_node  *path[TRACK_NODES_MAX];
 };
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
@@ -139,7 +140,6 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 static void
 trainsrv_moveto(struct train *tr, const struct track_node *dest)
 {
-    const struct track_node *path[TRACK_NODES_MAX];
     int i, rc, path_len, end_module, end_sensor;
     struct sensor_reply srep = {
         .timeout = -1,
@@ -150,18 +150,18 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
         return;
 
     /* Get path to follow */
-    path_len = track_pathfind(tr->track, tr->landmark, dest, path);
+    path_len = track_pathfind(tr->track, tr->landmark, dest, tr->path);
     if (path_len < 0)
         return;
     for (i = path_len - 1; i >= 0; i--) {
-        if (path[i]->type == TRACK_NODE_SENSOR)
+        if (tr->path[i]->type == TRACK_NODE_SENSOR)
             break;
     }
-    if (i < 0 || path[i]->type != TRACK_NODE_SENSOR)
+    if (i < 0 || tr->path[i]->type != TRACK_NODE_SENSOR)
         return;
 
     /* Watch for last sensor on path. */
-    end_sensor  = path[i]->num;
+    end_sensor  = tr->path[i]->num;
     end_module  = end_sensor / SENSORS_PER_MODULE;
     end_sensor %= SENSORS_PER_MODULE;
     srep.timeout = -1;
@@ -174,10 +174,10 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
     tr->dest = dest;
     for (i = 0; i < path_len - 1; i++) {
         bool curved;
-        if (path[i]->type != TRACK_NODE_BRANCH)
+        if (tr->path[i]->type != TRACK_NODE_BRANCH)
             continue;
-        curved = path[i]->edge[TRACK_EDGE_CURVED].dest == path[i + 1];
-        tcmux_switch_curve(&tr->tcmux, path[i]->num, curved);
+        curved = tr->path[i]->edge[TRACK_EDGE_CURVED].dest == tr->path[i + 1];
+        tcmux_switch_curve(&tr->tcmux, tr->path[i]->num, curved);
     }
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
 }
