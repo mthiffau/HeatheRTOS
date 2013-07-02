@@ -62,7 +62,7 @@ struct train {
     const struct track_node  *ahead, *behind;
     int                       ahead_mm, behind_mm;
     const struct track_node  *path[TRACK_NODES_MAX];
-    int                       path_len, path_next;
+    int                       path_len, path_next, path_sensnext;
     uint8_t                   speed;
     tid_t                     sensor_tid;
     bool                      sensor_rdy;
@@ -80,6 +80,8 @@ static void trainsrv_sensor_enroute(
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES]);
 static void trainsrv_expect_sensor(struct train *tr, int sensor, int timeout);
+static bool trainsrv_expect_next_sensor(struct train *tr);
+static void trainsrv_switch_upto_sensnext(struct train *tr);
 
 static void trainsrv_sensor_listen(void);
 static void trainsrv_empty_reply(tid_t client);
@@ -160,32 +162,21 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 static void
 trainsrv_moveto(struct train *tr, const struct track_node *dest)
 {
-    int i;
     if (tr->state != TRAIN_STOPPED)
         return;
 
     /* Get path to follow */
     tr->path_len = track_pathfind(tr->track, tr->ahead, dest, tr->path);
-    if (tr->path_len < 0)
-        return;
-    for (i = tr->path_len - 1; i >= 0; i--) {
-        if (tr->path[i]->type == TRACK_NODE_SENSOR)
-            break;
-    }
-    if (i < 0 || tr->path[i]->type != TRACK_NODE_SENSOR)
+    if (tr->path_len <= 1)
         return;
 
     /* Watch for last sensor on path. */
-    trainsrv_expect_sensor(tr, tr->path[i]->num, -1);
+    tr->path_next = 1;
+    if (!trainsrv_expect_next_sensor(tr))
+        return;
 
     /* Switch all switches and go. */
-    for (i = 0; i < tr->path_len - 1; i++) {
-        bool curved;
-        if (tr->path[i]->type != TRACK_NODE_BRANCH)
-            continue;
-        curved = tr->path[i]->edge[TRACK_EDGE_CURVED].dest == tr->path[i + 1];
-        tcmux_switch_curve(&tr->tcmux, tr->path[i]->num, curved);
-    }
+    trainsrv_switch_upto_sensnext(tr);
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
     tr->state = TRAIN_ENROUTE;
 }
@@ -230,7 +221,11 @@ static void
 trainsrv_sensor_enroute(struct train *tr, sensors_t sensors[SENSOR_MODULES])
 {
     (void)sensors;
-    trainsrv_stop(tr);
+    tr->path_next = tr->path_sensnext + 1;
+    if (trainsrv_expect_next_sensor(tr))
+        trainsrv_switch_upto_sensnext(tr);
+    else
+        trainsrv_stop(tr);
 }
 
 static void
@@ -274,6 +269,38 @@ trainsrv_expect_sensor(struct train *tr, int sensor, int timeout)
     rc = Reply(tr->sensor_tid, &reply, sizeof (reply));
     assertv(rc, rc == 0);
     tr->sensor_rdy = false;
+}
+
+static void
+trainsrv_switch_upto_sensnext(struct train *tr)
+{
+    int i, sensors;
+    sensors = 0;
+    for (i = tr->path_next; i < tr->path_len && sensors < 2; i++) {
+        bool curved;
+        if (tr->path[i]->type == TRACK_NODE_SENSOR)
+            sensors++;
+        if (tr->path[i]->type != TRACK_NODE_BRANCH)
+            continue;
+        curved = tr->path[i]->edge[TRACK_EDGE_CURVED].dest == tr->path[i + 1];
+        tcmux_switch_curve(&tr->tcmux, tr->path[i]->num, curved);
+    }
+}
+
+static bool
+trainsrv_expect_next_sensor(struct train *tr)
+{
+    int i;
+    for (i = tr->path_next; i < tr->path_len; i++) {
+        if (tr->path[i]->type == TRACK_NODE_SENSOR)
+            break;
+    }
+    if (i == tr->path_len)
+        return false;
+
+    tr->path_sensnext = i;
+    trainsrv_expect_sensor(tr, tr->path[i]->num, -1);
+    return true;
 }
 
 static void
