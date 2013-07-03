@@ -87,7 +87,7 @@ struct train {
     int                       last_sensor_time;
     int                       ignore_time, lap_count;
     uint8_t                   calib_speed;
-    bool                      calib_done;
+    bool                      calib_decel, calib_done;
 
     /* Sensor bookkeeping */
     tid_t                     sensor_tid;
@@ -365,16 +365,22 @@ trainsrv_sensor_vcalib(struct train *tr, int time)
     tr->last_sensor_time = time;
 
     if (cur_sensor_ix == 0 && --tr->lap_count == 0) {
-        dbglog(&tr->dbglog, "train%d speed %d = %d mm/s",
+        dbglog(&tr->dbglog, "train%d speed %d%s = %d mm/s",
             tr->train_id,
-            tr->speed,
+            tr->calib_speed,
+            tr->calib_decel ? "'" : "",
             tr->calib.vel_mmps[tr->speed]);
-        if (tr->calib_speed < TRAIN_MAXSPEED) {
-            trainsrv_calibspeed(tr, tr->calib_speed + 1);
-        } else {
+        if (tr->calib_decel && tr->calib_speed == TRAIN_MINSPEED) {
             tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
             /* TODO FIXME DO SOMETHING SENSIBLE HERE */
             tr->state = TRAIN_DISORIENTED;
+        } else {
+            int new_speed = tr->calib_speed + (tr->calib_decel ? -1 : 1);
+            if (new_speed > TRAIN_MAXSPEED) {
+                new_speed -= 2;
+                tr->calib_decel = true;
+            }
+            trainsrv_calibspeed(tr, new_speed);
         }
     } else {
         int next = cur_sensor_ix + 1;
@@ -388,6 +394,7 @@ trainsrv_sensor_pre_vcalib(struct train *tr)
 {
     trainsrv_calib_setup(tr);
     trainsrv_calibspeed(tr, TRAIN_MINSPEED);
+    tr->calib_decel = false;
 }
 
 static void
@@ -439,10 +446,11 @@ trainsrv_sensor_enroute(struct train *tr, sensors_t sensors[SENSOR_MODULES])
 static void
 trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
 {
-    const struct track_node *sensor;
-    sensor1_t sensor1;
+    /*const struct track_node *sensor;
+    sensor1_t sensor1;*/
 
     tr->sensor_rdy = true;
+#if 0 /* FIXME */
     sensor1 = sensors_scan(sensors);
     if (sensor1 == SENSOR1_INVALID)
         sensor = NULL;
@@ -453,7 +461,6 @@ trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
         tr->train_id,
         sensor == NULL ? "none" : sensor->name);
 
-#if 0 /* FIXME */
     if (tr->state != TRAIN_ENROUTE)
         goto skip_last_sensor;
     if (tr->last_sensor == NULL) {
