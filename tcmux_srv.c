@@ -14,6 +14,7 @@
 #include "clock_srv.h"
 #include "serial_srv.h"
 #include "sensor_srv.h"
+#include "switch_srv.h"
 
 #include "queue.h"
 
@@ -80,11 +81,14 @@ struct tcmuxmsg {
 struct tcmux {
     /* General/command state */
     struct serialctx  port;
+    struct switchctx  switches;
     bool              cmd_ready;
     bool              switch_ready;
     tid_t             last_cmd_client;
     bool              last_cmd_was_switch;
     tid_t             last_switchcmd_client;
+    uint8_t           last_switchcmd_sw;
+    bool              last_switchcmd_curved;
     bool              solenoid_on;
 
     /* Command queues */
@@ -167,7 +171,10 @@ static void
 tcmux_init(struct tcmux *tc)
 {
     int i;
+
     serialctx_init(&tc->port, COM1);
+    switchctx_init(&tc->switches);
+
     tc->cmd_ready             = false;
     tc->switch_ready          = false;
     tc->last_cmd_client       = -1;
@@ -237,6 +244,9 @@ tcmuxsrv_switch_ready(struct tcmux *tc, tid_t client)
     int rc;
     assert(client == tc->switch_delayer);
     tc->switch_ready = true;
+    switch_updated(&tc->switches,
+        tc->last_switchcmd_sw,
+        tc->last_switchcmd_curved);
     if (tc->last_switchcmd_client >= 0) {
         rc = Reply(tc->last_switchcmd_client, NULL, 0);
         assertv(rc, rc == 0);
@@ -359,6 +369,8 @@ tcmuxsrv_trcmd_trysend(struct tcmux *tc)
     if (tc->switch_ready) {
         if (q_dequeue(&tc->switch_cmdq, &trcmd)) {
             tc->solenoid_on = true;
+            tc->last_switchcmd_sw     = trcmd.cmd[1];
+            tc->last_switchcmd_curved = trcmd.cmd[0] == TRCMD_SWITCH_CURVE;
             tcmuxsrv_trcmd_send(tc, &trcmd);
             return;
         } else if (tc->solenoid_on) {

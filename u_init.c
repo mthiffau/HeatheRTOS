@@ -13,6 +13,7 @@
 #include "cpumode.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
+#include "switch_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "dbglog_srv.h"
@@ -25,7 +26,7 @@ void
 u_init_main(void)
 {
     tid_t ns_tid, clk_tid, tty_tid, train_tid;
-    tid_t tcmux_tid, sensor_tid;
+    tid_t switch_tid, tcmux_tid, sensor_tid;
     tid_t dbglog_tid, ui_tid;
     struct serialcfg ttycfg, traincfg;
     int rplylen;
@@ -72,6 +73,10 @@ u_init_main(void)
     };
     rplylen = Send(train_tid, &traincfg, sizeof (traincfg), NULL, 0);
     assertv(rplylen, rplylen == 0);
+
+    /* Start switch state server */
+    switch_tid = Create(PRIORITY_TCMUX, &switchsrv_main);
+    assertv(switch_tid, switch_tid >= 0);
 
     /* Start train control multiplexer */
     tcmux_tid = Create(PRIORITY_TCMUX, &tcmuxsrv_main);

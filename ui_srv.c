@@ -21,6 +21,7 @@
 #include "serial_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
+#include "switch_srv.h"
 #include "train_srv.h"
 #include "dbglog_srv.h"
 
@@ -100,6 +101,7 @@ enum {
     UIMSG_SET_TIME,
     UIMSG_SENSORS,
     UIMSG_DBGLOG,
+    UIMSG_SWITCH_UPDATE,
     UIMSG_REVERSE,
     UIMSG_REVERSE_DONE,
 };
@@ -129,6 +131,10 @@ struct uimsg {
         char          keypress;
         struct rv_msg rv;
         sensors_t     sensors[SENSOR_MODULES];
+        struct {
+            uint8_t   sw;
+            bool      curved;
+        } swupdate;
         struct {
             int       len;
             char      buf[32];
@@ -197,6 +203,7 @@ static const struct track_node* uisrv_lookup_node(
 static void kbd_listen(void);
 static void time_listen(void);
 static void sensor_listen(void);
+static void switch_listen(void);
 static void dbglog_listen(void);
 static void reverse_timer(void);
 
@@ -228,6 +235,12 @@ uisrv_main(void)
         case UIMSG_SENSORS:
             uisrv_sensors(&uisrv, msg.sensors);
             break;
+        case UIMSG_SWITCH_UPDATE:
+            uisrv_update_switch_table(
+                &uisrv,
+                msg.swupdate.sw,
+                msg.swupdate.curved);
+            break;
         case UIMSG_DBGLOG:
             uisrv_dbglog(&uisrv, msg.dbglog.buf, msg.dbglog.len);
             break;
@@ -247,7 +260,7 @@ uisrv_init(struct uisrv *uisrv)
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
         0x99, 0x9a, 0x9b, 0x9c
     };
-    tid_t kbd_tid, time_tid, sensor_tid, dbglog_tid;
+    tid_t kbd_tid, time_tid, sensor_tid, switch_tid, dbglog_tid;
     unsigned i;
     uint8_t last_switch;
 
@@ -313,6 +326,9 @@ uisrv_init(struct uisrv *uisrv)
 
     sensor_tid = Create(PRIORITY_UI - 1, &sensor_listen);
     assertv(sensor_tid, sensor_tid >= 0);
+
+    switch_tid = Create(PRIORITY_UI - 1, &switch_listen);
+    assertv(switch_tid, switch_tid >= 0);
 
     dbglog_tid = Create(PRIORITY_UI + 1, &dbglog_listen);
     assertv(dblog_tid, dbglog_tid >= 0);
@@ -725,11 +741,6 @@ uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     /* Send out switch command */
-    if (!uisrv_update_switch_table(uisrv, sw, curved)) {
-        Printf(&uisrv->tty, "unrecognized switch '%s'", argv[0]);
-        return;
-    }
-
     tcmux_switch_curve(&uisrv->tcmux, sw, curved);
 }
 
@@ -897,8 +908,10 @@ uisrv_update_switch_table(struct uisrv *uisrv, uint8_t sw, bool curved)
     /* Update displayed switch table */
     col = SWITCHES_COL + (SWITCHES_ENTRY_WIDTH * sw - 1);
     Printf(&uisrv->tty,
+        TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(SWITCHES_ROW), "%d")
-        "%c",
+        "%c"
+        TERM_RESTORE_CURSOR,
         col,
         curved ? 'C' : 'S');
     return true;
@@ -1072,6 +1085,25 @@ time_listen(void)
         now_clock += 10;
         msg.time_tenths++;
         DelayUntil(&clock, now_clock);
+    }
+}
+
+static void
+switch_listen(void)
+{
+    struct switchctx switches;
+    struct uimsg msg;
+    tid_t uisrv;
+
+    uisrv = MyParentTid();
+    switchctx_init(&switches);
+
+    msg.type = UIMSG_SWITCH_UPDATE;
+    for (;;) {
+        int rplylen;
+        msg.swupdate.sw = switch_wait(&switches, &msg.swupdate.curved);
+        rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
     }
 }
 
