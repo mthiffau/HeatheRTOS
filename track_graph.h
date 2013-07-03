@@ -55,6 +55,13 @@ struct track_node {
 struct track_graph {
     const struct track_node *nodes;
     int n_nodes, n_sensors;
+
+    /* Calibration info */
+    int n_calib_sensors, n_calib_switches;
+    const struct track_node **calib_sensors;
+    const int                *calib_dists;
+    const struct track_node **calib_switches;
+    const bool               *calib_curved;
 };
 
 /* Get the declarations for tracks that exist. */

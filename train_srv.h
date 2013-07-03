@@ -25,3 +25,6 @@ void trainctx_init(
 void train_setspeed(struct trainctx *ctx, uint8_t speed);
 void train_moveto(struct trainctx *ctx, const struct track_node *dest);
 void train_stop(struct trainctx *ctx);
+void train_vcalib(struct trainctx *ctx);
+void train_stopcalib(struct trainctx *ctx, uint8_t speed);
+void train_orient(struct trainctx *ctx);

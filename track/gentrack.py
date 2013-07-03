@@ -16,6 +16,7 @@ enters         = []
 nodes_by_name  = { }
 dists_by_name  = { }
 dists          = { }
+calib_cycle    = []
 
 sensor_re = re.compile(
     r'^sensor\s+' +
@@ -44,6 +45,8 @@ dist_re = re.compile(
     r'(?P<src>\w+)\s+' +
     r'(?P<dest>\w+)\s+' +
     r'(?P<dist>\d+)\s*mm$')
+
+calib_re = re.compile(r'^calib\s+(?P<name>\w+)$')
 
 def register_node(node):
     if node.name in nodes_by_name:
@@ -247,6 +250,11 @@ for line in sys.stdin:
         dists_by_name[(rev_dest, rev_src)] = dist
         continue
 
+    md = calib_re.match(line)
+    if md:
+        calib_cycle.append(md.group('name'))
+        continue
+
     print('error: bad line:', line, file=sys.stderr)
     sys.exit(1)
 
@@ -285,6 +293,41 @@ for src, dest in dists.keys():
             file=sys.stderr)
         sys.exit(1)
 
+calib_edges = []
+def add_calib_edge(calib_prev, calib_cur):
+    global calib_edges
+    for edge in calib_prev.edges:
+        if edge.dest == calib_cur.node_id:
+            calib_edges.append(edge)
+            break
+    else:
+        print('error: calibration cycle invalid: no edge from',
+            calib_cycle[i - 1], 'to', calib_cycle[i],
+            file=sys.stderr)
+        sys.exit(1)
+
+for i in range(len(calib_cycle)):
+    calib_cycle[i] = nodes_by_name[calib_cycle[i]]
+    if i > 0:
+        add_calib_edge(calib_cycle[i - 1], calib_cycle[i])
+
+add_calib_edge(calib_cycle[-1], calib_cycle[0])
+
+calib_sensors  = []
+calib_dists    = []
+calib_switches = {}
+calib_dist     = 0
+for node, edge in zip(calib_cycle, calib_edges):
+    if isinstance(node, Sensor):
+        calib_sensors.append(node)
+        calib_dists.append(calib_dist)
+        calib_dist = 0
+    elif isinstance(node, Branch):
+        calib_switches[node.node_id] = edge == node.edges[1]
+    calib_dist += dists[(edge.src, edge.dest)]
+
+calib_dists[0] += calib_dist
+
 # PRINT IT OUT
 print('''/* GENERATED FILE. DO NOT EDIT */
 #include "xbool.h"
@@ -294,17 +337,29 @@ print('''/* GENERATED FILE. DO NOT EDIT */
 #include "track_graph.h"
 
 static const struct track_node {track_name}_nodes[{n_nodes}];
+static const struct track_node *{track_name}_calib_sensors[{n_calib_sensors}];
+static const int                {track_name}_calib_dists[{n_calib_sensors}];
+static const struct track_node *{track_name}_calib_switches[{n_calib_switches}];
+static const bool               {track_name}_calib_curved[{n_calib_switches}];
 
 const struct track_graph {track_name} = {{
     .nodes     = {track_name}_nodes,
     .n_nodes   = {n_nodes},
-    .n_sensors = {n_sensors}
+    .n_sensors = {n_sensors},
+    .n_calib_sensors  = {n_calib_sensors},
+    .calib_sensors    = {track_name}_calib_sensors,
+    .calib_dists      = {track_name}_calib_dists,
+    .n_calib_switches = {n_calib_switches},
+    .calib_switches   = {track_name}_calib_switches,
+    .calib_curved     = {track_name}_calib_curved
 }};
 
 static const struct track_node {track_name}_nodes[{n_nodes}] = {{'''.format(
     track_name = track_name,
     n_nodes = len(nodes),
-    n_sensors = len(sensors)))
+    n_sensors = len(sensors),
+    n_calib_sensors = len(calib_sensors),
+    n_calib_switches = len(calib_switches)))
 
 for i, node in enumerate(nodes):
     if i != 0:
@@ -312,3 +367,58 @@ for i, node in enumerate(nodes):
     print(node.render(), end='')
 
 print('\n};')
+
+# Print calibration cycle sensors
+print('''static const struct track_node*
+{track_name}_calib_sensors[{n_calib_sensors}] = {{'''.format(
+    track_name = track_name,
+    n_calib_sensors = len(calib_sensors)))
+
+for node in calib_sensors:
+    print('    &{track_name}_nodes[{num}],'.format(
+        track_name = track_name,
+        num        = node.num))
+
+print('};')
+
+# Print calibration cycle sensor distances
+print('''static const int
+{track_name}_calib_dists[{n_calib_sensors}] = {{'''.format(
+    track_name = track_name,
+    n_calib_sensors = len(calib_sensors)))
+
+for calib_dist in calib_dists:
+    print('    {dist},'.format(dist=calib_dist))
+
+print('};')
+
+
+# Print calibration cycle switches
+print('''static const struct track_node*
+{track_name}_calib_switches[{n_calib_switches}] = {{'''.format(
+    track_name = track_name,
+    n_calib_switches = len(calib_switches)))
+
+for switch_id in calib_switches:
+    print('    &{track_name}_nodes[{num}],'.format(
+        track_name = track_name,
+        num        = switch_id))
+
+print('};')
+
+# Print calibration cycle switch orientations
+print('''static const bool
+{track_name}_calib_curved[{n_calib_switches}] = {{'''.format(
+    track_name = track_name,
+    n_calib_switches = len(calib_switches)))
+
+for switch_id in calib_switches:
+    curved = 'true' if calib_switches[switch_id] else 'false'
+    print('    {curved},'.format(curved = curved))
+
+print('};')
+
+
+'''
+static const struct track_node *{track_name}_calib_curved[{n_calib_switches}];
+'''

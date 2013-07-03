@@ -176,6 +176,9 @@ static void uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_stopcalib(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_orient(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
@@ -385,6 +388,12 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_speed(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "stop")) {
         uisrv_cmd_stop(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "vcalib")) {
+        uisrv_cmd_vcalib(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "stopcalib")) {
+        uisrv_cmd_stopcalib(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "orient")) {
+        uisrv_cmd_orient(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tr!")) {
         uisrv_cmd_tr(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "sw!")) {
@@ -583,6 +592,78 @@ uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     train_stop(&uisrv->traintab[train].task);
+}
+
+static void
+uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: vcalib TRAIN");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_vcalib(&uisrv->traintab[train].task);
+}
+
+static void
+uisrv_cmd_stopcalib(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    uint8_t speed;
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: stopcalib TRAIN SPEED");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    if (atou8(argv[1], &speed) != 0 || speed <= 0 || speed >= 15) {
+        Printf(&uisrv->tty, "bad speed '%s'", argv[1]);
+        return;
+    }
+
+    train_stopcalib(&uisrv->traintab[train].task, speed);
+}
+
+static void
+uisrv_cmd_orient(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: orient TRAIN");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_orient(&uisrv->traintab[train].task);
 }
 
 static void
@@ -1008,7 +1089,7 @@ sensor_listen(void)
         for (i = 0; i < ARRAY_SIZE(sensors); i++)
             sensors[i] = (sensors_t)-1;
 
-        rc = sensor_wait(&sens, sensors, -1);
+        rc = sensor_wait(&sens, sensors, -1, NULL);
         assertv(rc, rc == SENSOR_TRIPPED);
         ui_sensors(&ui, sensors);
     }

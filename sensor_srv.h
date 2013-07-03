@@ -28,11 +28,13 @@ void sensorctx_init(struct sensorctx *ctx);
  *
  * If returning due to one or more sensors tripping, returns
  * SENSOR_TRIPPED and fills the sensors array with the newly
- * tripped sensors. Otherwise, returns SENSOR_TIMEOUT. */
+ * tripped sensors. Otherwise, returns SENSOR_TIMEOUT.
+ * The time of reply is put into when. */
 int sensor_wait(
     struct sensorctx *ctx,
     sensors_t sensors[SENSOR_MODULES],
-    int timeout);
+    int timeout,
+    int *when);
 
 /* Alert the sensor server of newly tripped sensors. */
 void sensor_report(struct sensorctx *ctx, sensors_t sensors[SENSOR_MODULES]);

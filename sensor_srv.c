@@ -165,7 +165,8 @@ int
 sensor_wait(
     struct sensorctx *ctx,
     sensors_t sensors[SENSOR_MODULES],
-    int timeout)
+    int timeout,
+    int *when)
 {
     struct sensmsg msg, reply;
     int rplylen;
@@ -175,6 +176,8 @@ sensor_wait(
     rplylen = Send(ctx->sensrv_tid, &msg, sizeof (msg), &reply, sizeof (reply));
     assertv(rplylen, rplylen == sizeof (reply));
     memcpy(sensors, reply.sensors, sizeof (reply.sensors));
+    if (when != NULL)
+        *when = reply.trigger_time;
     return reply.type;
 }
 
