@@ -8,6 +8,8 @@
 #include "u_tid.h"
 #include "train_srv.h"
 
+#include "calib.h"
+
 #include "xdef.h"
 #include "xarg.h"
 #include "xassert.h"
@@ -65,11 +67,6 @@ struct sensor_reply {
     int       timeout;
 };
 
-struct calib {
-    int vel_mmps[16];  /* cruising velocity at each speed */
-    int stop_dist[16]; /* multiplier for current velocity at each speed */
-};
-
 struct train {
     /* Server handles */
     struct tcmuxctx           tcmux;
@@ -87,7 +84,7 @@ struct train {
     int                       last_sensor_time;
     int                       ignore_time, lap_count;
     uint8_t                   calib_speed;
-    bool                      calib_decel, calib_done;
+    bool                      calib_decel;
 
     /* Sensor bookkeeping */
     tid_t                     sensor_tid;
@@ -199,7 +196,11 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->ahead    = NULL;
     tr->behind   = NULL;
 
-    tr->calib_done = false;
+    /* take initial calibration */
+    memcpy(
+        &tr->calib,
+        &calib_initial[cfg->train_id][cfg->track_id],
+        sizeof (tr->calib));
 
     tr->sensor_rdy = false;
     tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);
@@ -207,6 +208,24 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
 
     tcmuxctx_init(&tr->tcmux);
     dbglogctx_init(&tr->dbglog);
+
+    /* log starting calibration */
+    dbglog(&tr->dbglog, "train%d track%d initial velocities: %d %d %d %d %d",
+        cfg->train_id,
+        cfg->track_id,
+        tr->calib.vel_mmps[8],
+        tr->calib.vel_mmps[9],
+        tr->calib.vel_mmps[10],
+        tr->calib.vel_mmps[11],
+        tr->calib.vel_mmps[12]);
+    dbglog(&tr->dbglog, "train%d track%d stopping distances: %d %d %d %d %d",
+        cfg->train_id,
+        cfg->track_id,
+        tr->calib.stop_dist[8],
+        tr->calib.stop_dist[9],
+        tr->calib.stop_dist[10],
+        tr->calib.stop_dist[11],
+        tr->calib.stop_dist[12]);
 }
 
 static void

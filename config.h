@@ -15,6 +15,9 @@
 #define PQ_RING
 //#define PQ_HEAP
 
+/* Trains */
+#define TRAINS_MAX          256
+
 /* Application task priorities */
 #define PRIORITY_NS         PRIORITY_MIN
 #define PRIORITY_CLOCK      2
