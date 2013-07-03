@@ -18,6 +18,7 @@
 
 #include "u_syscall.h"
 #include "ns.h"
+#include "clock_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "dbglog_srv.h"
@@ -36,6 +37,7 @@ enum {
     TRAINMSG_MOVETO,
     TRAINMSG_STOP,
     TRAINMSG_SENSOR,
+    TRAINMSG_TIMER,
     TRAINMSG_VCALIB,
     TRAINMSG_STOPCALIB,
     TRAINMSG_ORIENT,
@@ -54,7 +56,7 @@ enum {
 
 struct trainmsg {
     int type;
-    int time; /* sensors only */
+    int time; /* sensors, timer only */
     union {
         uint8_t   speed;
         int       dest_node_id;
@@ -90,6 +92,9 @@ struct train {
     tid_t                     sensor_tid;
     bool                      sensor_rdy;
 
+    /* Timer */
+    tid_t                     timer_tid;
+
     /* Position estimate */
     const struct track_node  *ahead, *behind;
     int                       ahead_mm, behind_mm;
@@ -119,11 +124,13 @@ static void trainsrv_sensor_enroute(
     struct train *tr, sensors_t sensors[SENSOR_MODULES]);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
+static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, int sensor, int timeout);
 static bool trainsrv_expect_next_sensor(struct train *tr);
 static void trainsrv_switch_upto_sensnext(struct train *tr);
 
 static void trainsrv_sensor_listen(void);
+static void trainsrv_timer_listen(void);
 static void trainsrv_empty_reply(tid_t client);
 static void trainsrv_fmt_name(uint8_t train_id, char buf[32]);
 
@@ -168,6 +175,11 @@ trainsrv_main(void)
             assert(!tr.sensor_rdy);
             trainsrv_sensor(&tr, msg.sensors, msg.time);
             break;
+        case TRAINMSG_TIMER:
+            assert(client == tr.timer_tid);
+            trainsrv_empty_reply(client);
+            trainsrv_timer(&tr, msg.time);
+            break;
         case TRAINMSG_VCALIB:
             trainsrv_empty_reply(client);
             trainsrv_vcalib(&tr);
@@ -205,6 +217,9 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->sensor_rdy = false;
     tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);
     assert(tr->sensor_tid >= 0);
+
+    tr->timer_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_timer_listen);
+    assert(tr->timer_tid >= 0);
 
     tcmuxctx_init(&tr->tcmux);
     dbglogctx_init(&tr->dbglog);
@@ -544,6 +559,12 @@ skip_last_sensor:
 }
 
 static void
+trainsrv_timer(struct train *tr, int time)
+{
+    dbglog(&tr->dbglog, "train%d got time %d", tr->train_id, time);
+}
+
+static void
 trainsrv_expect_sensor(struct train *tr, int sensor, int timeout)
 {
     struct sensor_reply reply;
@@ -622,6 +643,27 @@ trainsrv_sensor_listen(void)
         rplylen = Send(train, &msg, sizeof (msg), &reply, sizeof (reply));
         assertv(rplylen, rplylen == sizeof (reply));
         rc = sensor_wait(&sens, reply.sensors, reply.timeout, &msg.time);
+    }
+}
+
+static void
+trainsrv_timer_listen(void)
+{
+    struct clkctx clock;
+    struct trainmsg msg;
+    tid_t train;
+
+    train = MyParentTid();
+    clkctx_init(&clock);
+
+    msg.type = TRAINMSG_TIMER;
+    msg.time = Time(&clock);
+    for (;;) {
+        int rplylen;
+        msg.time += 5;
+        DelayUntil(&clock, msg.time);
+        rplylen = Send(train, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
     }
 }
 
