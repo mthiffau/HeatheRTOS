@@ -75,7 +75,7 @@ u_init_main(void)
     assertv(rplylen, rplylen == 0);
 
     /* Start switch state server */
-    switch_tid = Create(PRIORITY_TCMUX, &switchsrv_main);
+    switch_tid = Create(PRIORITY_SWITCH, &switchsrv_main);
     assertv(switch_tid, switch_tid >= 0);
 
     /* Start train control multiplexer */

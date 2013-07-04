@@ -25,6 +25,7 @@
 #define PRIORITY_SERIAL2    2
 #define PRIORITY_TCMUX      6
 #define PRIORITY_SENSOR     6
+#define PRIORITY_SWITCH     6
 #define PRIORITY_TRAIN      8
 #define PRIORITY_DBGLOG     1
 #define PRIORITY_UI         13

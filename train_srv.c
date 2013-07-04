@@ -24,7 +24,7 @@
 #include "dbglog_srv.h"
 
 #define TRAIN_MINSPEED          8
-#define TRAIN_MAXSPEED          12
+#define TRAIN_MAXSPEED          14
 #define TRAIN_DEFSPEED          TRAIN_MINSPEED
 #define TRAIN_CRAWLSPEED        2
 
@@ -41,6 +41,7 @@ enum {
     TRAINMSG_VCALIB,
     TRAINMSG_STOPCALIB,
     TRAINMSG_ORIENT,
+    TRAINMSG_ESTIMATE
 };
 
 enum {
@@ -69,8 +70,17 @@ struct sensor_reply {
     int       timeout;
 };
 
+struct trainest_reply {
+    uint8_t train_id;
+    int     ahead_edge_id;
+    int     ahead_mm;
+    int     lastsens_node_id;
+    int     err_mm;
+};
+
 struct train {
     /* Server handles */
+    struct clkctx             clock;
     struct tcmuxctx           tcmux;
     struct dbglogctx          dbglog;
 
@@ -96,8 +106,10 @@ struct train {
     tid_t                     timer_tid;
 
     /* Position estimate */
-    const struct track_node  *ahead, *behind;
+    const struct track_edge  *ahead, *behind;
     int                       ahead_mm, behind_mm;
+    int                       pos_time;
+    tid_t                     estimate_client;
 
     /* Path to follow */
     const struct track_node  *path[TRACK_NODES_MAX];
@@ -121,13 +133,14 @@ static void trainsrv_sensor_pre_vcalib(struct train *tr);
 static void trainsrv_sensor_pre_stopcalib(struct train *tr);
 static void trainsrv_calib_setup(struct train *tr);
 static void trainsrv_sensor_enroute(
-    struct train *tr, sensors_t sensors[SENSOR_MODULES]);
+    struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
 static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, int sensor, int timeout);
 static bool trainsrv_expect_next_sensor(struct train *tr);
 static void trainsrv_switch_upto_sensnext(struct train *tr);
+static void trainsrv_send_estimate(struct train *tr);
 
 static void trainsrv_sensor_listen(void);
 static void trainsrv_timer_listen(void);
@@ -192,6 +205,10 @@ trainsrv_main(void)
             trainsrv_empty_reply(client);
             trainsrv_sensor_disoriented(&tr);
             break;
+        case TRAINMSG_ESTIMATE:
+            assert(tr.estimate_client < 0);
+            tr.estimate_client = client;
+            break;
         default:
             panic("invalid train message type %d", msg.type);
         }
@@ -207,6 +224,8 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->speed    = TRAIN_DEFSPEED;
     tr->ahead    = NULL;
     tr->behind   = NULL;
+    tr->pos_time = -1;
+    tr->estimate_client = -1;
 
     /* take initial calibration */
     memcpy(
@@ -221,6 +240,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->timer_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_timer_listen);
     assert(tr->timer_tid >= 0);
 
+    clkctx_init(&tr->clock);
     tcmuxctx_init(&tr->tcmux);
     dbglogctx_init(&tr->dbglog);
 
@@ -265,12 +285,12 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
         return;
 
     /* Get path to follow */
-    tr->path_len = track_pathfind(tr->track, tr->ahead, dest, tr->path);
+    tr->path_len = track_pathfind(tr->track, tr->ahead->dest, dest, tr->path);
     if (tr->path_len <= 1)
         return;
 
     /* Watch for last sensor on path. */
-    tr->path_next = 1;
+    tr->path_next = 0;
     if (!trainsrv_expect_next_sensor(tr))
         return;
 
@@ -309,7 +329,7 @@ trainsrv_moveto_calib(struct train *tr)
     int i;
     tr->path_len = track_pathfind(
         tr->track,
-        tr->ahead,
+        tr->ahead->dest,
         tr->track->calib_sensors[0],
         tr->path);
     assert(tr->path_len >= 1);
@@ -360,7 +380,6 @@ trainsrv_sensor_orienting(struct train *tr, sensors_t sensors[SENSOR_MODULES])
 {
     int i, sensor;
     const struct track_node *sensnode;
-    const struct track_edge *ahead;
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
     for (i = 0; i < SENSOR_MODULES; i++) {
         if (sensors[i] != 0)
@@ -369,13 +388,13 @@ trainsrv_sensor_orienting(struct train *tr, sensors_t sensors[SENSOR_MODULES])
     assert(i != SENSOR_MODULES);
     sensor       = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
     sensnode     = &tr->track->nodes[sensor];
-    ahead        = &sensnode->edge[TRACK_EDGE_AHEAD];
-    tr->ahead    = ahead->dest;
-    tr->ahead_mm = ahead->len_mm - TRAIN_FRONT_OFFS_MM;
+    tr->ahead    = &sensnode->edge[TRACK_EDGE_AHEAD];
+    tr->ahead_mm = tr->ahead->len_mm - TRAIN_FRONT_OFFS_MM;
     /* TODO figure out behind */
+    tr->pos_time = Time(&tr->clock);
+    trainsrv_send_estimate(tr);
 
     tr->state = TRAIN_STOPPED;
-
 }
 
 static void
@@ -467,10 +486,23 @@ trainsrv_sensor_stopcalib(struct train *tr)
 
 
 static void
-trainsrv_sensor_enroute(struct train *tr, sensors_t sensors[SENSOR_MODULES])
+trainsrv_sensor_enroute(
+    struct train *tr,
+    sensors_t sensors[SENSOR_MODULES],
+    int time)
 {
+    const struct track_node *sens;
     (void)sensors;
+
     tr->path_next = tr->path_sensnext + 1;
+    sens = tr->path[tr->path_sensnext];
+    assert(sens->type == TRACK_NODE_SENSOR);
+
+    tr->ahead    = &sens->edge[TRACK_EDGE_AHEAD];
+    tr->ahead_mm = tr->ahead->len_mm;
+    tr->pos_time = time;
+    trainsrv_send_estimate(tr);
+
     if (trainsrv_expect_next_sensor(tr))
         trainsrv_switch_upto_sensnext(tr);
     else
@@ -551,7 +583,7 @@ skip_last_sensor:
         trainsrv_sensor_stopcalib(tr);
         break;
     case TRAIN_ENROUTE:
-        trainsrv_sensor_enroute(tr, sensors);
+        trainsrv_sensor_enroute(tr, sensors, time);
         break;
     default:
         panic("unexpected sensor reading in train state %d", tr->state);
@@ -561,7 +593,51 @@ skip_last_sensor:
 static void
 trainsrv_timer(struct train *tr, int time)
 {
-    dbglog(&tr->dbglog, "train%d got time %d", tr->train_id, time);
+    int dist;
+
+    if (tr->state == TRAIN_STOPPED) {
+        tr->pos_time = time;
+        return;
+    }
+
+    if (tr->state != TRAIN_ENROUTE)
+        return;
+
+    /* +50 to round */
+    dist  = tr->calib.vel_mmps[tr->speed] * (time - tr->pos_time) + 50;
+    dist /= 100;
+    tr->pos_time = time;
+
+    tr->ahead_mm -= dist;
+    while (tr->ahead_mm < 0) {
+        /* TODO: should query switch server here FIXME FIXME BAD HACK HACK XXX */
+        const struct track_node *next = tr->ahead->dest;
+        const struct track_node *after_next;
+        int i, edges;
+        assert(tr->path[tr->path_next] == next);
+        if (tr->path_next >= tr->path_len - 1) {
+            trainsrv_stop(tr);
+            return;
+        }
+        after_next = tr->path[++tr->path_next];
+        assert(next->type != TRACK_NODE_EXIT);
+        edges = next->type == TRACK_NODE_BRANCH ? 2 : 1;
+        for (i = 0; i < edges; i++) {
+            if (next->edge[i].dest == after_next)
+                break;
+        }
+        assert(i < edges);
+        tr->ahead     = &next->edge[i];
+        tr->ahead_mm += tr->ahead->len_mm;
+    }
+
+    trainsrv_send_estimate(tr);
+
+    /*dbglog(&tr->dbglog, "train%d at %s - %dmm, %d ticks",
+        tr->train_id,
+        tr->ahead->dest->name,
+        tr->ahead_mm,
+        time);*/
 }
 
 static void
@@ -600,6 +676,9 @@ trainsrv_switch_upto_sensnext(struct train *tr)
         if (tr->path[i]->type != TRACK_NODE_BRANCH)
             continue;
         curved = tr->path[i]->edge[TRACK_EDGE_CURVED].dest == tr->path[i + 1];
+        dbglog(&tr->dbglog, "setting switch %d to %s",
+            tr->path[i]->num,
+            curved ? "curved" : "straight");
         tcmux_switch_curve(&tr->tcmux, tr->path[i]->num, curved);
     }
 }
@@ -618,6 +697,28 @@ trainsrv_expect_next_sensor(struct train *tr)
     tr->path_sensnext = i;
     trainsrv_expect_sensor(tr, tr->path[i]->num, -1);
     return true;
+}
+
+static void
+trainsrv_send_estimate(struct train *tr)
+{
+    struct trainest_reply est;
+    int rc;
+
+    if (tr->estimate_client < 0)
+        return;
+
+    est.train_id         = tr->train_id;
+    est.ahead_edge_id    = (tr->ahead->src - tr->track->nodes) << 1;
+    est.ahead_edge_id   |= tr->ahead - tr->ahead->src->edge;
+    est.ahead_mm         = tr->ahead_mm;
+    est.lastsens_node_id = 0; /* FIXME */
+    est.err_mm           = 1000; /* FIXME */
+
+    rc = Reply(tr->estimate_client, &est, sizeof (est));
+    assertv(rc, rc == 0);
+
+    tr->estimate_client = -1;
 }
 
 static void
@@ -747,6 +848,24 @@ train_orient(struct trainctx *ctx)
     msg.type = TRAINMSG_ORIENT;
     rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
+}
+
+void
+train_estimate(struct trainctx *ctx, struct trainest *est_out)
+{
+    struct trainmsg msg;
+    struct trainest_reply est;
+    int rplylen, ahead_src, ahead;
+    msg.type = TRAINMSG_ESTIMATE;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), &est, sizeof (est));
+    assertv(rplylen, rplylen == sizeof (est));
+    ahead_src = est.ahead_edge_id / 2;
+    ahead     = est.ahead_edge_id % 2;
+    est_out->train_id = est.train_id;
+    est_out->ahead    = &ctx->track->nodes[ahead_src].edge[ahead];
+    est_out->ahead_mm = est.ahead_mm;
+    est_out->lastsens = &ctx->track->nodes[est.lastsens_node_id];
+    est_out->err_mm   = est.err_mm;
 }
 
 static void

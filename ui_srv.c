@@ -95,6 +95,11 @@
 #define DBGLOG_TOP_ROW              15
 #define DBGLOG_BTM_ROW              30
 #define DBGLOG_COL                  1
+#define TRAINPOS_ROW                13
+#define TRAINPOS_COL                17
+#define TRAINPOS_LBL_ROW            13
+#define TRAINPOS_LBL_COL            1
+#define TRAINPOS_LBL                "Train position: "
 
 enum {
     UIMSG_KEYBOARD,
@@ -102,6 +107,7 @@ enum {
     UIMSG_SENSORS,
     UIMSG_DBGLOG,
     UIMSG_SWITCH_UPDATE,
+    UIMSG_TRAINPOS_UPDATE,
     UIMSG_REVERSE,
     UIMSG_REVERSE_DONE,
 };
@@ -139,6 +145,7 @@ struct uimsg {
             int       len;
             char      buf[32];
         } dbglog;
+        struct trainest trainest;
     };
 };
 
@@ -193,6 +200,7 @@ static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
 static void start_reverse_timer(struct uisrv *uisrv);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
+static void uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est);
 static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(
     struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
@@ -204,6 +212,7 @@ static void kbd_listen(void);
 static void time_listen(void);
 static void sensor_listen(void);
 static void switch_listen(void);
+static void trainpos_listen(void);
 static void dbglog_listen(void);
 static void reverse_timer(void);
 
@@ -240,6 +249,9 @@ uisrv_main(void)
                 &uisrv,
                 msg.swupdate.sw,
                 msg.swupdate.curved);
+            break;
+        case UIMSG_TRAINPOS_UPDATE:
+            uisrv_trainpos_update(&uisrv, &msg.trainest);
             break;
         case UIMSG_DBGLOG:
             uisrv_dbglog(&uisrv, msg.dbglog.buf, msg.dbglog.len);
@@ -310,6 +322,8 @@ uisrv_init(struct uisrv *uisrv)
         SWITCHES_LBL
         TERM_FORCE_CURSOR(STR(SENSORS_LBL_ROW), STR(SENSORS_LBL_COL))
         SENSORS_LBL
+        TERM_FORCE_CURSOR(STR(TRAINPOS_LBL_ROW), STR(TRAINPOS_LBL_COL))
+        TRAINPOS_LBL
         TERM_SETSCROLL(STR(DBGLOG_TOP_ROW), STR(DBGLOG_BTM_ROW))
         TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
         CMD_PROMPT
@@ -330,7 +344,7 @@ uisrv_init(struct uisrv *uisrv)
     switch_tid = Create(PRIORITY_UI - 1, &switch_listen);
     assertv(switch_tid, switch_tid >= 0);
 
-    dbglog_tid = Create(PRIORITY_UI + 1, &dbglog_listen);
+    dbglog_tid = Create(PRIORITY_UI - 1, &dbglog_listen);
     assertv(dblog_tid, dbglog_tid >= 0);
 
     uisrv->reverse_timer = Create(PRIORITY_UI - 1, &reverse_timer);
@@ -503,15 +517,15 @@ uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
 
     /* Start train server for the requested train */
     tid = Create(PRIORITY_TRAIN, &trainsrv_main);
-    if (tid < 0) {
-        Printf(&uisrv->tty, "error %d: failed to start train task", tid);
-        return;
-    }
-
+    assertv(tid, tid >= 0);
     rplylen = Send(tid, &cfg, sizeof (cfg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 
-    /* FIXME hard-coded track */
+    tid = Create(PRIORITY_UI - 1, &trainpos_listen);
+    assertv(tid, tid >= 0);
+    rplylen = Send(tid, &cfg, sizeof (cfg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+
     uisrv->traintab[cfg.train_id].running = true;
     trainctx_init(
         &uisrv->traintab[cfg.train_id].task,
@@ -896,6 +910,20 @@ start_reverse_timer(struct uisrv *uisrv)
     assertv(replylen, replylen == 0);
 }
 
+static void
+uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
+{
+    Printf(&uisrv->tty,
+        TERM_SAVE_CURSOR
+        TERM_FORCE_CURSOR(STR(TRAINPOS_ROW), STR(TRAINPOS_COL))
+        TERM_ERASE_EOL
+        "train %02d: %5s-%03dmm"
+        TERM_RESTORE_CURSOR,
+        est->train_id,
+        est->ahead->dest->name,
+        est->ahead_mm);
+}
+
 static bool
 uisrv_update_switch_table(struct uisrv *uisrv, uint8_t sw, bool curved)
 {
@@ -1102,6 +1130,33 @@ switch_listen(void)
     for (;;) {
         int rplylen;
         msg.swupdate.sw = switch_wait(&switches, &msg.swupdate.curved);
+        rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
+        assertv(rplylen, rplylen == 0);
+    }
+}
+
+static void
+trainpos_listen(void)
+{
+    struct trainctx train;
+    struct traincfg cfg;
+    struct uimsg msg;
+    int rc, msglen;
+    tid_t uisrv;
+
+    /* Get config */
+    msglen = Receive(&uisrv, &cfg, sizeof (cfg));
+    assertv(msglen, msglen == sizeof (cfg));
+    rc = Reply(uisrv, NULL, 0);
+    assertv(rc, rc == 0);
+
+    /* Setup train context */
+    trainctx_init(&train, all_tracks[cfg.track_id], cfg.train_id);
+
+    msg.type = UIMSG_TRAINPOS_UPDATE;
+    for (;;) {
+        int rplylen;
+        train_estimate(&train, &msg.trainest);
         rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
         assertv(rplylen, rplylen == 0);
     }
