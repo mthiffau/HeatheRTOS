@@ -1,11 +1,11 @@
 #include "config.h"
 #include "xbool.h"
 #include "xint.h"
+#include "xdef.h"
 #include "static_assert.h"
 #include "sensor.h"
 #include "track_graph.h"
 
-#include "xdef.h"
 #include "xassert.h"
 #include "array_size.h"
 #include "pqueue.h"
@@ -17,19 +17,19 @@ track_pathfind(
     const struct track_graph *track,
     const struct track_node  *src,
     const struct track_node  *dest,
-    const struct track_node  *path[TRACK_NODES_MAX])
+    struct track_path *path_out)
 {
     struct node_info {
         bool                     visited;
         int                      distance; /* -1 means infinity */
         int                      hops;
-        const struct track_node *parent;
+        const struct track_edge *parent;
     } node_info[TRACK_NODES_MAX];
 
     struct pqueue       border;
     struct pqueue_node  border_mem[TRACK_NODES_MAX];
     unsigned            i;
-    int                 rc;
+    int                 rc, path_hops;
 
     /* Initialize auxiliary node data */
     pqueue_init(&border, ARRAY_SIZE(border_mem), border_mem);
@@ -83,7 +83,7 @@ track_pathfind(
             if (old_dist == -1 || old_dist > new_dist) {
                 edge_dest_info->distance = new_dist;
                 edge_dest_info->hops     = cur_info->hops + 1;
-                edge_dest_info->parent   = node;
+                edge_dest_info->parent   = edge;
                 if (old_dist == -1)
                     rc = pqueue_add(&border, edge_dest_ix, new_dist);
                 else
@@ -94,13 +94,37 @@ track_pathfind(
     }
 
     /* Reconstruct path backwards */
-    int path_hops = TRACK_NODE_DATA(track, dest, node_info).hops + 1;
-    for (;;) {
+    for (i = 0; i < ARRAY_SIZE(path_out->node_ix); i++)
+        path_out->node_ix[i] = -1;
+
+    path_hops           = TRACK_NODE_DATA(track, dest, node_info).hops;
+    path_out->hops      = path_hops;
+    path_out->len_mm    = TRACK_NODE_DATA(track, dest, node_info).distance;
+    TRACK_NODE_DATA(track, dest, path_out->node_ix) = path_hops;
+    while (path_hops > 0) {
         struct node_info *dest_info = &TRACK_NODE_DATA(track, dest, node_info);
-        path[dest_info->hops] = dest;
-        if (dest == src)
-            break;
-        dest = dest_info->parent;
+        assert(dest_info->hops == path_hops);
+        path_out->edges[--path_hops] = dest_info->parent;
+        dest = dest_info->parent->src;
+        TRACK_NODE_DATA(track, dest, path_out->node_ix) = path_hops;
     }
-    return path_hops;
+
+    /* Make handy list of sensors */
+    path_out->n_sensors  = 0;
+    path_out->n_branches = 0;
+    for (i = 0; i < path_out->hops; i++) {
+        const struct track_node *src = path_out->edges[i]->src;
+        if (src->type == TRACK_NODE_SENSOR)
+            path_out->sensors[path_out->n_sensors++] = src;
+        else if (src->type == TRACK_NODE_BRANCH)
+            path_out->branches[path_out->n_branches++] = src;
+    }
+
+    dest = path_out->edges[path_out->hops - 1]->dest;
+    if (dest->type == TRACK_NODE_SENSOR)
+        path_out->sensors[path_out->n_sensors++] = dest;
+    else if (dest->type == TRACK_NODE_BRANCH)
+        path_out->branches[path_out->n_branches++] = dest;
+
+    return 0;
 }

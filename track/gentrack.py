@@ -332,6 +332,7 @@ calib_dists[0] += calib_dist
 print('''/* GENERATED FILE. DO NOT EDIT */
 #include "xbool.h"
 #include "xint.h"
+#include "xdef.h"
 #include "static_assert.h"
 #include "sensor.h"
 #include "track_graph.h"

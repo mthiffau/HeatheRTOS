@@ -5,6 +5,7 @@
 #define TRACK_GRAPH_H
 
 XBOOL_H;
+XDEF_H;
 SENSOR_H;
 
 /* Nodes on the track are a location paired with a direction. */
@@ -68,6 +69,20 @@ struct track_graph {
 #include "track/list.h"
 #define TRACK_EDGES_MAX     (TRACK_NODES_MAX * 2)
 
+struct track_path {
+    size_t                   hops, len_mm;
+    const struct track_edge *edges[TRACK_NODES_MAX];
+    size_t                   n_sensors;
+    const struct track_node *sensors[SENSOR_MODULES * SENSORS_PER_MODULE];
+    size_t                   n_branches;
+    const struct track_node *branches[TRACK_NODES_MAX];
+
+    /* Index of each node in this path. Gives the edge OUT from that
+     * node. Last node gets mapped to hops (1 past the end of edges).
+     * Nodes outside of the path are mapped to -1. */
+    int                      node_ix[TRACK_NODES_MAX];
+};
+
 /* For 'attaching' data to track nodes.
  * Use an array of size TRACK_NODES_MAX.
  * Macro returns an lvalue - good for set as well. */
@@ -81,14 +96,13 @@ struct track_graph {
     ((array)[(((e)->src - (track)->nodes) << 1) | ((e) - (e)->src->edge)])
 
 /* Find a (good, directed) path from src to dest on the given track.
- * If a path is found, stores it in path and returns its length (the
- * number of nodes in it). src and dest are both included in the path.
+ * If a path is found, stores it in path_out and returns 0.
  * Otherwise, returns -1. */
 int track_pathfind(
     const struct track_graph *track,
     const struct track_node  *src,
     const struct track_node  *dests,
-    const struct track_node  *path[TRACK_NODES_MAX]);
+    struct track_path *path_out);
 
 /* Array specifying the number of edges for a given track node type. */
 extern int track_node_edges[6];

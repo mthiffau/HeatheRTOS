@@ -1,13 +1,13 @@
 #include "config.h"
 #include "xbool.h"
 #include "xint.h"
+#include "xdef.h"
 #include "u_tid.h"
 #include "static_assert.h"
 #include "sensor.h"
 #include "ui_srv.h"
 
 #include "xassert.h"
-#include "xdef.h"
 #include "xarg.h"
 #include "xmemcpy.h"
 #include "xstring.h"
@@ -843,8 +843,9 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
 {
     /* Parse arguments */
     const struct track_node  *nodes[2];
-    const struct track_node  *path[TRACK_NODES_MAX];
-    int                       i, path_len;
+    struct track_path         path;
+    int                       rc;
+    unsigned                  i;
 
     if (uisrv->track == NULL) {
         Print(&uisrv->tty, "no track selected");
@@ -865,13 +866,12 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     /* Find the path! */
-    path_len = track_pathfind(uisrv->track, nodes[0], nodes[1], path);
-    assertv(path_len, path_len >= -1);
-    if (path_len == -1) {
+    rc = track_pathfind(uisrv->track, nodes[0], nodes[1], &path);
+    if (rc == -1) {
         Print(&uisrv->tty, "no (directed) path");
     } else {
-        for (i = 0; i < path_len; i++) {
-            Printf(&uisrv->tty, "%s ", path[i]->name);
+        for (i = 0; i < path.hops; i++) {
+            Printf(&uisrv->tty, "%s ", path.edges[i]->src->name);
         }
     }
 }

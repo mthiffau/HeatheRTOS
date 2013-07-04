@@ -1,6 +1,7 @@
 #include "config.h"
 #include "xbool.h"
 #include "xint.h"
+#include "xdef.h"
 #include "static_assert.h"
 #include "sensor.h"
 #include "track_graph.h"
