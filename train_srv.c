@@ -28,9 +28,14 @@
 #define TRAIN_DEFSPEED          TRAIN_MINSPEED
 #define TRAIN_CRAWLSPEED        2
 
+#define TRAIN_TIMER_TICKS       10
+
 /* FIXME these should be looked-up per train */
 #define TRAIN_FRONT_OFFS_MM     30
 #define TRAIN_BACK_OFFS_MM      145
+
+#define PCTRL_ACCEL_SENSORS     2
+#define PCTRL_DECEL_TICKS       30
 
 enum {
     TRAINMSG_SETSPEED,
@@ -55,6 +60,13 @@ enum {
     TRAIN_ENROUTE,
 };
 
+enum {
+    PCTRL_STOPPED,
+    PCTRL_ACCEL,
+    PCTRL_DECEL,
+    PCTRL_CRUISE,
+};
+
 struct trainmsg {
     int type;
     int time; /* sensors, timer only */
@@ -76,6 +88,15 @@ struct trainest_reply {
     int     ahead_mm;
     int     lastsens_node_id;
     int     err_mm;
+};
+
+struct train_pctrl {
+    int                       state;
+    const struct track_edge  *ahead, *behind;
+    int                       ahead_mm, behind_mm;
+    int                       pos_time;
+    int                       sens_cnt;
+    int                       ticks;
 };
 
 struct train {
@@ -106,9 +127,7 @@ struct train {
     tid_t                     timer_tid;
 
     /* Position estimate */
-    const struct track_edge  *ahead, *behind;
-    int                       ahead_mm, behind_mm;
-    int                       pos_time;
+    struct train_pctrl        pctrl;
     tid_t                     estimate_client;
 
     /* Path to follow */
@@ -222,9 +241,12 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->track    = all_tracks[cfg->track_id];
     tr->train_id = cfg->train_id;
     tr->speed    = TRAIN_DEFSPEED;
-    tr->ahead    = NULL;
-    tr->behind   = NULL;
-    tr->pos_time = -1;
+
+    tr->pctrl.state = PCTRL_STOPPED;
+    tr->pctrl.ahead    = NULL;
+    tr->pctrl.behind   = NULL;
+    tr->pctrl.pos_time = -1;
+    tr->pctrl.sens_cnt = 0;
     tr->estimate_client = -1;
 
     /* take initial calibration */
@@ -274,8 +296,11 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
     if (speed > TRAIN_MAXSPEED)
         speed = TRAIN_MAXSPEED;
     tr->speed = speed;
-    if (tr->state == TRAIN_ENROUTE)
+    if (tr->state == TRAIN_ENROUTE) {
         tcmux_train_speed(&tr->tcmux, tr->train_id, speed);
+        tr->pctrl.state = PCTRL_ACCEL;
+        tr->pctrl.sens_cnt = 0;
+    }
 }
 
 static void
@@ -286,7 +311,7 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
         return;
 
     /* Get path to follow */
-    rc = track_pathfind(tr->track, tr->ahead->src, dest, &tr->path);
+    rc = track_pathfind(tr->track, tr->pctrl.ahead->src, dest, &tr->path);
     if (rc < 0 || tr->path.hops == 0)
         return;
 
@@ -300,6 +325,8 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
     trainsrv_switch_upto_sensnext(tr);
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
     tr->state = TRAIN_ENROUTE;
+    tr->pctrl.state = PCTRL_ACCEL;
+    tr->pctrl.sens_cnt = 0;
 }
 
 static void
@@ -332,7 +359,7 @@ trainsrv_moveto_calib(struct train *tr)
     int rc;
     rc = track_pathfind(
         tr->track,
-        tr->ahead->dest,
+        tr->pctrl.ahead->dest,
         tr->track->calib_sensors[0],
         &tr->path);
     assertv(rc, rc == 0);
@@ -362,6 +389,7 @@ trainsrv_stop(struct train *tr)
 {
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
     tr->state = TRAIN_DISORIENTED; /* FIXME */
+    tr->pctrl.state = PCTRL_DECEL;
 }
 
 static void
@@ -396,12 +424,12 @@ trainsrv_sensor_orienting(struct train *tr, sensors_t sensors[SENSOR_MODULES])
             break;
     }
     assert(i != SENSOR_MODULES);
-    sensor       = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
-    sensnode     = &tr->track->nodes[sensor];
-    tr->ahead    = &sensnode->edge[TRACK_EDGE_AHEAD];
-    tr->ahead_mm = tr->ahead->len_mm - TRAIN_FRONT_OFFS_MM;
+    sensor          = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
+    sensnode        = &tr->track->nodes[sensor];
+    tr->pctrl.ahead = &sensnode->edge[TRACK_EDGE_AHEAD];
+    tr->pctrl.ahead_mm    = tr->pctrl.ahead->len_mm - TRAIN_FRONT_OFFS_MM;
     /* TODO figure out behind */
-    tr->pos_time = Time(&tr->clock);
+    tr->pctrl.pos_time = Time(&tr->clock);
     trainsrv_send_estimate(tr);
 
     tr->state = TRAIN_STOPPED;
@@ -504,15 +532,23 @@ trainsrv_sensor_enroute(
     const struct track_node *sens;
     (void)sensors;
 
+    /* FIXME: We'll probably want a better way to drive this state change */
+
+    if (tr->pctrl.sens_cnt < PCTRL_ACCEL_SENSORS) {
+        tr->pctrl.sens_cnt++;
+    } else {
+        tr->pctrl.state = PCTRL_CRUISE;
+    }
+
     sens = tr->path.sensors[tr->path_sensnext];
     assert(sens->type == TRACK_NODE_SENSOR);
 
     tr->path_cur = TRACK_NODE_DATA(tr->track, sens, tr->path.node_ix);
     assert(tr->path_cur >= 0);
 
-    tr->ahead    = tr->path.edges[tr->path_cur];
-    tr->ahead_mm = tr->ahead->len_mm;
-    tr->pos_time = time;
+    tr->pctrl.ahead    = tr->path.edges[tr->path_cur];
+    tr->pctrl.ahead_mm = tr->pctrl.ahead->len_mm;
+    tr->pctrl.pos_time = time;
     trainsrv_send_estimate(tr);
 
     if (trainsrv_expect_next_sensor(tr))
@@ -608,47 +644,50 @@ trainsrv_timer(struct train *tr, int time)
     int dist;
 
     if (tr->state == TRAIN_STOPPED) {
-        tr->pos_time = time;
+        tr->pctrl.pos_time = time;
         return;
     }
 
     if (tr->state != TRAIN_ENROUTE)
         return;
 
-    /* +50 to round */
-    dist  = tr->calib.vel_mmps[tr->speed] * (time - tr->pos_time) + 50;
-    dist /= 100;
-    tr->pos_time = time;
+    /* TODO: Position estimage while accelerating/decelerating */
+    if (tr->pctrl.state == PCTRL_CRUISE) {
+        /* +50 to round */
+        dist  = tr->calib.vel_mmps[tr->speed] * (time - tr->pctrl.pos_time) + 50;
+        dist /= 100;
+        tr->pctrl.pos_time = time;
 
-    tr->ahead_mm -= dist;
-    while (tr->ahead_mm < 0) {
-        /* TODO: should query switch server here FIXME FIXME BAD HACK HACK XXX */
-        const struct track_node *next = tr->ahead->dest;
-        const struct track_node *after_next;
-        int i, edges;
-        assert(tr->path.edges[tr->path_cur]->dest == next);
-        if ((unsigned)tr->path_cur >= tr->path.hops) {
-            trainsrv_stop(tr);
-            return;
+        tr->pctrl.ahead_mm -= dist;
+        while (tr->pctrl.ahead_mm < 0) {
+            /* TODO: should query switch server here FIXME FIXME BAD HACK HACK XXX */
+            const struct track_node *next = tr->pctrl.ahead->dest;
+            const struct track_node *after_next;
+            int i, edges;
+            assert(tr->path.edges[tr->path_cur]->dest == next);
+            if ((unsigned)tr->path_cur >= tr->path.hops) {
+                trainsrv_stop(tr);
+                return;
+            }
+            after_next = tr->path.edges[++tr->path_cur]->dest;
+            assert(next->type != TRACK_NODE_EXIT);
+            edges = next->type == TRACK_NODE_BRANCH ? 2 : 1;
+            for (i = 0; i < edges; i++) {
+                if (next->edge[i].dest == after_next)
+                    break;
+            }
+            assert(i < edges);
+            tr->pctrl.ahead     = &next->edge[i];
+            tr->pctrl.ahead_mm += tr->pctrl.ahead->len_mm;
         }
-        after_next = tr->path.edges[++tr->path_cur]->dest;
-        assert(next->type != TRACK_NODE_EXIT);
-        edges = next->type == TRACK_NODE_BRANCH ? 2 : 1;
-        for (i = 0; i < edges; i++) {
-            if (next->edge[i].dest == after_next)
-                break;
-        }
-        assert(i < edges);
-        tr->ahead     = &next->edge[i];
-        tr->ahead_mm += tr->ahead->len_mm;
+
+        trainsrv_send_estimate(tr);
     }
-
-    trainsrv_send_estimate(tr);
 
     /*dbglog(&tr->dbglog, "train%d at %s - %dmm, %d ticks",
         tr->train_id,
-        tr->ahead->dest->name,
-        tr->ahead_mm,
+        tr->pctrl.ahead->dest->name,
+        tr->pctrl.ahead_mm,
         time);*/
 }
 
@@ -717,9 +756,9 @@ trainsrv_send_estimate(struct train *tr)
         return;
 
     est.train_id         = tr->train_id;
-    est.ahead_edge_id    = (tr->ahead->src - tr->track->nodes) << 1;
-    est.ahead_edge_id   |= tr->ahead - tr->ahead->src->edge;
-    est.ahead_mm         = tr->ahead_mm;
+    est.ahead_edge_id    = (tr->pctrl.ahead->src - tr->track->nodes) << 1;
+    est.ahead_edge_id   |= tr->pctrl.ahead - tr->pctrl.ahead->src->edge;
+    est.ahead_mm         = tr->pctrl.ahead_mm;
     est.lastsens_node_id = 0; /* FIXME */
     est.err_mm           = 1000; /* FIXME */
 
@@ -769,7 +808,7 @@ trainsrv_timer_listen(void)
     msg.time = Time(&clock);
     for (;;) {
         int rplylen;
-        msg.time += 5;
+        msg.time += TRAIN_TIMER_TICKS;
         DelayUntil(&clock, msg.time);
         rplylen = Send(train, &msg, sizeof (msg), NULL, 0);
         assertv(rplylen, rplylen == 0);
