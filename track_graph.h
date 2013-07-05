@@ -83,6 +83,11 @@ struct track_path {
     int                      node_ix[TRACK_NODES_MAX];
 };
 
+struct track_pt {
+    const struct track_edge *edge;
+    int                      pos_um;
+};
+
 /* For 'attaching' data to track nodes.
  * Use an array of size TRACK_NODES_MAX.
  * Macro returns an lvalue - good for set as well. */

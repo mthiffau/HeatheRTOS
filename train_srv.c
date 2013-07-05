@@ -97,8 +97,7 @@ struct trainest_reply {
 
 struct train_pctrl {
     int                       state;
-    const struct track_edge  *ahead, *behind;
-    int                       ahead_um, behind_um;
+    struct track_pt           ahead, behind;
     int                       pos_time;
     int                       sens_cnt;
     int                       stop_ticks, stop_um;
@@ -255,8 +254,6 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->speed    = TRAIN_DEFSPEED;
 
     tr->pctrl.state = PCTRL_STOPPED;
-    tr->pctrl.ahead    = NULL;
-    tr->pctrl.behind   = NULL;
     tr->pctrl.pos_time = -1;
     tr->pctrl.sens_cnt = 0;
     tr->pctrl.lastsens = NULL;
@@ -330,7 +327,7 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
         return;
 
     /* Get path to follow */
-    rc = track_pathfind(tr->track, tr->pctrl.ahead->src, dest, &tr->path);
+    rc = track_pathfind(tr->track, tr->pctrl.ahead.edge->src, dest, &tr->path);
     if (rc < 0 || tr->path.hops == 0)
         return;
 
@@ -390,7 +387,7 @@ trainsrv_moveto_calib(struct train *tr)
     int rc;
     rc = track_pathfind(
         tr->track,
-        tr->pctrl.ahead->dest,
+        tr->pctrl.ahead.edge->dest,
         tr->track->calib_sensors[0],
         &tr->path);
     assertv(rc, rc == 0);
@@ -463,10 +460,11 @@ trainsrv_sensor_orienting(struct train *tr, sensors_t sensors[SENSOR_MODULES])
             break;
     }
     assert(i != SENSOR_MODULES);
-    sensor             = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
-    sensnode           = &tr->track->nodes[sensor];
-    tr->pctrl.ahead    = &sensnode->edge[TRACK_EDGE_AHEAD];
-    tr->pctrl.ahead_um = tr->pctrl.ahead->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
+    sensor                 = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
+    sensnode               = &tr->track->nodes[sensor];
+    tr->pctrl.ahead.edge   = &sensnode->edge[TRACK_EDGE_AHEAD];
+    tr->pctrl.ahead.pos_um =
+        tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
     /* TODO figure out behind */
     tr->pctrl.pos_time = Time(&tr->clock);
     trainsrv_send_estimate(tr);
@@ -591,8 +589,9 @@ trainsrv_sensor_running(
     /* Save original for comparison */
     est_pctrl = tr->pctrl;
 
-    tr->pctrl.ahead    = &sens->edge[TRACK_EDGE_AHEAD];
-    tr->pctrl.ahead_um = tr->pctrl.ahead->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
+    tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
+    tr->pctrl.ahead.pos_um =
+        tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
     if (est_pctrl.pos_time > time) {
         int v  = tr->calib.vel_umpt[tr->speed];
         int dt = est_pctrl.pos_time - time;
@@ -602,19 +601,19 @@ trainsrv_sensor_running(
     /* Compute delta */
     const char *where = NULL;
     tr->pctrl.lastsens = sens;
-    if (est_pctrl.ahead == tr->pctrl.ahead) {
+    if (est_pctrl.ahead.edge == tr->pctrl.ahead.edge) {
         where = "same";
-        tr->pctrl.err_um = tr->pctrl.ahead_um - est_pctrl.ahead_um;
-    } else if (est_pctrl.ahead->dest == tr->pctrl.ahead->src) {
+        tr->pctrl.err_um = tr->pctrl.ahead.pos_um - est_pctrl.ahead.pos_um;
+    } else if (est_pctrl.ahead.edge->dest == tr->pctrl.ahead.edge->src) {
         where = "prev";
-        tr->pctrl.err_um  = tr->pctrl.ahead_um;
-        tr->pctrl.err_um -= tr->pctrl.ahead->len_mm * 1000;
-        tr->pctrl.err_um -= est_pctrl.ahead_um;
-    } else if (est_pctrl.ahead->src == tr->pctrl.ahead->dest) {
+        tr->pctrl.err_um  = tr->pctrl.ahead.pos_um;
+        tr->pctrl.err_um -= tr->pctrl.ahead.edge->len_mm * 1000;
+        tr->pctrl.err_um -= est_pctrl.ahead.pos_um;
+    } else if (est_pctrl.ahead.edge->src == tr->pctrl.ahead.edge->dest) {
         where = "next";
-        tr->pctrl.err_um  = tr->pctrl.ahead_um;
-        tr->pctrl.err_um += est_pctrl.ahead->len_mm * 1000;
-        tr->pctrl.err_um -= est_pctrl.ahead_um;
+        tr->pctrl.err_um  = tr->pctrl.ahead.pos_um;
+        tr->pctrl.err_um += est_pctrl.ahead.edge->len_mm * 1000;
+        tr->pctrl.err_um -= est_pctrl.ahead.pos_um;
     } else {
         tr->pctrl.lastsens = NULL;
     }
@@ -625,10 +624,10 @@ trainsrv_sensor_running(
         int ahead_um, ahead_cm, est_ahead_um, est_ahead_cm;
         int err_um, err_cm;
         bool err_neg;
-        ahead_um  = tr->pctrl.ahead_um;
+        ahead_um  = tr->pctrl.ahead.pos_um;
         ahead_cm  = ahead_um / 10000;
         ahead_um %= 10000;
-        est_ahead_um  = est_pctrl.ahead_um;
+        est_ahead_um  = est_pctrl.ahead.pos_um;
         est_ahead_cm  = est_ahead_um / 10000;
         est_ahead_um %= 10000;
         err_um  = tr->pctrl.err_um;
@@ -640,11 +639,11 @@ trainsrv_sensor_running(
         dbglog(&tr->dbglog,
             "%s: act. at %s-%d.%04dcm, est. on %s edge at %s-%d.%04dcm, err=%c%d.%04dcm",
             sens->name,
-            tr->pctrl.ahead->dest->name,
+            tr->pctrl.ahead.edge->dest->name,
             ahead_cm,
             ahead_um,
             where,
-            est_pctrl.ahead->dest->name,
+            est_pctrl.ahead.edge->dest->name,
             est_ahead_cm,
             est_ahead_um,
             err_neg ? '-' : '+',
@@ -746,9 +745,9 @@ skip_last_sensor:
 static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
-    tr->pctrl.ahead_um -= dist_um;
-    while (tr->pctrl.ahead_um < 0) {
-        const struct track_node *next = tr->pctrl.ahead->dest;
+    tr->pctrl.ahead.pos_um -= dist_um;
+    while (tr->pctrl.ahead.pos_um < 0) {
+        const struct track_node *next = tr->pctrl.ahead.edge->dest;
         int edge_ix;
         if (next->type == TRACK_NODE_EXIT) {
             tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
@@ -762,8 +761,8 @@ trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
             edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
         }
 
-        tr->pctrl.ahead     = &next->edge[edge_ix];
-        tr->pctrl.ahead_um += 1000 * tr->pctrl.ahead->len_mm;
+        tr->pctrl.ahead.edge    = &next->edge[edge_ix];
+        tr->pctrl.ahead.pos_um += 1000 * tr->pctrl.ahead.edge->len_mm;
     }
 
     trainsrv_send_estimate(tr);
@@ -879,11 +878,11 @@ trainsrv_send_estimate(struct train *tr)
     if (tr->estimate_client < 0)
         return;
 
-    est.train_id         = tr->train_id;
-    est.ahead_edge_id    = (tr->pctrl.ahead->src - tr->track->nodes) << 1;
-    est.ahead_edge_id   |= tr->pctrl.ahead - tr->pctrl.ahead->src->edge;
-    est.ahead_mm         = tr->pctrl.ahead_um / 1000;
-    est.err_mm           = tr->pctrl.err_um / 1000;
+    est.train_id       = tr->train_id;
+    est.ahead_edge_id  = (tr->pctrl.ahead.edge->src - tr->track->nodes) << 1;
+    est.ahead_edge_id |= tr->pctrl.ahead.edge - tr->pctrl.ahead.edge->src->edge;
+    est.ahead_mm       = tr->pctrl.ahead.pos_um / 1000;
+    est.err_mm         = tr->pctrl.err_um / 1000;
     if (tr->pctrl.lastsens != NULL)
         est.lastsens_node_id = tr->pctrl.lastsens - tr->track->nodes;
     else
