@@ -7,6 +7,8 @@
 SENSOR_H;
 U_TID_H;
 
+#define SENSOR_AVG_DELAY_TICKS      3
+
 /* Sensor server entry point. */
 void sensrv_main(void);
 

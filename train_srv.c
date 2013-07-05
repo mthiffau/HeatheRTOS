@@ -14,6 +14,7 @@
 #include "xarg.h"
 #include "xassert.h"
 #include "xmemcpy.h"
+#include "array_size.h"
 #include "ringbuf.h"
 
 #include "u_syscall.h"
@@ -246,6 +247,8 @@ trainsrv_main(void)
 static void
 trainsrv_init(struct train *tr, struct traincfg *cfg)
 {
+    unsigned i;
+
     tr->state    = TRAIN_DISORIENTED;
     tr->track    = all_tracks[cfg->track_id];
     tr->train_id = cfg->train_id;
@@ -264,6 +267,11 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
         &tr->calib,
         &calib_initial[cfg->train_id][cfg->track_id],
         sizeof (tr->calib));
+
+    /* Adjust stopping distance values. They're too long by
+     * SENSOR_AVG_DELAY_TICKS worth of distance at cruising velocity. */
+    for (i = 0; i < ARRAY_SIZE(tr->calib.vel_umpt); i++)
+        tr->calib.stop_um[i] -= tr->calib.vel_umpt[i] * SENSOR_AVG_DELAY_TICKS;
 
     tr->sensor_rdy = false;
     tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);

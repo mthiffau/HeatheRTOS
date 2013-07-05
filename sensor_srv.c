@@ -15,8 +15,6 @@
 #include "ns.h"
 #include "clock_srv.h"
 
-#define SENSOR_AVG_DELAY_TICKS      3
-
 enum {
     SENSMSG_WAIT,
     SENSMSG_REPORT,
