@@ -103,6 +103,7 @@ struct train_pctrl {
     int                       stop_ticks, stop_um;
     const struct track_node  *lastsens;
     int                       err_um;
+    bool                      updated;
 };
 
 struct train {
@@ -240,6 +241,7 @@ trainsrv_main(void)
         default:
             panic("invalid train message type %d", msg.type);
         }
+        trainsrv_send_estimate(&tr);
     }
 }
 
@@ -257,6 +259,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->pctrl.pos_time = -1;
     tr->pctrl.sens_cnt = 0;
     tr->pctrl.lastsens = NULL;
+    tr->pctrl.updated  = false;
     tr->estimate_client = -1;
 
     /* take initial calibration */
@@ -467,7 +470,7 @@ trainsrv_sensor_orienting(struct train *tr, sensors_t sensors[SENSOR_MODULES])
         tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
     /* TODO figure out behind */
     tr->pctrl.pos_time = Time(&tr->clock);
-    trainsrv_send_estimate(tr);
+    tr->pctrl.updated  = true;
 
     tr->state       = TRAIN_RUNNING;
     tr->pctrl.state = PCTRL_STOPPED;
@@ -589,6 +592,7 @@ trainsrv_sensor_running(
     /* Save original for comparison */
     est_pctrl = tr->pctrl;
 
+    tr->pctrl.updated      = true;
     tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
         tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
@@ -745,6 +749,7 @@ skip_last_sensor:
 static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
+    tr->pctrl.updated = true;
     tr->pctrl.ahead.pos_um -= dist_um;
     while (tr->pctrl.ahead.pos_um < 0) {
         const struct track_node *next = tr->pctrl.ahead.edge->dest;
@@ -764,8 +769,6 @@ trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
         tr->pctrl.ahead.edge    = &next->edge[edge_ix];
         tr->pctrl.ahead.pos_um += 1000 * tr->pctrl.ahead.edge->len_mm;
     }
-
-    trainsrv_send_estimate(tr);
 }
 
 static void
@@ -875,7 +878,7 @@ trainsrv_send_estimate(struct train *tr)
     struct trainest_reply est;
     int rc;
 
-    if (tr->estimate_client < 0)
+    if (tr->estimate_client < 0 || !tr->pctrl.updated)
         return;
 
     est.train_id       = tr->train_id;
@@ -892,6 +895,7 @@ trainsrv_send_estimate(struct train *tr)
     assertv(rc, rc == 0);
 
     tr->estimate_client = -1;
+    tr->pctrl.updated   = false;
 }
 
 static void
