@@ -70,6 +70,7 @@ struct track_graph {
 #define TRACK_EDGES_MAX     (TRACK_NODES_MAX * 2)
 
 struct track_path {
+    const struct track_graph *track;
     size_t                   hops, len_mm;
     const struct track_edge *edges[TRACK_NODES_MAX];
     size_t                   n_sensors;
@@ -81,11 +82,6 @@ struct track_path {
      * node. Last node gets mapped to hops (1 past the end of edges).
      * Nodes outside of the path are mapped to -1. */
     int                      node_ix[TRACK_NODES_MAX];
-};
-
-struct track_pt {
-    const struct track_edge *edge;
-    int                      pos_um;
 };
 
 /* For 'attaching' data to track nodes.

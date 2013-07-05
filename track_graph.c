@@ -98,6 +98,7 @@ track_pathfind(
         path_out->node_ix[i] = -1;
 
     path_hops           = TRACK_NODE_DATA(track, dest, node_info).hops;
+    path_out->track     = track;
     path_out->hops      = path_hops;
     path_out->len_mm    = TRACK_NODE_DATA(track, dest, node_info).distance;
     TRACK_NODE_DATA(track, dest, path_out->node_ix) = path_hops;

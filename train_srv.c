@@ -25,6 +25,8 @@
 #include "sensor_srv.h"
 #include "dbglog_srv.h"
 
+#include "track_pt.h"
+
 #define TRAIN_MINSPEED          4
 #define TRAIN_MAXSPEED          14
 #define TRAIN_DEFSPEED          8
@@ -750,25 +752,7 @@ static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
     tr->pctrl.updated = true;
-    tr->pctrl.ahead.pos_um -= dist_um;
-    while (tr->pctrl.ahead.pos_um < 0) {
-        const struct track_node *next = tr->pctrl.ahead.edge->dest;
-        int edge_ix;
-        if (next->type == TRACK_NODE_EXIT) {
-            tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
-            tr->state = TRAIN_DISORIENTED;
-            return;
-        }
-
-        edge_ix = TRACK_EDGE_AHEAD;
-        if (next->type == TRACK_NODE_BRANCH) {
-            bool curved = switch_iscurved(&tr->switches, next->num);
-            edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
-        }
-
-        tr->pctrl.ahead.edge    = &next->edge[edge_ix];
-        tr->pctrl.ahead.pos_um += 1000 * tr->pctrl.ahead.edge->len_mm;
-    }
+    track_pt_advance(&tr->switches, &tr->pctrl.ahead, NULL, dist_um);
 }
 
 static void
