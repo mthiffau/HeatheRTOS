@@ -579,15 +579,6 @@ trainsrv_sensor_running(
     struct train_pctrl est_pctrl;
     (void)sensors;
 
-    /* FIXME: We'll probably want a better way to drive this state change */
-    if (tr->pctrl.state == PCTRL_ACCEL) {
-        if (tr->pctrl.sens_cnt < PCTRL_ACCEL_SENSORS) {
-            tr->pctrl.sens_cnt++;
-        } else {
-            tr->pctrl.state = PCTRL_CRUISE;
-        }
-    }
-
     sens = tr->path.sensors[tr->path_sensnext];
     assert(sens->type == TRACK_NODE_SENSOR);
 
@@ -624,6 +615,16 @@ trainsrv_sensor_running(
         tr->pctrl.lastsens = NULL;
     }
 
+    /* Transition to cruising if our position estimate is good enough. */
+    if (tr->pctrl.lastsens != NULL) {
+        int abs_err_um = tr->pctrl.err_um;
+        if (abs_err_um < 0)
+            abs_err_um = -abs_err_um;
+        if (abs_err_um < 20000)
+            tr->pctrl.state = PCTRL_CRUISE;
+    }
+
+    /* Print log messages */
     if (tr->pctrl.lastsens == NULL) {
         dbglog(&tr->dbglog, "%s: estimate too far", sens->name);
     } else {
@@ -769,7 +770,6 @@ trainsrv_timer(struct train *tr, int time)
     switch (tr->pctrl.state) {
     /* TODO: Estimate position while accelerating/decelerating */
     case PCTRL_STOPPED:
-    case PCTRL_ACCEL:
         break;
 
     case PCTRL_STOPPING:
@@ -784,6 +784,7 @@ trainsrv_timer(struct train *tr, int time)
         }
         break;
 
+    case PCTRL_ACCEL:
     case PCTRL_CRUISE:
         dist  = tr->calib.vel_umpt[tr->speed];
         dist *= dt;
