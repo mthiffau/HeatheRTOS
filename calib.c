@@ -181,8 +181,24 @@ const struct calib calib_initial[TRAINS_MAX][TRACK_COUNT] = {
         { .vel_umpt = {0}, .stop_um = {0} }
     },
     { /* train 43 */
-        { .vel_umpt = {0}, .stop_um = {0} },
-        { .vel_umpt = {0}, .stop_um = {0} }
+        { /* track A */
+            .vel_umpt = {
+                0, 0, 0, 0, 0, 0, 0, 0, 3869, 4461, 4947, 5520, 5895, 0, 0
+            },
+            .stop_um = {
+                0, 0, 0, 0, 0, 0, 0, 0, 581000, 664000, 748000, 823000, 919000, 0, 0
+            }
+        },
+        { /* track B */
+            .vel_umpt = {
+                /* COPIED FROM TRACK A */
+                0, 0, 0, 0, 0, 0, 0, 0, 3869, 4461, 4947, 5520, 5895, 0, 0
+            },
+            .stop_um = {
+                /* COPIED FROM TRACK A */
+                0, 0, 0, 0, 0, 0, 0, 0, 581000, 664000, 748000, 823000, 919000, 0, 0
+            }
+        }
     },
     { /* train 44 */
         { .vel_umpt = {0}, .stop_um = {0} },
