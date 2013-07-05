@@ -15,6 +15,7 @@
 enum {
     SWMSG_UPDATED,
     SWMSG_WAIT,
+    SWMSG_ISCURVED,
 };
 
 struct swmsg {
@@ -65,6 +66,10 @@ switchsrv_main(void)
         switch (msg.type) {
         case SWMSG_WAIT:
             swsrv.wait_client = client;
+            break;
+        case SWMSG_ISCURVED:
+            rc = Reply(client, &swsrv.turnouts[msg.sw].curved, sizeof (bool));
+            assertv(rc, rc == 0);
             break;
         case SWMSG_UPDATED:
             /* Immediately reply to update message */
@@ -133,4 +138,17 @@ switch_wait(struct switchctx *ctx, bool *curved_out)
     assert(msg.type == SWMSG_UPDATED);
     *curved_out = msg.curved;
     return msg.sw;
+}
+
+bool
+switch_iscurved(struct switchctx *ctx, uint8_t sw)
+{
+    struct swmsg msg;
+    bool r;
+    int rplylen;
+    msg.type = SWMSG_ISCURVED;
+    msg.sw   = sw;
+    rplylen = Send(ctx->switchsrv_tid, &msg, sizeof (msg), &r, sizeof (r));
+    assertv(rplylen, rplylen == sizeof (r));
+    return r;
 }

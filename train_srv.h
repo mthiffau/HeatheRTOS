@@ -40,8 +40,9 @@ void train_moveto(struct trainctx *ctx, const struct track_node *dest);
 /* Stop the train. */
 void train_stop(struct trainctx *ctx);
 
-/* Calibrate the train's velocity. Output on debug log. */
-void train_vcalib(struct trainctx *ctx);
+/* Calibrate the train's velocity. Output on debug log.
+ * Set minspeed or maxspeed to 0 for default. */
+void train_vcalib(struct trainctx *ctx, uint8_t minspeed, uint8_t maxspeed);
 
 /* Calibrate the train's stopping distance. */
 void train_stopcalib(struct trainctx *ctx, uint8_t speed);

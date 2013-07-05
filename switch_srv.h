@@ -30,3 +30,6 @@ void switch_updated(struct switchctx *ctx, uint8_t sw, bool curved);
  * since it's assumed it knows the previous states
  * of all switches. */
 uint8_t switch_wait(struct switchctx *ctx, bool *curved_out);
+
+/* Check the current best known status of a switch. */
+bool switch_iscurved(struct switchctx *ctx, uint8_t sw);

@@ -31,7 +31,7 @@
 #define STR1(x)             #x
 
 #define CMD_MAXLEN          63
-#define CMD_MAXTOKS         3
+#define CMD_MAXTOKS         16
 #define MAX_SENSORS         10
 
 #define MAX_TRAINS          256
@@ -169,6 +169,7 @@ struct uisrv {
     int   rvq_tail;
     int   rvq_count;
 
+    struct trainest           trainest_last;
     const struct track_graph *track;
 
     struct ringbuf dbglog;
@@ -313,23 +314,42 @@ uisrv_init(struct uisrv *uisrv)
     tcmux_switch_curve_sync(&uisrv->tcmux, last_switch, false);
 
     /* Print static screen portions */
-    Print(&uisrv->tty,
-        TERM_RESET_DEVICE
-        TERM_ERASE_ALL
-        TERM_FORCE_CURSOR(STR(TIME_ROW), STR(TIME_MSG_COL))
-        TIME_MSG
-        TERM_FORCE_CURSOR(STR(SWITCHES_LBL_ROW), STR(SWITCHES_LBL_COL))
-        SWITCHES_LBL
-        TERM_FORCE_CURSOR(STR(SENSORS_LBL_ROW), STR(SENSORS_LBL_COL))
-        SENSORS_LBL
-        TERM_FORCE_CURSOR(STR(TRAINPOS_LBL_ROW), STR(TRAINPOS_LBL_COL))
-        TRAINPOS_LBL
-        TERM_SETSCROLL(STR(DBGLOG_TOP_ROW), STR(DBGLOG_BTM_ROW))
-        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
-        CMD_PROMPT
-        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
-
+    Print(&uisrv->tty, TERM_RESET_DEVICE TERM_ERASE_ALL);
     Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(TIME_ROW), STR(TIME_MSG_COL))
+        TIME_MSG);
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(SWITCHES_LBL_ROW), STR(SWITCHES_LBL_COL))
+        SWITCHES_LBL);
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(SENSORS_LBL_ROW), STR(SENSORS_LBL_COL))
+        SENSORS_LBL);
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(TRAINPOS_LBL_ROW), STR(TRAINPOS_LBL_COL))
+        TRAINPOS_LBL);
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_SETSCROLL(STR(DBGLOG_TOP_ROW), STR(DBGLOG_BTM_ROW)));
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_PROMPT_COL))
+        CMD_PROMPT);
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
+    Print(&uisrv->tty,
+        TERM_FORCE_CURSOR(STR(CMD_ROW), STR(CMD_COL)));
+    Flush(&uisrv->tty);
+    Delay(&uisrv->clock, 2);
 
     /* Start listeners */
     kbd_tid = Create(PRIORITY_UI - 1, &kbd_listen);
@@ -627,9 +647,9 @@ uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc)
 {
-    uint8_t train;
-    if (argc != 1) {
-        Print(&uisrv->tty, "usage: vcalib TRAIN");
+    uint8_t train, minspeed, maxspeed;
+    if (argc != 3) {
+        Print(&uisrv->tty, "usage: vcalib TRAIN MINSPEED MAXSPEED");
         return;
     }
 
@@ -638,12 +658,22 @@ uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
+    if (atou8(argv[1], &minspeed) != 0 || minspeed > 14) {
+        Printf(&uisrv->tty, "bad speed '%s'", argv[1]);
+        return;
+    }
+
+    if (atou8(argv[2], &maxspeed) != 0 || maxspeed > 14) {
+        Printf(&uisrv->tty, "bad speed '%s'", argv[2]);
+        return;
+    }
+
     if (!uisrv->traintab[train].running) {
         Printf(&uisrv->tty, "train %d not active", train);
         return;
     }
 
-    train_vcalib(&uisrv->traintab[train].task);
+    train_vcalib(&uisrv->traintab[train].task, minspeed, maxspeed);
 }
 
 static void
@@ -913,15 +943,59 @@ start_reverse_timer(struct uisrv *uisrv)
 static void
 uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
 {
+    /*
+    bool big_change;
+    int dx;
+
+    dx = est->ahead_mm - uisrv->trainest_last.ahead_mm;
+    if (dx < 0)
+        dx = -dx;
+
+    big_change = dx > 50
+        || est->ahead    != uisrv->trainest_last.ahead
+        || est->lastsens != uisrv->trainest_last.lastsens
+        || est->err_mm   != uisrv->trainest_last.err_mm;
+
+    if (!big_change)
+        return;
+        */
+
+    /* Find log2 of ahead_mm */
+    /*
+    static const int MultiplyDeBruijnBitPosition[32] =
+    {
+          0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
+            8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
+    };
+
+    log_mm = est->ahead_mm;
+
+    log_mm |= log_mm >> 1; // first round down to one less than a power of 2 
+    log_mm |= log_mm >> 2;
+    log_mm |= log_mm >> 4;
+    log_mm |= log_mm >> 8;
+    log_mm |= log_mm >> 16;
+
+    log_mm = MultiplyDeBruijnBitPosition[(uint32_t)(v * 0x07C4ACDDU) >> 27];
+    // done finding log */
+
     Printf(&uisrv->tty,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(TRAINPOS_ROW), STR(TRAINPOS_COL))
-        TERM_ERASE_EOL
-        "train %02d: %5s-%03dmm"
-        TERM_RESTORE_CURSOR,
+        //TERM_ERASE_EOL
+        "T %02d: %5s-%04dmm",
         est->train_id,
         est->ahead->dest->name,
         est->ahead_mm);
+
+    if (est->lastsens != NULL) {
+        Printf(&uisrv->tty, ", err %04dmm @ %s",
+            est->err_mm,
+            est->lastsens->name);
+    }
+
+    Print(&uisrv->tty, TERM_RESTORE_CURSOR);
+    memcpy(&uisrv->trainest_last, est, sizeof (*est));
 }
 
 static bool
