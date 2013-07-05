@@ -60,7 +60,7 @@ struct track_graph {
     /* Calibration info */
     int n_calib_sensors, n_calib_switches;
     const struct track_node **calib_sensors;
-    const int                *calib_dists;
+    const int                *calib_mm;
     const struct track_node **calib_switches;
     const bool               *calib_curved;
 };

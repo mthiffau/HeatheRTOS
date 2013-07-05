@@ -15,6 +15,8 @@
 #include "ns.h"
 #include "clock_srv.h"
 
+#define SENSOR_AVG_DELAY_TICKS      3
+
 enum {
     SENSMSG_WAIT,
     SENSMSG_REPORT,
@@ -113,7 +115,7 @@ sensrv_report(struct sensrv *srv, tid_t client, struct sensmsg *msg)
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
 
-    now = Time(&srv->clock);
+    now = Time(&srv->clock) - SENSOR_AVG_DELAY_TICKS;
     cur = &srv->clients_head;
     while (*cur != NULL) {
         struct sensmsg replymsg;

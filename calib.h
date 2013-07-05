@@ -8,8 +8,8 @@ CONFIG_H;
 TRACK_GRAPH_H;
 
 struct calib {
-    int vel_mmps[16];  /* cruising velocity at each speed */
-    int stop_dist[16]; /* multiplier for current velocity at each speed */
+    int vel_umpt[16];  /* cruising velocity at each speed */
+    int stop_um[16];   /* multiplier for current velocity at each speed */
 };
 
 extern const struct calib calib_initial[TRAINS_MAX][TRACK_COUNT];

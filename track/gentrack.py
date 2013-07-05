@@ -339,7 +339,7 @@ print('''/* GENERATED FILE. DO NOT EDIT */
 
 static const struct track_node {track_name}_nodes[{n_nodes}];
 static const struct track_node *{track_name}_calib_sensors[{n_calib_sensors}];
-static const int                {track_name}_calib_dists[{n_calib_sensors}];
+static const int                {track_name}_calib_mm[{n_calib_sensors}];
 static const struct track_node *{track_name}_calib_switches[{n_calib_switches}];
 static const bool               {track_name}_calib_curved[{n_calib_switches}];
 
@@ -349,7 +349,7 @@ const struct track_graph {track_name} = {{
     .n_sensors = {n_sensors},
     .n_calib_sensors  = {n_calib_sensors},
     .calib_sensors    = {track_name}_calib_sensors,
-    .calib_dists      = {track_name}_calib_dists,
+    .calib_mm         = {track_name}_calib_mm,
     .n_calib_switches = {n_calib_switches},
     .calib_switches   = {track_name}_calib_switches,
     .calib_curved     = {track_name}_calib_curved
@@ -384,7 +384,7 @@ print('};')
 
 # Print calibration cycle sensor distances
 print('''static const int
-{track_name}_calib_dists[{n_calib_sensors}] = {{'''.format(
+{track_name}_calib_mm[{n_calib_sensors}] = {{'''.format(
     track_name = track_name,
     n_calib_sensors = len(calib_sensors)))
 
