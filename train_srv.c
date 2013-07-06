@@ -16,6 +16,7 @@
 #include "xmemcpy.h"
 #include "array_size.h"
 #include "ringbuf.h"
+#include "pqueue.h"
 
 #include "u_syscall.h"
 #include "ns.h"
@@ -41,11 +42,14 @@
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        300
 
+#define TRAIN_SENSOR_OVERESTIMATE_UM    (30 * 1000)
+
 enum {
     TRAINMSG_SETSPEED,
     TRAINMSG_MOVETO,
     TRAINMSG_STOP,
     TRAINMSG_SENSOR,
+    TRAINMSG_SENSOR_TIMEOUT,
     TRAINMSG_TIMER,
     TRAINMSG_VCALIB,
     TRAINMSG_STOPCALIB,
@@ -133,6 +137,9 @@ struct train {
     /* Sensor bookkeeping */
     tid_t                     sensor_tid;
     bool                      sensor_rdy;
+    sensors_t                 sensor_mask[SENSOR_MODULES];
+    struct pqueue             sensor_times;
+    struct pqueue_node        sensor_times_nodes[SENSOR_MODULES * SENSORS_PER_MODULE];
 
     /* Timer */
     tid_t                     timer_tid;
@@ -155,20 +162,20 @@ static void trainsrv_stopcalib(struct train *tr, uint8_t speed);
 static void trainsrv_moveto_calib(struct train *tr);
 static void trainsrv_calibspeed(struct train *tr, uint8_t speed);
 static void trainsrv_sensor_disoriented(struct train *tr);
-static void trainsrv_sensor_orienting(
-    struct train *tr, sensors_t sensors[SENSOR_MODULES]);
+static void trainsrv_sensor_orienting(struct train *tr, track_node_t sens);
 static void trainsrv_sensor_vcalib(struct train *tr, int time);
 static void trainsrv_sensor_stopcalib(struct train *tr);
 static void trainsrv_sensor_pre_vcalib(struct train *tr);
 static void trainsrv_sensor_pre_stopcalib(struct train *tr);
 static void trainsrv_calib_setup(struct train *tr);
-static void trainsrv_sensor_running(
-    struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
+static void trainsrv_sensor_running(struct train *tr, track_node_t sens, int time);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
+static void trainsrv_sensor_timeout(struct train *tr, int time);
 static void trainsrv_pctrl_advance_um(struct train *tr, int dist_um);
 static void trainsrv_timer(struct train *tr, int time);
-static void trainsrv_expect_sensor(struct train *tr, int sensor, int timeout);
+static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
+static void trainsrv_tryrequest_sensor(struct train *tr);
 static bool trainsrv_expect_next_sensor(struct train *tr);
 static void trainsrv_switch_upto_sensnext(struct train *tr);
 static void trainsrv_pctrl_check_update(struct train *tr);
@@ -220,6 +227,11 @@ trainsrv_main(void)
             assert(!tr.sensor_rdy);
             trainsrv_sensor(&tr, msg.sensors, msg.time);
             break;
+        case TRAINMSG_SENSOR_TIMEOUT:
+            assert(client == tr.sensor_tid);
+            assert(!tr.sensor_rdy);
+            trainsrv_sensor_timeout(&tr, msg.time);
+            break;
         case TRAINMSG_TIMER:
             assert(client == tr.timer_tid);
             trainsrv_empty_reply(client);
@@ -244,6 +256,7 @@ trainsrv_main(void)
         default:
             panic("invalid train message type %d", msg.type);
         }
+        trainsrv_tryrequest_sensor(&tr);
         trainsrv_pctrl_check_update(&tr);
     }
 }
@@ -279,6 +292,12 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
         tr->calib.stop_um[i] -= tr->calib.vel_umpt[i] * SENSOR_AVG_DELAY_TICKS;
 
     tr->sensor_rdy = false;
+    pqueue_init(
+        &tr->sensor_times,
+        ARRAY_SIZE(tr->sensor_times_nodes),
+        tr->sensor_times_nodes);
+    for (i = 0; i < ARRAY_SIZE(tr->sensor_mask); i++)
+        tr->sensor_mask[i] = 0;
     tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);
     assert(tr->sensor_tid >= 0);
 
@@ -416,7 +435,7 @@ trainsrv_moveto_calib(struct train *tr)
         tcmux_switch_curve(&tr->tcmux, branch->num, curved);
     }
 
-    trainsrv_expect_sensor(tr, tr->track->calib_sensors[0]->num, -1);
+    trainsrv_expect_sensor(tr, tr->track->calib_sensors[0]);
     tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_DEFSPEED);
 }
 
@@ -446,7 +465,7 @@ trainsrv_calibspeed(struct train *tr, uint8_t speed)
     tr->calib_total_ticks = 0;
     tr->calib_total_um    = 0;
     tr->calib.vel_umpt[speed] = -1;
-    trainsrv_expect_sensor(tr, tr->track->calib_sensors[1]->num, -1);
+    trainsrv_expect_sensor(tr, tr->track->calib_sensors[1]);
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->calib_speed - 1); /* XXX */
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->calib_speed);
 }
@@ -454,24 +473,24 @@ trainsrv_calibspeed(struct train *tr, uint8_t speed)
 static void
 trainsrv_sensor_disoriented(struct train *tr)
 {
-    trainsrv_expect_sensor(tr, -1, -1);
     tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
     tr->state = TRAIN_ORIENTING;
 }
 
 static void
-trainsrv_sensor_orienting(struct train *tr, sensors_t sensors[SENSOR_MODULES])
+trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
 {
-    int i, sensor;
-    const struct track_node *sensnode;
-    tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
-    for (i = 0; i < SENSOR_MODULES; i++) {
-        if (sensors[i] != 0)
-            break;
-    }
-    assert(i != SENSOR_MODULES);
-    sensor                 = i * SENSORS_PER_MODULE + ctz16(sensors[i]);
-    sensnode               = &tr->track->nodes[sensor];
+    unsigned i;
+    /* Clear sensor state. */
+    for (i = 0; i < ARRAY_SIZE(tr->sensor_mask); i++)
+        tr->sensor_mask[i] = 0;
+
+    pqueue_init(
+        &tr->sensor_times,
+        ARRAY_SIZE(tr->sensor_times_nodes),
+        tr->sensor_times_nodes);
+
+    /* Set up initial oriented state. */
     tr->pctrl.ahead.edge   = &sensnode->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
         tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
@@ -527,7 +546,7 @@ trainsrv_sensor_vcalib(struct train *tr, int time)
     } else {
         int next = cur_sensor_ix + 1;
         next    %= tr->track->n_calib_sensors;
-        trainsrv_expect_sensor(tr, tr->track->calib_sensors[next]->num, -1);
+        trainsrv_expect_sensor(tr, tr->track->calib_sensors[next]);
     }
 }
 
@@ -543,7 +562,7 @@ static void
 trainsrv_sensor_pre_stopcalib(struct train *tr)
 {
     trainsrv_calib_setup(tr);
-    trainsrv_expect_sensor(tr, tr->track->calib_sensors[0]->num, -1);
+    trainsrv_expect_sensor(tr, tr->track->calib_sensors[0]);
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->calib_speed);
     tr->state = TRAIN_STOPCALIB;
 }
@@ -575,17 +594,16 @@ trainsrv_sensor_stopcalib(struct train *tr)
 
 
 static void
-trainsrv_sensor_running(
-    struct train *tr,
-    sensors_t sensors[SENSOR_MODULES],
-    int time)
+trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 {
-    const struct track_node *sens;
     struct train_pctrl est_pctrl;
-    (void)sensors;
 
-    sens = tr->path.sensors[tr->path_sensnext];
-    assert(sens->type == TRACK_NODE_SENSOR);
+    /* Update path_sensnext based on actual sensor hit. */
+    while (tr->path.sensors[tr->path_sensnext] != sens
+        && (unsigned)tr->path_sensnext < tr->path.n_sensors)
+        tr->path_sensnext++;
+
+    assert((unsigned)tr->path_sensnext < tr->path.n_sensors); /* FIXME FIXME */
 
     /* Save original for comparison */
     est_pctrl = tr->pctrl;
@@ -685,66 +703,60 @@ trainsrv_sensor_running(
 }
 
 static void
+trainsrv_sensor_timeout(struct train *tr, int time)
+{
+    for (;;) {
+        struct pqueue_entry *first_sensor;
+        int first_val;
+        first_sensor = pqueue_peekmin(&tr->sensor_times);
+        if (first_sensor == NULL)
+            break;
+        if (first_sensor->key >= time)
+            break;
+        first_val = first_sensor->val;
+        pqueue_popmin(&tr->sensor_times);
+        tr->sensor_mask[sensor1_module(first_val)] &=
+            ~(1 << sensor1_sensor(first_val));
+    }
+}
+
+static void
 trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
 {
-    /*const struct track_node *sensor;
-    sensor1_t sensor1;*/
+    const struct track_node *sens;
+    struct pqueue_entry *first_sensor;
+    sensor1_t hit;
 
-    tr->sensor_rdy = true;
-#if 0 /* FIXME */
-    sensor1 = sensors_scan(sensors);
-    if (sensor1 == SENSOR1_INVALID)
-        sensor = NULL;
-    else
-        sensor = &tr->track->nodes[sensor1];
-
-    dbglog(&tr->dbglog, "train%d hit %s",
-        tr->train_id,
-        sensor == NULL ? "none" : sensor->name);
-
-    if (tr->state != TRAIN_ENROUTE)
-        goto skip_last_sensor;
-    if (tr->last_sensor == NULL) {
-        tr->last_sensor = &tr->path[0];
-        while (*tr->last_sensor != sensor)
-            tr->last_sensor++;
-        tr->vel_mmps = 0;
-    } else {
-        dist = 0;
-        while (*tr->last_sensor != sensor) {
-            int i, edges = 1;
-            if ((*tr->last_sensor)->type == TRACK_NODE_BRANCH)
-                edges = 2;
-            for (i = 0; i < edges; i++) {
-                if ((*tr->last_sensor)->edge[i].dest == *(tr->last_sensor + 1))
-                    break;
-            }
-            assert(i < edges);
-            dist += (*tr->last_sensor)->edge[i].len_mm;
-            tr->last_sensor++;
-        }
-        int dt = time - tr->last_sensor_time;
-        int v  = 100 * (dist + dt / 2) / dt;
-        tr->vel_mmps = (tr->vel_mmps >> 1) + (v >> 1);
-        dbglog(&tr->dbglog,
-            "train%d velocity=%dmm/s, %dmm/s",
-            tr->train_id,
-            tr->vel_mmps,
-            v);
-        }
+    if (tr->state == TRAIN_DISORIENTED) {
+        trainsrv_sensor_disoriented(tr);
+        return;
     }
 
-    tr->last_sensor_time = time;
-skip_last_sensor:
-#endif
+    hit = sensors_scan(sensors);
+    assert(hit != SENSOR1_INVALID);
+    sens = &tr->track->nodes[hit];
+    assert(sens->type == TRACK_NODE_SENSOR);
 
+    if (tr->state == TRAIN_ORIENTING) {
+        trainsrv_sensor_orienting(tr, sens);
+        return;
+    }
+
+    for (;;) {
+        int first_val;
+        first_sensor = pqueue_peekmin(&tr->sensor_times);
+        if (first_sensor == NULL)
+            break;
+        first_val = first_sensor->val;
+        pqueue_popmin(&tr->sensor_times);
+        tr->sensor_mask[sensor1_module(first_val)] &=
+            ~(1 << sensor1_sensor(first_val));
+        if (first_val == hit)
+            break;
+    }
+
+    tr->sensor_rdy = true;
     switch (tr->state) {
-    case TRAIN_DISORIENTED:
-        trainsrv_sensor_disoriented(tr);
-        break;
-    case TRAIN_ORIENTING:
-        trainsrv_sensor_orienting(tr, sensors);
-        break;
     case TRAIN_PRE_VCALIB:
         trainsrv_sensor_pre_vcalib(tr);
         break;
@@ -758,7 +770,7 @@ skip_last_sensor:
         trainsrv_sensor_stopcalib(tr);
         break;
     case TRAIN_RUNNING:
-        trainsrv_sensor_running(tr, sensors, time);
+        trainsrv_sensor_running(tr, sens, time);
         break;
     default:
         panic("unexpected sensor reading in train state %d", tr->state);
@@ -813,24 +825,58 @@ trainsrv_timer(struct train *tr, int time)
 }
 
 static void
-trainsrv_expect_sensor(struct train *tr, int sensor, int timeout)
+trainsrv_expect_sensor(struct train *tr, track_node_t sens)
+{
+    struct track_pt sens_pt;
+    int smod, ssens;
+    int rc, ticks, sens_dist_um, vel;
+
+    assert(sens->type == TRACK_NODE_SENSOR);
+
+    smod  = sensor1_module(sens->num);
+    ssens = 1 << sensor1_sensor(sens->num);
+    if (tr->sensor_mask[smod] & ssens)
+        return;
+
+    /* Calculate expected sensor time */
+    sens_pt.edge   = &sens->edge[TRACK_EDGE_AHEAD];
+    sens_pt.pos_um = 1000 * (sens_pt.edge->len_mm - 1);
+    sens_dist_um   = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
+    sens_dist_um  += TRAIN_SENSOR_OVERESTIMATE_UM;
+    vel            = tr->calib.vel_umpt[tr->speed];
+    ticks          = tr->pctrl.pos_time + sens_dist_um / vel;
+
+    tr->sensor_mask[smod] |= ssens;
+    rc = pqueue_add(&tr->sensor_times, sens->num, ticks);
+    assertv(rc, rc == 0);
+}
+
+static void
+trainsrv_tryrequest_sensor(struct train *tr)
 {
     struct sensor_reply reply;
-    int i, rc;
-    assert(tr->sensor_rdy);
-    reply.timeout = timeout;
-    if (sensor == -1) {
-        for (i = 0; i < SENSOR_MODULES; i++)
-            reply.sensors[i] = (sensors_t)-1;
+    struct pqueue_entry *min;
+    int rc;
+
+    if (!tr->sensor_rdy || tr->state == TRAIN_DISORIENTED)
+        return;
+
+    min = pqueue_peekmin(&tr->sensor_times);
+    if (min == NULL)
+        return;
+
+    if (tr->state != TRAIN_RUNNING || tr->pctrl.state != PCTRL_CRUISE) {
+        reply.timeout = -1;
     } else {
-        int module;
-        assert(sensor >= 0 && sensor < SENSOR_MODULES * SENSORS_PER_MODULE);
-        for (i = 0; i < SENSOR_MODULES; i++)
-            reply.sensors[i] = 0;
-        module  = sensor / SENSORS_PER_MODULE;
-        sensor %= SENSORS_PER_MODULE;
-        reply.sensors[module] = 1 << sensor;
+        reply.timeout = min->key - tr->pctrl.pos_time;
+        assert(reply.timeout >= 0);
     }
+
+    if (tr->state == TRAIN_ORIENTING)
+        memset(reply.sensors, 0xff, sizeof (reply.sensors));
+    else
+        memcpy(reply.sensors, tr->sensor_mask, sizeof (reply.sensors));
+
     rc = Reply(tr->sensor_tid, &reply, sizeof (reply));
     assertv(rc, rc == 0);
     tr->sensor_rdy = false;
@@ -869,7 +915,10 @@ trainsrv_expect_next_sensor(struct train *tr)
     if (sens_path_ix == 0)
         return trainsrv_expect_next_sensor(tr);
 
-    trainsrv_expect_sensor(tr, tr->path.sensors[tr->path_sensnext]->num, -1);
+    trainsrv_expect_sensor(tr, tr->path.sensors[tr->path_sensnext]);
+    if ((unsigned)tr->path_sensnext < tr->path.n_sensors - 1)
+        trainsrv_expect_sensor(tr, tr->path.sensors[tr->path_sensnext + 1]);
+
     return true;
 }
 

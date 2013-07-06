@@ -15,8 +15,8 @@ SWITCH_SRV_H;
  * Canonically, the distance remaining should be less than the length of
  * the edge.  */
 struct track_pt {
-    const struct track_edge *edge;
-    int                      pos_um;
+    track_edge_t edge;
+    int          pos_um;
 };
 
 /* Reverse the given point in place. */
@@ -27,13 +27,20 @@ void track_pt_reverse(struct track_pt *pt);
 bool track_pt_advance(
     struct switchctx *switches,
     struct track_pt *pt,
-    const struct track_node *landmark,
+    track_node_t landmark,
     int distance_um);
 
 /* Advance a point along a given path. Returns true if the
  * point passes landmark on its way. */
 bool track_pt_advance_path(
-    struct track_path *path,
+    const struct track_path *path,
     struct track_pt *pt,
-    const struct track_node *landmark,
+    track_node_t landmark,
     int distance_um);
+
+/* Calculate the distance between two points along a given path,
+ * in micrometers. Point a must occur BEFORE point b on the path. */
+int track_pt_distance_path(
+    const struct track_path *path,
+    struct track_pt a,
+    struct track_pt b);
