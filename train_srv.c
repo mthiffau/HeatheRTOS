@@ -251,6 +251,7 @@ trainsrv_main(void)
 static void
 trainsrv_init(struct train *tr, struct traincfg *cfg)
 {
+    const struct calib *initcalib;
     unsigned i;
 
     tr->state    = TRAIN_DISORIENTED;
@@ -266,10 +267,11 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->estimate_client = -1;
 
     /* take initial calibration */
-    memcpy(
-        &tr->calib,
-        &calib_initial[cfg->train_id][cfg->track_id],
-        sizeof (tr->calib));
+    initcalib = initcalib_get(tr->train_id, cfg->track_id);
+    if (initcalib != NULL)
+        tr->calib = *initcalib;
+    else
+        memset(&tr->calib, '\0', sizeof (tr->calib));
 
     /* Adjust stopping distance values. They're too long by
      * SENSOR_AVG_DELAY_TICKS worth of distance at cruising velocity. */

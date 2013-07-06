@@ -9,7 +9,8 @@ TRACK_GRAPH_H;
 
 struct calib {
     int vel_umpt[16];  /* cruising velocity at each speed */
-    int stop_um[16];   /* multiplier for current velocity at each speed */
+    int stop_um[16];   /* stopping distance at each speed */
 };
 
-extern const struct calib calib_initial[TRAINS_MAX][TRACK_COUNT];
+/* Returns NULL if no static initial calibration is known. */
+const struct calib *initcalib_get(uint8_t train_id, uint8_t track_id);
