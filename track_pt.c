@@ -19,7 +19,7 @@ bool
 track_pt_advance(
     struct switchctx *switches,
     struct track_pt *pt,
-    struct track_node *landmark,
+    const struct track_node *landmark,
     int distance_um)
 {
     bool past_landmark = false;
@@ -44,7 +44,7 @@ bool
 track_pt_advance_path(
     struct track_path *path,
     struct track_pt *pt,
-    struct track_node *landmark,
+    const struct track_node *landmark,
     int distance_um)
 {
     bool past_landmark = false;

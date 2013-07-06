@@ -171,6 +171,7 @@ static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, int sensor, int timeout);
 static bool trainsrv_expect_next_sensor(struct train *tr);
 static void trainsrv_switch_upto_sensnext(struct train *tr);
+static void trainsrv_pctrl_check_update(struct train *tr);
 static void trainsrv_send_estimate(struct train *tr);
 
 static void trainsrv_sensor_listen(void);
@@ -243,7 +244,7 @@ trainsrv_main(void)
         default:
             panic("invalid train message type %d", msg.type);
         }
-        trainsrv_send_estimate(&tr);
+        trainsrv_pctrl_check_update(&tr);
     }
 }
 
@@ -858,12 +859,40 @@ trainsrv_expect_next_sensor(struct train *tr)
 }
 
 static void
+trainsrv_pctrl_check_update(struct train *tr)
+{
+    struct track_pt stop;
+    if (!tr->pctrl.updated)
+        return;
+
+    /* Calculate current stopping point and stop if desired. */
+    if (tr->pctrl.state == PCTRL_CRUISE) {
+        bool should_stop;
+        stop = tr->pctrl.ahead;
+        should_stop = track_pt_advance_path(
+            &tr->path,
+            &stop,
+            tr->path.edges[tr->path.hops - 1]->dest,
+            tr->calib.stop_um[tr->speed]);
+        if (should_stop)
+            trainsrv_stop(tr);
+    }
+
+    /* Reply to estimate client if any */
+    trainsrv_send_estimate(tr);
+
+    /* Reset updated flag. */
+    tr->pctrl.updated = false;
+}
+
+static void
 trainsrv_send_estimate(struct train *tr)
 {
     struct trainest_reply est;
     int rc;
 
-    if (tr->estimate_client < 0 || !tr->pctrl.updated)
+    assert(tr->pctrl.updated);
+    if (tr->estimate_client < 0)
         return;
 
     est.train_id       = tr->train_id;
@@ -880,7 +909,6 @@ trainsrv_send_estimate(struct train *tr)
     assertv(rc, rc == 0);
 
     tr->estimate_client = -1;
-    tr->pctrl.updated   = false;
 }
 
 static void

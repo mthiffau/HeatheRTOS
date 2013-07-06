@@ -27,7 +27,7 @@ void track_pt_reverse(struct track_pt *pt);
 bool track_pt_advance(
     struct switchctx *switches,
     struct track_pt *pt,
-    struct track_node *landmark,
+    const struct track_node *landmark,
     int distance_um);
 
 /* Advance a point along a given path. Returns true if the
@@ -35,5 +35,5 @@ bool track_pt_advance(
 bool track_pt_advance_path(
     struct track_path *path,
     struct track_pt *pt,
-    struct track_node *landmark,
+    const struct track_node *landmark,
     int distance_um);
