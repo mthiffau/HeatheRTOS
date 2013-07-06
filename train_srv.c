@@ -426,6 +426,8 @@ trainsrv_stop(struct train *tr)
     bool cruise;
     if (tr->state != TRAIN_RUNNING)
         return; /* ignore */
+    if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
+        return; /* ignore */
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
     cruise = tr->pctrl.state == PCTRL_CRUISE;
     tr->pctrl.state      = PCTRL_STOPPING;
@@ -588,6 +590,15 @@ trainsrv_sensor_running(
     /* Save original for comparison */
     est_pctrl = tr->pctrl;
 
+    if (tr->pctrl.state == PCTRL_STOPPING) {
+        /* JUST follow the path. No more estimation. */
+        tr->path_cur = TRACK_NODE_DATA(tr->track, sens, tr->path.node_ix);
+        assert(tr->path_cur >= 0);
+        if (trainsrv_expect_next_sensor(tr))
+            trainsrv_switch_upto_sensnext(tr);
+        return;
+    }
+
     tr->pctrl.updated      = true;
     tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
@@ -595,6 +606,8 @@ trainsrv_sensor_running(
     if (est_pctrl.pos_time > time) {
         int v  = tr->calib.vel_umpt[tr->speed];
         int dt = est_pctrl.pos_time - time;
+        if (tr->pctrl.state == PCTRL_STOPPED)
+            v = 0;
         trainsrv_pctrl_advance_um(tr, v * dt);
     }
 
@@ -619,7 +632,7 @@ trainsrv_sensor_running(
     }
 
     /* Transition to cruising if our position estimate is good enough. */
-    if (tr->pctrl.lastsens != NULL) {
+    if (tr->pctrl.lastsens != NULL && tr->pctrl.state == PCTRL_ACCEL) {
         int abs_err_um = tr->pctrl.err_um;
         if (abs_err_um < 0)
             abs_err_um = -abs_err_um;
