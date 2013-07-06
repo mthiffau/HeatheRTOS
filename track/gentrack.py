@@ -8,6 +8,11 @@ if len(sys.argv) != 2:
     sys.exit(1)
 
 track_name = sys.argv[1]
+if not track_name.startswith('track_'):
+    print("error: filename must begin with 'track_'", file=sys.stderr)
+    sys.exit(1)
+
+track_shortname = track_name[6:] # strip track_ from beginning
 
 sensors        = []
 sensors_by_num = { }
@@ -344,6 +349,7 @@ static const struct track_node *{track_name}_calib_switches[{n_calib_switches}];
 static const bool               {track_name}_calib_curved[{n_calib_switches}];
 
 const struct track_graph {track_name} = {{
+    .name      = "{track_shortname}",
     .nodes     = {track_name}_nodes,
     .n_nodes   = {n_nodes},
     .n_sensors = {n_sensors},
@@ -357,6 +363,7 @@ const struct track_graph {track_name} = {{
 
 static const struct track_node {track_name}_nodes[{n_nodes}] = {{'''.format(
     track_name = track_name,
+    track_shortname = track_shortname,
     n_nodes = len(nodes),
     n_sensors = len(sensors),
     n_calib_sensors = len(calib_sensors),

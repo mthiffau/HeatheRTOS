@@ -37,7 +37,7 @@ for TRACK_FILE in "${TRACK_FILES[@]}"; do
 done
 
 echo
-echo "static const struct track_graph * const all_tracks[TRACK_COUNT] = {";
+echo "static const track_graph_t all_tracks[TRACK_COUNT] = {";
 for TRACK_FILE in "${TRACK_FILES[@]}"; do
     TRACK_FILE="${TRACK_FILE%.in}"
     echo "    &$TRACK_FILE,"

@@ -169,8 +169,8 @@ struct uisrv {
     int   rvq_tail;
     int   rvq_count;
 
-    struct trainest           trainest_last;
-    const struct track_graph *track;
+    struct trainest trainest_last;
+    track_graph_t   track;
 
     struct ringbuf dbglog;
     char           dbglog_mem[4096];
@@ -207,8 +207,6 @@ static void uisrv_sensors(
     struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
 static void uisrv_dbglog(struct uisrv *uisrv, char *buf, int len);
 static void uisrv_finish_reverse(struct uisrv *uisrv);
-static const struct track_node* uisrv_lookup_node(
-    struct uisrv *uisrv, const char *name);
 static void kbd_listen(void);
 static void time_listen(void);
 static void sensor_listen(void);
@@ -484,18 +482,8 @@ uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc)
 {
-    int track;
     if (argc != 1) {
-        Print(&uisrv->tty, "usage: track (a|b)");
-        return;
-    }
-
-    if (!strcmp(argv[0], "a")) {
-        track = 0;
-    } else if (!strcmp(argv[0], "b")) {
-        track = 1;
-    } else {
-        Print(&uisrv->tty, "usage: track (a|b)");
+        Print(&uisrv->tty, "usage: track NAME");
         return;
     }
 
@@ -504,7 +492,9 @@ uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    uisrv->track = all_tracks[track];
+    uisrv->track = track_byname(argv[0]);
+    if (uisrv->track == NULL)
+        Printf(&uisrv->tty, "no track named %s", argv[0]);
 }
 
 static void
@@ -557,7 +547,7 @@ static void
 uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
 {
     uint8_t train;
-    const struct track_node *dest;
+    track_node_t dest;
 
     if (uisrv->track == NULL) {
         Print(&uisrv->tty, "no track selected");
@@ -574,7 +564,7 @@ uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    dest = uisrv_lookup_node(uisrv, argv[1]);
+    dest = track_node_byname(uisrv->track, argv[1]);
     if (dest == NULL) {
         Printf(&uisrv->tty, "unknown node '%s'", argv[1]);
         return;
@@ -872,10 +862,10 @@ static void
 uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
 {
     /* Parse arguments */
-    const struct track_node  *nodes[2];
-    struct track_path         path;
-    int                       rc;
-    unsigned                  i;
+    track_node_t      nodes[2];
+    struct track_path path;
+    int               rc;
+    unsigned          i;
 
     if (uisrv->track == NULL) {
         Print(&uisrv->tty, "no track selected");
@@ -888,7 +878,7 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     for (i = 0; i < 2; i++) {
-        nodes[i] = uisrv_lookup_node(uisrv, argv[i]);
+        nodes[i] = track_node_byname(uisrv->track, argv[i]);
         if (nodes[i] == NULL) {
             Printf(&uisrv->tty, "error: unknown node %s", argv[i]);
             return;
@@ -904,18 +894,6 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
             Printf(&uisrv->tty, "%s ", path.edges[i]->src->name);
         }
     }
-}
-
-static const struct track_node*
-uisrv_lookup_node(struct uisrv *uisrv, const char *name)
-{
-    int j;
-    assert(uisrv->track != NULL);
-    for (j = 0; j < uisrv->track->n_nodes; j++) {
-        if (!strcmp(name, uisrv->track->nodes[j].name))
-            return &uisrv->track->nodes[j];
-    }
-    return NULL;
 }
 
 static void

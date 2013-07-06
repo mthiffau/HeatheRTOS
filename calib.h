@@ -12,5 +12,7 @@ struct calib {
     int stop_um[16];   /* stopping distance at each speed */
 };
 
+/* Calibration server! */
+
 /* Returns NULL if no static initial calibration is known. */
 const struct calib *initcalib_get(uint8_t train_id, uint8_t track_id);
