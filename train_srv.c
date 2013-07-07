@@ -603,7 +603,7 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 {
     struct train_pctrl est_pctrl;
 
-    if (tr->pctrl.state == PCTRL_STOPPING)
+    if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return;
 
     /* Save original for comparison */
@@ -622,27 +622,14 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     }
 
     /* Compute delta */
-    const char *where = NULL;
     tr->pctrl.lastsens = sens;
-    if (est_pctrl.ahead.edge == tr->pctrl.ahead.edge) {
-        where = "same";
-        tr->pctrl.err_um = tr->pctrl.ahead.pos_um - est_pctrl.ahead.pos_um;
-    } else if (est_pctrl.ahead.edge->dest == tr->pctrl.ahead.edge->src) {
-        where = "prev";
-        tr->pctrl.err_um  = tr->pctrl.ahead.pos_um;
-        tr->pctrl.err_um -= tr->pctrl.ahead.edge->len_mm * 1000;
-        tr->pctrl.err_um -= est_pctrl.ahead.pos_um;
-    } else if (est_pctrl.ahead.edge->src == tr->pctrl.ahead.edge->dest) {
-        where = "next";
-        tr->pctrl.err_um  = tr->pctrl.ahead.pos_um;
-        tr->pctrl.err_um += est_pctrl.ahead.edge->len_mm * 1000;
-        tr->pctrl.err_um -= est_pctrl.ahead.pos_um;
-    } else {
-        tr->pctrl.lastsens = NULL;
-    }
+    tr->pctrl.err_um   = track_pt_distance_path(
+        &tr->path,
+        tr->pctrl.ahead,
+        est_pctrl.ahead);
 
     /* Transition to cruising if our position estimate is good enough. */
-    if (tr->pctrl.lastsens != NULL && tr->pctrl.state == PCTRL_ACCEL) {
+    if (tr->pctrl.state == PCTRL_ACCEL) {
         int abs_err_um = tr->pctrl.err_um;
         if (abs_err_um < 0)
             abs_err_um = -abs_err_um;
@@ -651,9 +638,7 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     }
 
     /* Print log messages */
-    if (tr->pctrl.lastsens == NULL) {
-        dbglog(&tr->dbglog, "%s: estimate too far", sens->name);
-    } else {
+    {
         int ahead_um, ahead_cm, est_ahead_um, est_ahead_cm;
         int err_um, err_cm;
         bool err_neg;
@@ -670,12 +655,11 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         err_cm  = err_um / 10000;
         err_um %= 10000;
         dbglog(&tr->dbglog,
-            "%s: act. at %s-%d.%04dcm, est. on %s edge at %s-%d.%04dcm, err=%c%d.%04dcm",
+            "%s: act. at %s-%d.%04dcm, est. at %s-%d.%04dcm, err=%c%d.%04dcm",
             sens->name,
             tr->pctrl.ahead.edge->dest->name,
             ahead_cm,
             ahead_um,
-            where,
             est_pctrl.ahead.edge->dest->name,
             est_ahead_cm,
             est_ahead_um,
@@ -774,7 +758,8 @@ static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
     tr->pctrl.updated = true;
-    track_pt_advance_path(&tr->path, &tr->pctrl.ahead, dist_um);
+    track_pt_advance_path(&tr->path, &tr->pctrl.ahead,  dist_um);
+    track_pt_advance_path(&tr->path, &tr->pctrl.behind, dist_um);
 }
 
 static void
