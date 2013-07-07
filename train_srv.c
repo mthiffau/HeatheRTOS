@@ -38,6 +38,7 @@
 /* FIXME these should be looked-up per train */
 #define TRAIN_FRONT_OFFS_UM     30000
 #define TRAIN_BACK_OFFS_UM      145000
+#define TRAIN_LENGTH_UM         225000
 
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        300
@@ -106,7 +107,6 @@ struct train_pctrl {
     int                       state;
     struct track_pt           ahead, behind;
     int                       pos_time;
-    int                       sens_cnt;
     int                       stop_ticks, stop_um;
     const struct track_node  *lastsens;
     int                       err_um;
@@ -151,7 +151,8 @@ struct train {
 
     /* Path to follow */
     struct track_path         path;
-    int                       path_cur, path_sensnext, path_swnext;
+    int                       path_swnext;
+    bool                      reverse_ok;
 };
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
@@ -171,13 +172,12 @@ static void trainsrv_calib_setup(struct train *tr);
 static void trainsrv_sensor_running(struct train *tr, track_node_t sens, int time);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
+static void trainsrv_start_orienting(struct train *tr);
 static void trainsrv_sensor_timeout(struct train *tr, int time);
 static void trainsrv_pctrl_advance_um(struct train *tr, int dist_um);
 static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
 static void trainsrv_tryrequest_sensor(struct train *tr);
-static bool trainsrv_expect_next_sensor(struct train *tr);
-/* static void trainsrv_switch_upto_sensnext(struct train *tr); */
 static void trainsrv_pctrl_check_update(struct train *tr);
 static void trainsrv_send_estimate(struct train *tr);
 
@@ -245,12 +245,11 @@ trainsrv_main(void)
             trainsrv_empty_reply(client);
             trainsrv_stopcalib(&tr, msg.speed);
             break;
-            /* FIXME
         case TRAINMSG_ORIENT:
             trainsrv_empty_reply(client);
-            trainsrv_sensor_disoriented(&tr);
+            if (tr.state == TRAIN_DISORIENTED)
+                trainsrv_start_orienting(&tr);
             break;
-            */
         case TRAINMSG_ESTIMATE:
             assert(tr.estimate_client < 0);
             tr.estimate_client = client;
@@ -276,7 +275,6 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.pos_time = -1;
-    tr->pctrl.sens_cnt = 0;
     tr->pctrl.lastsens = NULL;
     tr->pctrl.updated  = false;
     tr->estimate_client = -1;
@@ -344,7 +342,6 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
     if (tr->pctrl.state == PCTRL_CRUISE) {
         tcmux_train_speed(&tr->tcmux, tr->train_id, speed);
         tr->pctrl.state = PCTRL_ACCEL;
-        tr->pctrl.sens_cnt = 0;
     }
 }
 
@@ -361,18 +358,14 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
         return;
 
     /* Watch for next sensor on path. */
-    tr->path_cur = 0;
-    tr->path_sensnext = -1;
     tr->path_swnext   = 0;
-    if (!trainsrv_expect_next_sensor(tr))
-        return;
+    tr->pctrl.pos_time = Time(&tr->clock);
+    tr->pctrl.updated  = true;
 
     /* Switch all turnouts up to the second sensor. */
-    /* trainsrv_switch_upto_sensnext(tr); XXX */
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
     /* already TRAIN_RUNNING */
     tr->pctrl.state = PCTRL_ACCEL;
-    tr->pctrl.sens_cnt = 0;
 }
 
 static void
@@ -490,13 +483,26 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
         tr->sensor_times_nodes);
 
     /* Set up initial oriented state. */
+
+    /* Ahead position */
     tr->pctrl.ahead.edge   = &sensnode->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
         tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
-    /* TODO figure out behind */
+
+    /* Behind position */
+    tr->pctrl.behind = tr->pctrl.ahead;
+    track_pt_reverse(&tr->pctrl.behind);
+    track_pt_advance(&tr->switches, &tr->pctrl.behind, NULL, TRAIN_LENGTH_UM);
+    track_pt_reverse(&tr->pctrl.behind);
+    tr->reverse_ok =
+        tr->pctrl.behind.edge ==
+        sensnode->reverse->edge[TRACK_EDGE_AHEAD].reverse;
+
+    /* Position estimate as of what time. */
     tr->pctrl.pos_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
 
+    /* Train is now stopped. */
     tr->state       = TRAIN_RUNNING;
     tr->pctrl.state = PCTRL_STOPPED;
 }
@@ -597,24 +603,11 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 {
     struct train_pctrl est_pctrl;
 
-    /* Update path_sensnext based on actual sensor hit. */
-    while (tr->path.sensors[tr->path_sensnext] != sens
-        && (unsigned)tr->path_sensnext < tr->path.n_sensors)
-        tr->path_sensnext++;
-
-    assert((unsigned)tr->path_sensnext < tr->path.n_sensors); /* FIXME FIXME */
+    if (tr->pctrl.state == PCTRL_STOPPING)
+        return;
 
     /* Save original for comparison */
     est_pctrl = tr->pctrl;
-
-    if (tr->pctrl.state == PCTRL_STOPPING) {
-        /* JUST follow the path. No more estimation. */
-        tr->path_cur = TRACK_NODE_DATA(tr->track, sens, tr->path.node_ix);
-        assert(tr->path_cur >= 0);
-        trainsrv_expect_next_sensor(tr);
-        /* trainsrv_switch_upto_sensnext(tr); XXX */
-        return;
-    }
 
     tr->pctrl.updated      = true;
     tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
@@ -690,16 +683,13 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
             err_cm,
             err_um);
     }
+}
 
-    /* Continue along path */
-    tr->path_cur = TRACK_NODE_DATA(tr->track, sens, tr->path.node_ix);
-    assert(tr->path_cur >= 0);
-
-    if (!trainsrv_expect_next_sensor(tr))
-        trainsrv_stop(tr);
-    else {
-        /* trainsrv_switch_upto_sensnext(tr); XXX */
-    }
+static void
+trainsrv_start_orienting(struct train *tr)
+{
+    tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
+    tr->state = TRAIN_ORIENTING;
 }
 
 static void
@@ -707,8 +697,7 @@ trainsrv_sensor_timeout(struct train *tr, int time)
 {
     tr->sensor_rdy = true;
     if (tr->state == TRAIN_DISORIENTED) {
-        tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
-        tr->state = TRAIN_ORIENTING;
+        trainsrv_start_orienting(tr);
         return;
     }
 
@@ -869,12 +858,16 @@ trainsrv_tryrequest_sensor(struct train *tr)
         min = NULL;
     } else {
         for (;;) {
+            int min_val;
             min = pqueue_peekmin(&tr->sensor_times);
             if (min == NULL)
                 return;
             if (min->key >= tr->pctrl.pos_time)
                 break;
+            min_val = min->val;
             pqueue_popmin(&tr->sensor_times);
+            tr->sensor_mask[sensor1_module(min_val)] &=
+                ~(1 << sensor1_sensor(min_val));
         }
     }
 
@@ -907,55 +900,25 @@ trainsrv_tryrequest_sensor(struct train *tr)
     tr->sensor_rdy = false;
 }
 
-#if 0
-static void
-trainsrv_switch_upto_sensnext(struct train *tr)
-{
-    unsigned i;
-    int sensors;
-    sensors = 0;
-    for (i = tr->path_cur + 1; i < tr->path.hops && sensors < 2; i++) {
-        bool curved;
-        const struct track_node *src = tr->path.edges[i]->src;
-        if (src->type == TRACK_NODE_SENSOR)
-            sensors++;
-        if (src->type != TRACK_NODE_BRANCH)
-            continue;
-        curved = tr->path.edges[i] == &tr->path.edges[i]->src->edge[TRACK_EDGE_CURVED];
-        tcmux_switch_curve(&tr->tcmux, src->num, curved);
-    }
-}
-#endif
-
-static bool
-trainsrv_expect_next_sensor(struct train *tr)
-{
-    int sens_path_ix;
-    if ((unsigned)++tr->path_sensnext >= tr->path.n_sensors)
-        return false;
-
-    sens_path_ix = TRACK_NODE_DATA(
-        tr->track,
-        tr->path.sensors[tr->path_sensnext],
-        tr->path.node_ix);
-
-    if (sens_path_ix == 0)
-        return trainsrv_expect_next_sensor(tr);
-
-    trainsrv_expect_sensor(tr, tr->path.sensors[tr->path_sensnext]);
-    if ((unsigned)tr->path_sensnext < tr->path.n_sensors - 1)
-        trainsrv_expect_sensor(tr, tr->path.sensors[tr->path_sensnext + 1]);
-
-    return true;
-}
-
 static void
 trainsrv_pctrl_check_update(struct train *tr)
 {
     struct track_pt pos;
     track_node_t branch;
     bool should_switch;
+    unsigned i, nsensors;
+
     if (!tr->pctrl.updated)
+        return;
+
+    /* Reply to estimate client if any */
+    trainsrv_send_estimate(tr);
+
+    /* Reset updated flag. */
+    tr->pctrl.updated = false;
+
+    /* Position control follows. Only while moving! */
+    if (tr->state != TRAIN_RUNNING || tr->pctrl.state == PCTRL_STOPPED)
         return;
 
     /* Calculate current stopping point and stop if desired. */
@@ -990,11 +953,16 @@ trainsrv_pctrl_check_update(struct train *tr)
         }
     } while (should_switch);
 
-    /* Reply to estimate client if any */
-    trainsrv_send_estimate(tr);
-
-    /* Reset updated flag. */
-    tr->pctrl.updated = false;
+    /* Check for sensors ahead. */
+    i = TRACK_NODE_DATA(tr->track, tr->pctrl.ahead.edge->src, tr->path.node_ix);
+    nsensors = 0;
+    while (i < tr->path.hops && nsensors < 2) {
+        track_node_t node = tr->path.edges[i++]->dest;
+        if (node->type != TRACK_NODE_SENSOR)
+            continue;
+        trainsrv_expect_sensor(tr, node);
+        nsensors++;
+    }
 }
 
 static void
