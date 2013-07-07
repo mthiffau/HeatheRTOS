@@ -17,20 +17,16 @@ track_pt_reverse(struct track_pt *pt)
     pt->pos_um = pt->edge->len_mm * 1000 - pt->pos_um;
 }
 
-bool
+void
 track_pt_advance(
     struct switchctx *switches,
     struct track_pt *pt,
-    track_node_t landmark,
     int distance_um)
 {
-    bool past_landmark = false;
     pt->pos_um -= distance_um;
     while (pt->pos_um < 0) {
         track_node_t next_src = pt->edge->dest;
         int edge_ix;
-        if (next_src == landmark)
-            past_landmark = true;
         edge_ix = TRACK_EDGE_AHEAD;
         if (next_src->type == TRACK_NODE_BRANCH) {
             bool curved = switch_iscurved(switches, next_src->num);
@@ -39,23 +35,18 @@ track_pt_advance(
         pt->edge    = &next_src->edge[edge_ix];
         pt->pos_um += 1000 * pt->edge->len_mm;
     }
-    return past_landmark;
 }
 
-bool
+void
 track_pt_advance_path(
     const struct track_path *path,
     struct track_pt *pt,
-    const struct track_node *landmark,
     int distance_um)
 {
-    bool past_landmark = false;
     pt->pos_um -= distance_um;
     while (pt->pos_um < 0) {
         track_node_t next_src = pt->edge->dest;
         int edge_ix;
-        if (next_src == landmark)
-            past_landmark = true;
         edge_ix = TRACK_EDGE_AHEAD;
         if (next_src->type == TRACK_NODE_BRANCH) {
             bool curved;
@@ -69,7 +60,6 @@ track_pt_advance_path(
         pt->edge    = &next_src->edge[edge_ix];
         pt->pos_um += 1000 * pt->edge->len_mm;
     }
-    return past_landmark;
 }
 
 int

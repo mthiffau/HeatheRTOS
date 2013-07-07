@@ -22,6 +22,8 @@
 #include "xarg.h"
 #include "bwio.h"
 
+#define TCMUX_SWITCH_DELAY_TICKS    10
+
 #define SPEED_QUEUE_SIZE        64
 #define SWITCH_QUEUE_SIZE       64
 
@@ -449,7 +451,7 @@ tcmux_switch_delayer(void)
     for (;;) {
         rplylen = Send(tcmux, &msg, sizeof (msg), NULL, 0);
         assertv(rplylen, rplylen == 0);
-        rc = Delay(&clock, 10);
+        rc = Delay(&clock, TCMUX_SWITCH_DELAY_TICKS);
         assertv(rc, rc == CLOCK_OK);
     }
 }

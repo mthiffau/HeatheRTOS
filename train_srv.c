@@ -492,7 +492,7 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     /* Behind position */
     tr->pctrl.behind = tr->pctrl.ahead;
     track_pt_reverse(&tr->pctrl.behind);
-    track_pt_advance(&tr->switches, &tr->pctrl.behind, NULL, TRAIN_LENGTH_UM);
+    track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
     track_pt_reverse(&tr->pctrl.behind);
     tr->reverse_ok =
         tr->pctrl.behind.edge ==
@@ -774,7 +774,7 @@ static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
     tr->pctrl.updated = true;
-    track_pt_advance(&tr->switches, &tr->pctrl.ahead, NULL, dist_um);
+    track_pt_advance_path(&tr->path, &tr->pctrl.ahead, dist_um);
 }
 
 static void
@@ -903,9 +903,6 @@ trainsrv_tryrequest_sensor(struct train *tr)
 static void
 trainsrv_pctrl_check_update(struct train *tr)
 {
-    struct track_pt pos;
-    track_node_t branch;
-    bool should_switch;
     unsigned i, nsensors;
 
     if (!tr->pctrl.updated)
@@ -923,35 +920,43 @@ trainsrv_pctrl_check_update(struct train *tr)
 
     /* Calculate current stopping point and stop if desired. */
     if (tr->pctrl.state == PCTRL_CRUISE) {
-        bool should_stop;
-        pos = tr->pctrl.ahead;
-        should_stop = track_pt_advance_path(
+        struct track_pt end_pt;
+        int distance_um;
+        end_pt.edge   = tr->path.edges[tr->path.hops - 1];
+        end_pt.pos_um = 0;
+        distance_um = track_pt_distance_path(
             &tr->path,
-            &pos,
-            tr->path.edges[tr->path.hops - 1]->dest,
-            tr->calib.stop_um[tr->speed]);
+            tr->pctrl.ahead,
+            end_pt);
 
-        if (should_stop)
+        if (distance_um <= tr->calib.stop_um[tr->speed])
             trainsrv_stop(tr);
     }
 
     /* Check for branches ahead. */
-    do {
-        int sw_um = tr->calib.vel_umpt[tr->speed] * TRAIN_SWITCH_AHEAD_TICKS;
-        pos    = tr->pctrl.ahead;
+    while ((unsigned)tr->path_swnext < tr->path.n_branches) {
+        struct track_pt sw_pt;
+        track_node_t branch;
+        int br_ix, dist_um;
+        bool curved;
+
         branch = tr->path.branches[tr->path_swnext];
-        should_switch = track_pt_advance_path(&tr->path, &pos, branch, sw_um);
-        if (should_switch) {
-            int ix;
-            track_edge_t edge;
-            bool curved;
-            ix     = TRACK_NODE_DATA(tr->track, branch, tr->path.node_ix);
-            edge   = tr->path.edges[ix];
-            curved = edge == &edge->src->edge[TRACK_EDGE_CURVED];
-            tcmux_switch_curve(&tr->tcmux, branch->num, curved);
-            tr->path_swnext++;
-        }
-    } while (should_switch);
+        br_ix  = TRACK_NODE_DATA(tr->track, branch, tr->path.node_ix);
+        assert(br_ix >= 0);
+        if ((unsigned)br_ix >= tr->path.hops)
+            break;
+
+        sw_pt.edge   = tr->path.edges[br_ix];
+        sw_pt.pos_um = 1000 * sw_pt.edge->len_mm - 1;
+        dist_um  = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sw_pt);
+        dist_um -= tr->calib.vel_umpt[tr->speed] * TRAIN_SWITCH_AHEAD_TICKS;
+        if (dist_um > 0)
+            break;
+
+        curved = sw_pt.edge == &sw_pt.edge->src->edge[TRACK_EDGE_CURVED];
+        tcmux_switch_curve(&tr->tcmux, branch->num, curved);
+        tr->path_swnext++;
+    }
 
     /* Check for sensors ahead. */
     i = TRACK_NODE_DATA(tr->track, tr->pctrl.ahead.edge->src, tr->path.node_ix);

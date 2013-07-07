@@ -135,20 +135,15 @@ track_pathfind(
     }
 
     /* Make handy list of sensors */
-    path_out->n_sensors  = 0;
     path_out->n_branches = 0;
     for (i = 0; i < path_out->hops; i++) {
         const struct track_node *src = path_out->edges[i]->src;
-        if (src->type == TRACK_NODE_SENSOR)
-            path_out->sensors[path_out->n_sensors++] = src;
-        else if (src->type == TRACK_NODE_BRANCH)
+        if (src->type == TRACK_NODE_BRANCH)
             path_out->branches[path_out->n_branches++] = src;
     }
 
     dest = path_out->edges[path_out->hops - 1]->dest;
-    if (dest->type == TRACK_NODE_SENSOR)
-        path_out->sensors[path_out->n_sensors++] = dest;
-    else if (dest->type == TRACK_NODE_BRANCH)
+    if (dest->type == TRACK_NODE_BRANCH)
         path_out->branches[path_out->n_branches++] = dest;
 
     return 0;

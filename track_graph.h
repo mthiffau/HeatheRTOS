@@ -80,8 +80,6 @@ struct track_path {
     track_graph_t track;
     size_t        hops, len_mm;
     track_edge_t  edges[TRACK_NODES_MAX];
-    size_t        n_sensors;
-    track_node_t  sensors[SENSOR_MODULES * SENSORS_PER_MODULE];
     size_t        n_branches;
     track_node_t  branches[TRACK_NODES_MAX];
 
