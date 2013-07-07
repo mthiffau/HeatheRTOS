@@ -93,7 +93,7 @@
 #define SENSORS_LBL_COL             1
 #define SENSORS_LBL                 "Recent sensors: "
 #define DBGLOG_TOP_ROW              15
-#define DBGLOG_BTM_ROW              30
+#define DBGLOG_BTM_ROW              9999
 #define DBGLOG_COL                  1
 #define TRAINPOS_ROW                13
 #define TRAINPOS_COL                17
