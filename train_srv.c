@@ -909,6 +909,7 @@ trainsrv_expect_sensor(struct train *tr, track_node_t sens)
     sens_pt.edge   = sens->reverse->edge[TRACK_EDGE_AHEAD].reverse;
     sens_pt.pos_um = 0;
     sens_dist_um   = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
+    sens_dist_um  += tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
     sens_dist_um  += TRAIN_SENSOR_OVERESTIMATE_UM;
     vel            = tr->calib.vel_umpt[tr->speed];
     ticks          = tr->pctrl.pos_time + sens_dist_um / vel;
