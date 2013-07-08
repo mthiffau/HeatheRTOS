@@ -863,9 +863,8 @@ static void
 uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
 {
     /* Parse arguments */
-    track_node_t      nodes[2];
+    struct track_pt   points[2];
     struct track_path path;
-    struct track_pt   path_src;
     int               rc;
     unsigned          i;
 
@@ -880,26 +879,16 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     for (i = 0; i < 2; i++) {
-        nodes[i] = track_node_byname(uisrv->track, argv[i]);
-        if (nodes[i] == NULL) {
+        track_node_t node = track_node_byname(uisrv->track, argv[i]);
+        if (node == NULL) {
             Printf(&uisrv->tty, "error: unknown node %s", argv[i]);
             return;
         }
+        track_pt_from_node(node, &points[i]);
     }
 
     /* Find the path! */
-    switch (nodes[0]->type) {
-    case TRACK_NODE_MERGE:
-    case TRACK_NODE_ENTER:
-        path_src.edge   = &nodes[0]->edge[TRACK_EDGE_AHEAD];
-        path_src.pos_um = 1000 * path_src.edge->len_mm - 1;
-        break;
-    default:
-        path_src.edge   = nodes[0]->reverse->edge[TRACK_EDGE_AHEAD].reverse;
-        path_src.pos_um = 0;
-        break;
-    }
-    rc = track_pathfind(uisrv->track, &path_src, 1, &nodes[1], 1, &path);
+    rc = track_pathfind(uisrv->track, &points[0], 1, &points[1], 1, &path);
     if (rc == -1) {
         Print(&uisrv->tty, "no (directed) path");
     } else {

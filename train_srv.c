@@ -42,8 +42,9 @@
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        400
 
-#define TRAIN_SENSOR_OVERESTIMATE_UM    (40 * 1000)
+#define TRAIN_SENSOR_OVERESTIMATE_UM    (80 * 1000) // FIXME more like 4cm
 #define TRAIN_SWITCH_AHEAD_TICKS        50
+#define TRAIN_CRUISE_ERRTHRESH_UM       (40 * 1000) // FIXME more like 2cm
 
 enum {
     TRAINMSG_SETSPEED,
@@ -341,8 +342,7 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 static void
 trainsrv_moveto(struct train *tr, track_node_t dest)
 {
-    struct track_pt path_starts[2];
-    track_node_t    path_dests[2];
+    struct track_pt path_starts[2], path_dests[2];
     int rc, n_starts;
     if (tr->state != TRAIN_RUNNING || tr->pctrl.state != PCTRL_STOPPED)
         return;
@@ -355,8 +355,11 @@ trainsrv_moveto(struct train *tr, track_node_t dest)
         track_pt_reverse(&path_starts[n_starts]);
         n_starts++;
     }
-    path_dests[0] = dest;
-    path_dests[1] = dest->reverse;
+
+    track_pt_from_node(dest, &path_dests[0]);
+    path_dests[1] = path_dests[0];
+    track_pt_reverse(&path_dests[1]);
+
     rc = track_pathfind(
         tr->track,
         path_starts,
@@ -425,13 +428,15 @@ trainsrv_stopcalib(struct train *tr, uint8_t speed)
 static void
 trainsrv_moveto_calib(struct train *tr)
 {
+    struct track_pt dest_pt;
     unsigned i;
     int rc;
+    track_pt_from_node(tr->track->calib_sensors[0], &dest_pt);
     rc = track_pathfind(
         tr->track,
         &tr->pctrl.ahead,
         1,
-        &tr->track->calib_sensors[0],
+        &dest_pt,
         1,
         &tr->path);
     assertv(rc, rc == 0);
@@ -711,7 +716,7 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         int abs_err_um = tr->pctrl.err_um;
         if (abs_err_um < 0)
             abs_err_um = -abs_err_um;
-        if (abs_err_um < 20000)
+        if (abs_err_um < TRAIN_CRUISE_ERRTHRESH_UM)
             tr->pctrl.state = PCTRL_CRUISE;
     }
 
@@ -982,15 +987,12 @@ trainsrv_pctrl_check_update(struct train *tr)
         return;
 
     /* Calculate current stopping point and stop if desired. */
-    if (tr->pctrl.state == PCTRL_CRUISE) {
-        struct track_pt end_pt;
+    if (tr->pctrl.state == PCTRL_CRUISE || tr->pctrl.state == PCTRL_ACCEL) {
         int distance_um;
-        end_pt.edge   = tr->path.edges[tr->path.hops - 1];
-        end_pt.pos_um = 0;
         distance_um = track_pt_distance_path(
             &tr->path,
             tr->pctrl.ahead,
-            end_pt);
+            tr->path.end);
 
         if (distance_um <= tr->calib.stop_um[tr->speed])
             trainsrv_stop(tr);

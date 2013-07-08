@@ -76,19 +76,6 @@ struct track_graph {
 #include "track/list.h"
 #define TRACK_EDGES_MAX     (TRACK_NODES_MAX * 2)
 
-struct track_path {
-    track_graph_t track;
-    size_t        hops, len_mm;
-    track_edge_t  edges[TRACK_NODES_MAX];
-    size_t        n_branches;
-    track_node_t  branches[TRACK_NODES_MAX];
-
-    /* Index of each node in this path. Gives the edge OUT from that
-     * node. Last node gets mapped to hops (1 past the end of edges).
-     * Nodes outside of the path are mapped to -1. */
-    int           node_ix[TRACK_NODES_MAX];
-};
-
 /* For 'attaching' data to track nodes.
  * Use an array of size TRACK_NODES_MAX.
  * Macro returns an lvalue - good for set as well. */
