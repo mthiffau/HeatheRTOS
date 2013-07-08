@@ -14,6 +14,7 @@
 
 #include "ns.h"
 #include "clock_srv.h"
+#include "dbglog_srv.h"
 
 enum {
     SENSMSG_WAIT,
@@ -36,6 +37,7 @@ struct sensclient {
 
 struct sensrv {
     struct clkctx      clock;
+    struct dbglogctx   dbglog;
     struct sensclient *clients_head;
     struct sensclient  clients[MAX_TASKS];
 };
@@ -78,6 +80,7 @@ sensrv_init(struct sensrv *srv)
 {
     unsigned i;
     clkctx_init(&srv->clock);
+    dbglogctx_init(&srv->dbglog);
     srv->clients_head = NULL;
     for (i = 0; i < ARRAY_SIZE(srv->clients); i++)
         srv->clients[i].tid = -1;
@@ -115,6 +118,7 @@ sensrv_report(struct sensrv *srv, tid_t client, struct sensmsg *msg)
 
     now = Time(&srv->clock) - SENSOR_AVG_DELAY_TICKS;
     cur = &srv->clients_head;
+
     while (*cur != NULL) {
         struct sensmsg replymsg;
         unsigned i;
