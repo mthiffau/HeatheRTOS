@@ -918,12 +918,14 @@ trainsrv_tryrequest_sensor(struct train *tr)
     if (tr->state == TRAIN_ORIENTING) {
         min = NULL;
     } else {
+        /* Find earliest time, removing those in the past. */
         for (;;) {
             int min_val;
             min = pqueue_peekmin(&tr->sensor_times);
             if (min == NULL)
                 return;
-            if (min->key >= tr->pctrl.pos_time)
+            if (min->key >= tr->pctrl.pos_time
+                || tr->pctrl.state != PCTRL_CRUISE)
                 break;
             min_val = min->val;
             pqueue_popmin(&tr->sensor_times);
