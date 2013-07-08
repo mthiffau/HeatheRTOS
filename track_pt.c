@@ -147,41 +147,54 @@ track_pt_distance_path(
 
 int
 track_pathfind(
-    track_graph_t   track,
-    struct track_pt src_pt,
-    track_node_t    dest,
-    struct track_path *path_out)
+    track_graph_t          track,
+    const struct track_pt *src_pts,
+    unsigned               src_count,
+    const track_node_t    *dests,
+    unsigned               dest_count,
+    struct track_path     *path_out)
 {
     struct node_info {
-        bool                     visited;
         int                      distance; /* -1 means infinity */
         int                      hops;
         const struct track_edge *parent;
+        bool                     visited;
+        bool                     isdest;
     } node_info[TRACK_NODES_MAX];
 
     struct pqueue       border;
     struct pqueue_node  border_mem[TRACK_NODES_MAX];
     unsigned            i;
     int                 rc, path_hops;
-    struct node_info   *src_info;
+    track_node_t        dest; /* holds the chosen destination */
 
     /* Initialize auxiliary node data */
     pqueue_init(&border, ARRAY_SIZE(border_mem), border_mem);
     for (i = 0; i < ARRAY_SIZE(node_info); i++) {
         struct node_info *inf = &node_info[i];
         inf->visited  = false;
+        inf->isdest   = false;
         inf->distance = -1;
         inf->hops     = 0;
         inf->parent   = NULL;
     }
 
-    /* Start with just src at distance 0. */
-    src_info = &TRACK_NODE_DATA(track, src_pt.edge->dest, node_info);
-    src_info->hops     = 1;
-    src_info->distance = src_pt.pos_um / 1000;
-    src_info->parent   = src_pt.edge;
-    rc = pqueue_add(&border, src_pt.edge->dest - track->nodes, 0);
-    assertv(rc, rc == 0);
+    /* Mark all destinations */
+    for (i = 0; i < dest_count; i++)
+        TRACK_NODE_DATA(track, dests[i], node_info).isdest = true;
+
+    /* Start with destinations of source point edges at 1 hop and
+     * at distances determined by the points. */
+    for (i = 0; i < src_count; i++) {
+        struct node_info *src_info;
+        struct track_pt   src_pt = src_pts[i];
+        src_info = &TRACK_NODE_DATA(track, src_pt.edge->dest, node_info);
+        src_info->hops     = 1;
+        src_info->distance = src_pt.pos_um / 1000;
+        src_info->parent   = src_pt.edge;
+        rc = pqueue_add(&border, src_pt.edge->dest - track->nodes, 0);
+        assertv(rc, rc == 0);
+    }
 
     /* DIJKSTRA */
     for (;;) {
@@ -197,11 +210,12 @@ track_pathfind(
         node = &track->nodes[min->val];
         pqueue_popmin(&border);
 
-        if (node == dest)
-            break;
-
         cur_info = &TRACK_NODE_DATA(track, node, node_info);
         cur_info->visited = true;
+        if (cur_info->isdest) {
+            dest = node;
+            break;
+        }
 
         n_edges = (unsigned)track_node_edges[node->type];
         for (i = 0; i < n_edges; i++) {

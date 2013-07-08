@@ -45,11 +45,13 @@ int track_pt_distance_path(
     struct track_pt a,
     struct track_pt b);
 
-/* Find a (good, directed) path from src to dest on the given track.
- * If a path is found, stores it in path_out and returns 0.
- * Otherwise, returns -1. */
+/* Find a (good, directed) path from any src to any dest on
+ * the given track. If a path is found, stores it in path_out
+ * and returns 0. Otherwise, returns -1. */
 int track_pathfind(
-    track_graph_t      track,
-    struct track_pt    src,
-    track_node_t       dests,
-    struct track_path *path_out);
+    track_graph_t          track,
+    const struct track_pt *src_pts,
+    unsigned               src_count,
+    const track_node_t    *dests,
+    unsigned               dest_count,
+    struct track_path     *path_out);

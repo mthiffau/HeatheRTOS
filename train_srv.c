@@ -339,34 +339,42 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 }
 
 static void
-trainsrv_moveto(struct train *tr, const struct track_node *dest)
+trainsrv_moveto(struct train *tr, track_node_t dest)
 {
-    int rc;
+    struct track_pt path_starts[2];
+    track_node_t    path_dests[2];
+    int rc, n_starts;
     if (tr->state != TRAIN_RUNNING || tr->pctrl.state != PCTRL_STOPPED)
         return;
 
     /* Get path to follow */
-    rc = track_pathfind(tr->track, tr->pctrl.ahead, dest, &tr->path);
-    if (rc < 0) {
-        struct track_pt tmp;
-        if (!tr->reverse_ok)
-            return;
-        tmp = tr->pctrl.behind;
-        track_pt_reverse(&tmp);
-        rc = track_pathfind(tr->track, tmp, dest, &tr->path);
-        if (tr->path.hops == 0 || rc < 0)
-            return;
+    n_starts = 0;
+    path_starts[n_starts++] = tr->pctrl.ahead;
+    if (tr->reverse_ok) {
+        path_starts[n_starts] = tr->pctrl.behind;
+        track_pt_reverse(&path_starts[n_starts]);
+        n_starts++;
+    }
+    path_dests[0] = dest;
+    path_dests[1] = dest->reverse;
+    rc = track_pathfind(
+        tr->track,
+        path_starts,
+        n_starts,
+        path_dests,
+        ARRAY_SIZE(path_dests),
+        &tr->path);
+
+    if (rc < 0 || tr->path.hops == 0)
+        return;
+
+    if (tr->reverse_ok && tr->path.edges[0] == path_starts[1].edge) {
         tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
-        tmp              = tr->pctrl.ahead;
-        tr->pctrl.ahead  = tr->pctrl.behind;
-        tr->pctrl.behind = tmp;
-        track_pt_reverse(&tr->pctrl.ahead);
+        tr->pctrl.ahead  = path_starts[1];
+        tr->pctrl.behind = path_starts[0];
         track_pt_reverse(&tr->pctrl.behind);
         tr->pctrl.reversed = !tr->pctrl.reversed;
     }
-
-    if (tr->path.hops == 0)
-        return;
 
     /* Watch for next sensor on path. */
     tr->path_swnext   = 0;
@@ -421,8 +429,10 @@ trainsrv_moveto_calib(struct train *tr)
     int rc;
     rc = track_pathfind(
         tr->track,
-        tr->pctrl.ahead,
-        tr->track->calib_sensors[0],
+        &tr->pctrl.ahead,
+        1,
+        &tr->track->calib_sensors[0],
+        1,
         &tr->path);
     assertv(rc, rc == 0);
 
@@ -787,8 +797,6 @@ trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
     sens = &tr->track->nodes[hit];
     assert(sens->type == TRACK_NODE_SENSOR);
 
-    dbglog(&tr->dbglog, "hit %s", sens->name);
-
     if (tr->state == TRAIN_ORIENTING) {
         trainsrv_sensor_orienting(tr, sens);
         return;
@@ -949,14 +957,6 @@ trainsrv_tryrequest_sensor(struct train *tr)
         memset(reply.sensors, 0xff, sizeof (reply.sensors));
     else
         memcpy(reply.sensors, tr->sensor_mask, sizeof (reply.sensors));
-
-    dbglog(&tr->dbglog, "waiting for %x-%x-%x-%x-%x, timeout=%d",
-        reply.sensors[0],
-        reply.sensors[1],
-        reply.sensors[2],
-        reply.sensors[3],
-        reply.sensors[4],
-        reply.timeout);
 
     rc = Reply(tr->sensor_tid, &reply, sizeof (reply));
     assertv(rc, rc == 0);

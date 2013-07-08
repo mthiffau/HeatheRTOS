@@ -899,7 +899,7 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
         path_src.pos_um = 0;
         break;
     }
-    rc = track_pathfind(uisrv->track, path_src, nodes[1], &path);
+    rc = track_pathfind(uisrv->track, &path_src, 1, &nodes[1], 1, &path);
     if (rc == -1) {
         Print(&uisrv->tty, "no (directed) path");
     } else {
