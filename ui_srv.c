@@ -180,6 +180,7 @@ struct uisrv {
 
 static int tokenize(char *cmd, char **ts, int max_ts);
 static int atou8(const char *s, uint8_t *ret);
+static int atou32(const char *s, uint32_t *ret, uint32_t max);
 
 /* FIXME */
 static void uisrv_init(struct uisrv *uisrv);
@@ -548,7 +549,10 @@ static void
 uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
 {
     uint8_t train;
-    track_node_t dest;
+    char *node_name, *offs;
+    bool have_offs, offs_neg;
+    track_node_t dest_node;
+    struct track_pt dest;
 
     if (uisrv->track == NULL) {
         Print(&uisrv->tty, "no track selected");
@@ -556,7 +560,7 @@ uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: goto TRAIN NODE");
+        Print(&uisrv->tty, "usage: goto TRAIN NODE([+-]\\d+)");
         return;
     }
 
@@ -565,15 +569,70 @@ uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    dest = track_node_byname(uisrv->track, argv[1]);
-    if (dest == NULL) {
-        Printf(&uisrv->tty, "unknown node '%s'", argv[1]);
-        return;
-    }
-
     if (!uisrv->traintab[train].running) {
         Printf(&uisrv->tty, "train %d not active", train);
         return;
+    }
+
+    node_name = argv[1];
+    for (offs = node_name; *offs && *offs != '+' && *offs != '-'; offs++) { }
+    have_offs = (bool)*offs;
+    offs_neg  = *offs == '-';
+    *offs++   = '\0';
+
+    dest_node = track_node_byname(uisrv->track, node_name);
+    if (dest_node == NULL) {
+        Printf(&uisrv->tty, "unknown node '%s'", node_name);
+        return;
+    }
+
+    if (!have_offs) {
+        track_pt_from_node(dest_node, &dest);
+    } else {
+        uint32_t offs_mm;
+        if (atou32(offs, &offs_mm, (uint32_t)-1) != 0) {
+            Printf(&uisrv->tty, "bad distance %s", offs);
+            return;
+        }
+        if (offs_neg) {
+            if (dest_node->type == TRACK_NODE_MERGE) {
+                Printf(&uisrv->tty, "ambiguous destination %s-%s",
+                    dest_node->name,
+                    offs);
+                return;
+            }
+            if (dest_node->type == TRACK_NODE_ENTER) {
+                Printf(&uisrv->tty, "nonexistent destination %s-%s",
+                    dest_node->name,
+                    offs);
+                return;
+            }
+            dest.edge   = dest_node->reverse->edge[TRACK_EDGE_AHEAD].reverse;
+            dest.pos_um = 1000 * offs_mm;
+            if (dest.pos_um >= 1000 * dest.edge->len_mm) {
+                Printf(&uisrv->tty, "distance %dmm past end of edge", offs_mm);
+                return;
+            }
+        } else {
+            if (dest_node->type == TRACK_NODE_BRANCH) {
+                Printf(&uisrv->tty, "ambiguous destination %s+%s",
+                    dest_node->name,
+                    offs);
+                return;
+            }
+            if (dest_node->type == TRACK_NODE_EXIT) {
+                Printf(&uisrv->tty, "nonexistent destination %s+%s",
+                    dest_node->name,
+                    offs);
+                return;
+            }
+            dest.edge   = &dest_node->edge[TRACK_EDGE_AHEAD];
+            dest.pos_um = 1000 * (dest.edge->len_mm - offs_mm);
+            if (dest.pos_um < 0) {
+                Printf(&uisrv->tty, "distance %dmm past end of edge", offs_mm);
+                return;
+            }
+        }
     }
 
     train_moveto(&uisrv->traintab[train].task, dest);
@@ -1335,6 +1394,17 @@ tokenize(char *cmd, char **ts, int max_ts)
 static int
 atou8(const char *s, uint8_t *ret)
 {
+    uint32_t r;
+    int rc;
+    rc = atou32(s, &r, 255);
+    if (rc == 0)
+        *ret = (uint8_t)r;
+    return rc;
+}
+
+static int
+atou32(const char *s, uint32_t *ret, uint32_t max)
+{
     unsigned n = 0, base = 10;
     char c;
     if (s[0] == '0' && s[1] == 'x') {
@@ -1352,10 +1422,10 @@ atou8(const char *s, uint8_t *ret)
             return -1;
         }
 
-        if (n > 255)
+        if (n > max)
             return -1;
     }
 
-    *ret = (uint8_t)n;
+    *ret = n;
     return 0;
 }

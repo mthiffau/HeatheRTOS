@@ -29,13 +29,13 @@ struct trainest {
 };
 
 void trainctx_init(
-    struct trainctx *ctx, const struct track_graph *track, uint8_t train_id);
+    struct trainctx *ctx, track_graph_t track, uint8_t train_id);
 
 /* Set desired cruising speed for the train */
 void train_setspeed(struct trainctx *ctx, uint8_t speed);
 
 /* Ask the train to move to a particular node. */
-void train_moveto(struct trainctx *ctx, const struct track_node *dest);
+void train_moveto(struct trainctx *ctx, struct track_pt dest);
 
 /* Stop the train. */
 void train_stop(struct trainctx *ctx);

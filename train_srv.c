@@ -80,9 +80,9 @@ struct trainmsg {
     int type;
     int time; /* sensors, timer only */
     union {
-        uint8_t   speed;
-        int       dest_node_id;
-        sensors_t sensors[SENSOR_MODULES];
+        uint8_t         speed;
+        struct track_pt dest;
+        sensors_t       sensors[SENSOR_MODULES];
         struct {
             uint8_t minspeed;
             uint8_t maxspeed;
@@ -150,7 +150,7 @@ struct train {
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
-static void trainsrv_moveto(struct train *tr, const struct track_node *dest);
+static void trainsrv_moveto(struct train *tr, struct track_pt dest);
 static void trainsrv_stop(struct train *tr);
 static void trainsrv_vcalib(struct train *tr, uint8_t minspeed, uint8_t maxspeed);
 static void trainsrv_stopcalib(struct train *tr, uint8_t speed);
@@ -209,7 +209,7 @@ trainsrv_main(void)
             break;
         case TRAINMSG_MOVETO:
             trainsrv_empty_reply(client);
-            trainsrv_moveto(&tr, &tr.track->nodes[msg.dest_node_id]);
+            trainsrv_moveto(&tr, msg.dest);
             break;
         case TRAINMSG_STOP:
             trainsrv_empty_reply(client);
@@ -340,7 +340,7 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 }
 
 static void
-trainsrv_moveto(struct train *tr, track_node_t dest)
+trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
     struct track_pt path_starts[2], path_dests[2];
     int rc, n_starts;
@@ -356,7 +356,7 @@ trainsrv_moveto(struct train *tr, track_node_t dest)
         n_starts++;
     }
 
-    track_pt_from_node(dest, &path_dests[0]);
+    path_dests[0] = dest;
     path_dests[1] = path_dests[0];
     track_pt_reverse(&path_dests[1]);
 
@@ -1139,12 +1139,12 @@ train_setspeed(struct trainctx *ctx, uint8_t speed)
 }
 
 void
-train_moveto(struct trainctx *ctx, const struct track_node *dest)
+train_moveto(struct trainctx *ctx, struct track_pt dest)
 {
     struct trainmsg msg;
     int rplylen;
-    msg.type         = TRAINMSG_MOVETO;
-    msg.dest_node_id = dest - ctx->track->nodes;
+    msg.type = TRAINMSG_MOVETO;
+    msg.dest = dest;
     rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }
