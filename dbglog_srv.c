@@ -13,7 +13,7 @@
 #include "ns.h"
 
 #define DBGLOG_CHUNK_SIZE   128
-#define DBGLOG_BUF_SIZE     (1 << 15)  /* 32 kB */
+#define DBGLOG_BUF_SIZE     (1 << 17)  /* 128 kB */
 
 enum {
     DBGLOGMSG_LOG,
