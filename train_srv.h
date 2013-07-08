@@ -6,6 +6,7 @@
 
 XINT_H;
 TRACK_GRAPH_H;
+TRACK_PT_H;
 U_TID_H;
 
 void trainsrv_main(void);
@@ -21,11 +22,10 @@ struct traincfg {
 };
 
 struct trainest {
-    uint8_t                  train_id;
-    const struct track_edge *ahead;
-    int                      ahead_mm;
-    const struct track_node *lastsens;
-    int                      err_mm; /* position error at last sensor */
+    uint8_t         train_id;
+    struct track_pt ahead, behind;
+    track_node_t    lastsens;
+    int             err_mm; /* position error at last sensor */
 };
 
 void trainctx_init(

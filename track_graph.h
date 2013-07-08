@@ -109,14 +109,5 @@ track_graph_t track_byname(const char *name);
  * Returns NULL if no node has the given name. */
 track_node_t track_node_byname(track_graph_t track, const char *name);
 
-/* Find a (good, directed) path from src to dest on the given track.
- * If a path is found, stores it in path_out and returns 0.
- * Otherwise, returns -1. */
-int track_pathfind(
-    track_graph_t track,
-    track_node_t  src,
-    track_node_t  dests,
-    struct track_path *path_out);
-
 /* Array specifying the number of edges for a given track node type. */
 extern int track_node_edges[6];

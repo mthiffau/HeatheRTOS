@@ -7,6 +7,8 @@
 #include "sensor.h"
 #include "track_graph.h"
 #include "u_tid.h"
+#include "switch_srv.h"
+#include "track_pt.h"
 #include "train_srv.h"
 
 #include "calib.h"
@@ -22,11 +24,8 @@
 #include "ns.h"
 #include "clock_srv.h"
 #include "tcmux_srv.h"
-#include "switch_srv.h"
 #include "sensor_srv.h"
 #include "dbglog_srv.h"
-
-#include "track_pt.h"
 
 #define TRAIN_MINSPEED          4
 #define TRAIN_MAXSPEED          14
@@ -38,10 +37,10 @@
 /* FIXME these should be looked-up per train */
 #define TRAIN_FRONT_OFFS_UM     30000
 #define TRAIN_BACK_OFFS_UM      145000
-#define TRAIN_LENGTH_UM         225000
+#define TRAIN_LENGTH_UM         214000
 
 #define PCTRL_ACCEL_SENSORS     3
-#define PCTRL_STOP_TICKS        300
+#define PCTRL_STOP_TICKS        400
 
 #define TRAIN_SENSOR_OVERESTIMATE_UM    (40 * 1000)
 #define TRAIN_SWITCH_AHEAD_TICKS        50
@@ -95,19 +94,12 @@ struct sensor_reply {
     int       timeout;
 };
 
-struct trainest_reply {
-    uint8_t train_id;
-    int     ahead_edge_id;
-    int     ahead_mm;
-    int     lastsens_node_id;
-    int     err_mm;
-};
-
 struct train_pctrl {
     int                       state;
     struct track_pt           ahead, behind;
     int                       pos_time;
     int                       stop_ticks, stop_um;
+    bool                      reversed;
     const struct track_node  *lastsens;
     int                       err_um;
     bool                      updated;
@@ -275,6 +267,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.pos_time = -1;
+    tr->pctrl.reversed = false;
     tr->pctrl.lastsens = NULL;
     tr->pctrl.updated  = false;
     tr->estimate_client = -1;
@@ -353,8 +346,26 @@ trainsrv_moveto(struct train *tr, const struct track_node *dest)
         return;
 
     /* Get path to follow */
-    rc = track_pathfind(tr->track, tr->pctrl.ahead.edge->src, dest, &tr->path);
-    if (rc < 0 || tr->path.hops == 0)
+    rc = track_pathfind(tr->track, tr->pctrl.ahead, dest, &tr->path);
+    if (rc < 0) {
+        struct track_pt tmp;
+        if (!tr->reverse_ok)
+            return;
+        tmp = tr->pctrl.behind;
+        track_pt_reverse(&tmp);
+        rc = track_pathfind(tr->track, tmp, dest, &tr->path);
+        if (tr->path.hops == 0 || rc < 0)
+            return;
+        tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
+        tmp              = tr->pctrl.ahead;
+        tr->pctrl.ahead  = tr->pctrl.behind;
+        tr->pctrl.behind = tmp;
+        track_pt_reverse(&tr->pctrl.ahead);
+        track_pt_reverse(&tr->pctrl.behind);
+        tr->pctrl.reversed = !tr->pctrl.reversed;
+    }
+
+    if (tr->path.hops == 0)
         return;
 
     /* Watch for next sensor on path. */
@@ -410,7 +421,7 @@ trainsrv_moveto_calib(struct train *tr)
     int rc;
     rc = track_pathfind(
         tr->track,
-        tr->pctrl.ahead.edge->dest,
+        tr->pctrl.ahead,
         tr->track->calib_sensors[0],
         &tr->path);
     assertv(rc, rc == 0);
@@ -467,9 +478,43 @@ trainsrv_calibspeed(struct train *tr, uint8_t speed)
 }
 
 static void
+trainsrv_determine_reverse_ok(struct train *tr)
+{
+    track_edge_t edge = tr->pctrl.behind.edge;
+    while (edge != tr->pctrl.ahead.edge) {
+        int ix;
+        if (edge->dest->type == TRACK_NODE_MERGE) {
+            bool want_curve =
+                edge->reverse == &edge->dest->reverse->edge[TRACK_EDGE_CURVED];
+            bool have_curve =
+                switch_iscurved(&tr->switches, edge->dest->reverse->num);
+            if (want_curve != have_curve) {
+                tr->reverse_ok = false;
+                return;
+            }
+        }
+
+        if (edge->dest->type == TRACK_NODE_EXIT)
+            break;
+
+        ix = TRACK_EDGE_AHEAD;
+        if (edge->dest->type == TRACK_NODE_BRANCH) {
+            if (switch_iscurved(&tr->switches, edge->dest->num))
+                ix = TRACK_EDGE_CURVED;
+            else
+                ix = TRACK_EDGE_STRAIGHT;
+        }
+
+        edge = &edge->dest->edge[ix];
+    }
+    tr->reverse_ok = true;
+}
+
+static void
 trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
 {
     unsigned i;
+    int ahead_offs_um;
     /* Stop the train  */
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
 
@@ -485,18 +530,18 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     /* Set up initial oriented state. */
 
     /* Ahead position */
+    ahead_offs_um =
+        tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
     tr->pctrl.ahead.edge   = &sensnode->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
-        tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
+        tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
 
     /* Behind position */
     tr->pctrl.behind = tr->pctrl.ahead;
     track_pt_reverse(&tr->pctrl.behind);
     track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
     track_pt_reverse(&tr->pctrl.behind);
-    tr->reverse_ok =
-        tr->pctrl.behind.edge ==
-        sensnode->reverse->edge[TRACK_EDGE_AHEAD].reverse;
+    trainsrv_determine_reverse_ok(tr);
 
     /* Position estimate as of what time. */
     tr->pctrl.pos_time = Time(&tr->clock);
@@ -602,6 +647,7 @@ static void
 trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 {
     struct train_pctrl est_pctrl;
+    int ahead_offs_um;
 
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return;
@@ -609,10 +655,13 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     /* Save original for comparison */
     est_pctrl = tr->pctrl;
 
+    ahead_offs_um =
+        tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
+
     tr->pctrl.updated      = true;
     tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
-        tr->pctrl.ahead.edge->len_mm * 1000 - TRAIN_FRONT_OFFS_UM;
+        tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
     if (est_pctrl.pos_time > time) {
         int v  = tr->calib.vel_umpt[tr->speed];
         int dt = est_pctrl.pos_time - time;
@@ -628,6 +677,10 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         tr->pctrl.ahead,
         est_pctrl.ahead);
 
+    /* Adjust behind to compensate for difference in ahead. */
+    tr->pctrl.behind = tr->pctrl.ahead;
+    track_pt_advance_path(&tr->path, &tr->pctrl.behind, -TRAIN_LENGTH_UM);
+
     /* Transition to cruising if our position estimate is good enough. */
     if (tr->pctrl.state == PCTRL_ACCEL) {
         int abs_err_um = tr->pctrl.err_um;
@@ -639,12 +692,15 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 
     /* Print log messages */
     {
-        int ahead_um, ahead_cm, est_ahead_um, est_ahead_cm;
+        int ahead_um, ahead_cm, behind_um, behind_cm, est_ahead_um, est_ahead_cm;
         int err_um, err_cm;
         bool err_neg;
         ahead_um  = tr->pctrl.ahead.pos_um;
         ahead_cm  = ahead_um / 10000;
         ahead_um %= 10000;
+        behind_um  = tr->pctrl.behind.pos_um;
+        behind_cm  = behind_um / 10000;
+        behind_um %= 10000;
         est_ahead_um  = est_pctrl.ahead.pos_um;
         est_ahead_cm  = est_ahead_um / 10000;
         est_ahead_um %= 10000;
@@ -655,11 +711,14 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         err_cm  = err_um / 10000;
         err_um %= 10000;
         dbglog(&tr->dbglog,
-            "%s: act. at %s-%d.%04dcm, est. at %s-%d.%04dcm, err=%c%d.%04dcm",
+            "%s: act. at %s-%d.%04dcm (behind=%s-%d.%04dcm), est. at %s-%d.%04dcm, err=%c%d.%04dcm",
             sens->name,
             tr->pctrl.ahead.edge->dest->name,
             ahead_cm,
             ahead_um,
+            tr->pctrl.behind.edge->dest->name,
+            behind_cm,
+            behind_um,
             est_pctrl.ahead.edge->dest->name,
             est_ahead_cm,
             est_ahead_um,
@@ -783,10 +842,12 @@ trainsrv_timer(struct train *tr, int time)
         if (tr->pctrl.stop_ticks < 0) {
             tr->pctrl.state = PCTRL_STOPPED;
             dist = tr->pctrl.stop_um;
-            if (dist >= 0)
+            if (dist >= 0) {
                 trainsrv_pctrl_advance_um(tr, dist);
-            else
+                trainsrv_determine_reverse_ok(tr);
+            } else {
                 tr->state = TRAIN_DISORIENTED; /* lost track of position */
+            }
         }
         break;
 
@@ -958,22 +1019,17 @@ trainsrv_pctrl_check_update(struct train *tr)
 static void
 trainsrv_send_estimate(struct train *tr)
 {
-    struct trainest_reply est;
+    struct trainest est;
     int rc;
 
     assert(tr->pctrl.updated);
     if (tr->estimate_client < 0)
         return;
 
-    est.train_id       = tr->train_id;
-    est.ahead_edge_id  = (tr->pctrl.ahead.edge->src - tr->track->nodes) << 1;
-    est.ahead_edge_id |= tr->pctrl.ahead.edge - tr->pctrl.ahead.edge->src->edge;
-    est.ahead_mm       = tr->pctrl.ahead.pos_um / 1000;
-    est.err_mm         = tr->pctrl.err_um / 1000;
-    if (tr->pctrl.lastsens != NULL)
-        est.lastsens_node_id = tr->pctrl.lastsens - tr->track->nodes;
-    else
-        est.lastsens_node_id = -1;
+    est.train_id = tr->train_id;
+    est.ahead    = tr->pctrl.ahead;
+    est.behind   = tr->pctrl.behind;
+    est.lastsens = tr->pctrl.lastsens;
 
     rc = Reply(tr->estimate_client, &est, sizeof (est));
     assertv(rc, rc == 0);
@@ -1117,24 +1173,13 @@ train_orient(struct trainctx *ctx)
 }
 
 void
-train_estimate(struct trainctx *ctx, struct trainest *est_out)
+train_estimate(struct trainctx *ctx, struct trainest *est)
 {
     struct trainmsg msg;
-    struct trainest_reply est;
-    int rplylen, ahead_src, ahead;
+    int rplylen;
     msg.type = TRAINMSG_ESTIMATE;
-    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), &est, sizeof (est));
-    assertv(rplylen, rplylen == sizeof (est));
-    ahead_src = est.ahead_edge_id / 2;
-    ahead     = est.ahead_edge_id % 2;
-    est_out->train_id = est.train_id;
-    est_out->ahead    = &ctx->track->nodes[ahead_src].edge[ahead];
-    est_out->ahead_mm = est.ahead_mm;
-    est_out->err_mm   = est.err_mm;
-    if (est.lastsens_node_id >= 0)
-        est_out->lastsens = &ctx->track->nodes[est.lastsens_node_id];
-    else
-        est_out->lastsens = NULL;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), est, sizeof (*est));
+    assertv(rplylen, rplylen == sizeof (*est));
 }
 
 static void

@@ -22,6 +22,7 @@
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "switch_srv.h"
+#include "track_pt.h"
 #include "train_srv.h"
 #include "dbglog_srv.h"
 
@@ -864,6 +865,7 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     /* Parse arguments */
     track_node_t      nodes[2];
     struct track_path path;
+    struct track_pt   path_src;
     int               rc;
     unsigned          i;
 
@@ -886,7 +888,18 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     /* Find the path! */
-    rc = track_pathfind(uisrv->track, nodes[0], nodes[1], &path);
+    switch (nodes[0]->type) {
+    case TRACK_NODE_MERGE:
+    case TRACK_NODE_ENTER:
+        path_src.edge   = &nodes[0]->edge[TRACK_EDGE_AHEAD];
+        path_src.pos_um = 1000 * path_src.edge->len_mm - 1;
+        break;
+    default:
+        path_src.edge   = nodes[0]->reverse->edge[TRACK_EDGE_AHEAD].reverse;
+        path_src.pos_um = 0;
+        break;
+    }
+    rc = track_pathfind(uisrv->track, path_src, nodes[1], &path);
     if (rc == -1) {
         Print(&uisrv->tty, "no (directed) path");
     } else {
@@ -961,13 +974,15 @@ uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(TRAINPOS_ROW), STR(TRAINPOS_COL))
         //TERM_ERASE_EOL
-        "T %02d: %5s-%04dmm",
+        "%02d: A:%5s-%04dmm, B:%5s-%04dmm",
         est->train_id,
-        est->ahead->dest->name,
-        est->ahead_mm);
+        est->ahead.edge->dest->name,
+        est->ahead.pos_um / 1000,
+        est->behind.edge->dest->name,
+        est->behind.pos_um / 1000);
 
     if (est->lastsens != NULL) {
-        Printf(&uisrv->tty, ", err %04dmm @ %s",
+        Printf(&uisrv->tty, ", err %04dmm @ %5s",
             est->err_mm,
             est->lastsens->name);
     }
