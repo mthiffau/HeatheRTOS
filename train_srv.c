@@ -459,6 +459,21 @@ trainsrv_stop(struct train *tr)
     tr->pctrl.state      = PCTRL_STOPPING;
     tr->pctrl.stop_ticks = PCTRL_STOP_TICKS;
     tr->pctrl.stop_um    = cruise ? tr->calib.stop_um[tr->speed] : -1;
+
+    /* Switch all remaining switches on path, since estimation stops.
+     * FIXME this goes away with better estimations */
+    while ((unsigned)tr->path_swnext < tr->path.n_branches) {
+        track_node_t br;
+        bool         curved;
+        int          br_ix;
+        br    = tr->path.branches[tr->path_swnext++];
+        br_ix = TRACK_NODE_DATA(tr->track, br, tr->path.node_ix);
+        assert(br_ix >= 0);
+        if ((unsigned)br_ix >= tr->path.hops)
+            break;
+        curved = tr->path.edges[br_ix] == &br->edge[TRACK_EDGE_CURVED];
+        tcmux_switch_curve(&tr->tcmux, br->num, curved);
+    }
 }
 
 static void
