@@ -632,7 +632,7 @@ trainsrv_timer(struct train *tr, int time)
                 trainsrv_pctrl_advance_um(tr, dist);
                 trainsrv_determine_reverse_ok(tr);
             } else {
-                tr->state = TRAIN_DISORIENTED; /* lost track of position */
+                trainsrv_start_orienting(tr); /* lost track of position */
             }
         }
         break;
