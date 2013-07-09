@@ -11,8 +11,6 @@
 #include "track_pt.h"
 #include "train_srv.h"
 
-#include "calib.h"
-
 #include "xarg.h"
 #include "xassert.h"
 #include "xmemcpy.h"
@@ -25,6 +23,8 @@
 #include "clock_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
+#include "tracksel_srv.h"
+#include "calib_srv.h"
 #include "dbglog_srv.h"
 
 #define TRAIN_MINSPEED          4
@@ -258,11 +258,10 @@ trainsrv_main(void)
 static void
 trainsrv_init(struct train *tr, struct traincfg *cfg)
 {
-    const struct calib *initcalib;
     unsigned i;
 
     tr->state    = TRAIN_DISORIENTED;
-    tr->track    = all_tracks[cfg->track_id];
+    tr->track    = tracksel_ask();
     tr->train_id = cfg->train_id;
     tr->speed    = TRAIN_DEFSPEED;
 
@@ -274,11 +273,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->estimate_client = -1;
 
     /* take initial calibration */
-    initcalib = initcalib_get(tr->train_id, cfg->track_id);
-    if (initcalib != NULL)
-        tr->calib = *initcalib;
-    else
-        memset(&tr->calib, '\0', sizeof (tr->calib));
+    calib_get(tr->train_id, &tr->calib);
 
     /* Adjust stopping distance values. They're too long by
      * SENSOR_AVG_DELAY_TICKS worth of distance at cruising velocity. */
@@ -304,17 +299,17 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     dbglogctx_init(&tr->dbglog);
 
     /* log starting calibration */
-    dbglog(&tr->dbglog, "train%d track%d initial velocities (um/tick): %d %d %d %d %d",
+    dbglog(&tr->dbglog, "train%d track %s initial velocities (um/tick): %d %d %d %d %d",
         cfg->train_id,
-        cfg->track_id,
+        tr->track->name,
         tr->calib.vel_umpt[8],
         tr->calib.vel_umpt[9],
         tr->calib.vel_umpt[10],
         tr->calib.vel_umpt[11],
         tr->calib.vel_umpt[12]);
-    dbglog(&tr->dbglog, "train%d track%d stopping distances (um): %d %d %d %d %d",
+    dbglog(&tr->dbglog, "train%d track %s stopping distances (um): %d %d %d %d %d",
         cfg->train_id,
-        cfg->track_id,
+        tr->track->name,
         tr->calib.stop_um[8],
         tr->calib.stop_um[9],
         tr->calib.stop_um[10],
@@ -1116,13 +1111,9 @@ trainsrv_empty_reply(tid_t client)
 }
 
 void
-trainctx_init(
-    struct trainctx *ctx,
-    const struct track_graph *track,
-    uint8_t train_id)
+trainctx_init(struct trainctx *ctx, uint8_t train_id)
 {
     char buf[32];
-    ctx->track = track;
     trainsrv_fmt_name(train_id, buf);
     ctx->trainsrv_tid = WhoIs(buf);
 }

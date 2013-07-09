@@ -26,6 +26,8 @@
 #define PRIORITY_TCMUX      6
 #define PRIORITY_SENSOR     6
 #define PRIORITY_SWITCH     6
+#define PRIORITY_CALIB      PRIORITY_MIN
 #define PRIORITY_TRAIN      8
+#define PRIORITY_TRACKSEL   PRIORITY_MIN
 #define PRIORITY_DBGLOG     1
 #define PRIORITY_UI         13

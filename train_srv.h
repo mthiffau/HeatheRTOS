@@ -12,12 +12,10 @@ U_TID_H;
 void trainsrv_main(void);
 
 struct trainctx {
-    const struct track_graph *track;
-    tid_t                     trainsrv_tid;
+    tid_t trainsrv_tid;
 };
 
 struct traincfg {
-    uint8_t track_id;
     uint8_t train_id;
 };
 
@@ -28,8 +26,7 @@ struct trainest {
     int             err_mm; /* position error at last sensor */
 };
 
-void trainctx_init(
-    struct trainctx *ctx, track_graph_t track, uint8_t train_id);
+void trainctx_init(struct trainctx *ctx, uint8_t train_id);
 
 /* Set desired cruising speed for the train */
 void train_setspeed(struct trainctx *ctx, uint8_t speed);

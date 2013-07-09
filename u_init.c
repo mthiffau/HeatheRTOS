@@ -16,8 +16,12 @@
 #include "switch_srv.h"
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
+#include "calib_srv.h"
 #include "dbglog_srv.h"
 #include "ui_srv.h"
+
+#include "track_graph.h"
+#include "tracksel_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -26,7 +30,7 @@ void
 u_init_main(void)
 {
     tid_t ns_tid, clk_tid, tty_tid, train_tid;
-    tid_t switch_tid, tcmux_tid, sensor_tid;
+    tid_t switch_tid, tcmux_tid, sensor_tid, calib_tid, tracksel_tid;
     tid_t dbglog_tid, ui_tid;
     struct serialcfg ttycfg, traincfg;
     int rplylen;
@@ -85,6 +89,14 @@ u_init_main(void)
     /* Start sensor server */
     sensor_tid = Create(PRIORITY_SENSOR, &sensrv_main);
     assertv(sensor_tid, sensor_tid >= 0);
+
+    /* Start calibration server */
+    calib_tid = Create(PRIORITY_CALIB, &calibsrv_main);
+    assertv(calib_tid, calib_tid >= 0);
+
+    /* Start track selection server */
+    tracksel_tid = Create(PRIORITY_TRACKSEL, &trackselsrv_main);
+    assertv(tracksel_tid, tracksel_tid >= 0);
 
     /* Start debug log server */
     dbglog_tid = Create(PRIORITY_DBGLOG, &dbglogsrv_main);

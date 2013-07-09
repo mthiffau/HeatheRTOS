@@ -22,6 +22,7 @@
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "switch_srv.h"
+#include "tracksel_srv.h"
 #include "track_pt.h"
 #include "train_srv.h"
 #include "dbglog_srv.h"
@@ -497,6 +498,8 @@ uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc)
     uisrv->track = track_byname(argv[0]);
     if (uisrv->track == NULL)
         Printf(&uisrv->tty, "no track named %s", argv[0]);
+    else
+        tracksel_tell(uisrv->track);
 }
 
 static void
@@ -516,12 +519,6 @@ uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    for (cfg.track_id = 0; cfg.track_id < TRACK_COUNT; cfg.track_id++) {
-        if (all_tracks[cfg.track_id] == uisrv->track)
-            break;
-    }
-    assert(all_tracks[cfg.track_id] == uisrv->track);
-
     if (atou8(argv[0], &cfg.train_id) != 0) {
         Printf(&uisrv->tty, "bad train '%s'", argv[0]);
         return;
@@ -539,10 +536,7 @@ uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
     assertv(rplylen, rplylen == 0);
 
     uisrv->traintab[cfg.train_id].running = true;
-    trainctx_init(
-        &uisrv->traintab[cfg.train_id].task,
-        uisrv->track,
-        cfg.train_id);
+    trainctx_init(&uisrv->traintab[cfg.train_id].task, cfg.train_id);
 }
 
 static void
@@ -1266,7 +1260,7 @@ trainpos_listen(void)
     assertv(rc, rc == 0);
 
     /* Setup train context */
-    trainctx_init(&train, all_tracks[cfg.track_id], cfg.train_id);
+    trainctx_init(&train, cfg.train_id);
 
     msg.type = UIMSG_TRAINPOS_UPDATE;
     for (;;) {
