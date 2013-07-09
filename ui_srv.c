@@ -25,6 +25,7 @@
 #include "tracksel_srv.h"
 #include "track_pt.h"
 #include "train_srv.h"
+#include "calib_srv.h"
 #include "dbglog_srv.h"
 
 #include "bwio.h"
@@ -112,6 +113,7 @@ enum {
     UIMSG_TRAINPOS_UPDATE,
     UIMSG_REVERSE,
     UIMSG_REVERSE_DONE,
+    UIMSG_CALIB_READY,
 };
 
 struct train {
@@ -151,6 +153,11 @@ struct uimsg {
     };
 };
 
+struct calibparam {
+    bool    stopping; /* Use minspeed for speed. */
+    uint8_t train_id, minspeed, maxspeed;
+};
+
 struct uisrv {
     struct serialctx tty;
     struct clkctx    clock;
@@ -173,6 +180,8 @@ struct uisrv {
 
     struct trainest trainest_last;
     track_graph_t   track;
+    bool            calib_rdy, calib_ok;
+    tid_t           calib_tid;
 
     struct ringbuf dbglog;
     char           dbglog_mem[4096];
@@ -183,7 +192,6 @@ static int tokenize(char *cmd, char **ts, int max_ts);
 static int atou8(const char *s, uint8_t *ret);
 static int atou32(const char *s, uint32_t *ret, uint32_t max);
 
-/* FIXME */
 static void uisrv_init(struct uisrv *uisrv);
 static void uisrv_kbd(struct uisrv *uisrv, char keypress);
 static void uisrv_runcmd(struct uisrv *uisrv);
@@ -195,7 +203,6 @@ static void uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stopcalib(struct uisrv *uisrv, char *argv[], int argc);
-static void uisrv_cmd_orient(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
@@ -215,8 +222,17 @@ static void time_listen(void);
 static void sensor_listen(void);
 static void switch_listen(void);
 static void trainpos_listen(void);
+static void calib_listen(void);
 static void dbglog_listen(void);
 static void reverse_timer(void);
+
+static void
+uisrv_empty_reply(tid_t client)
+{
+    int rc;
+    rc = Reply(client, NULL, 0);
+    assertv(rc, rc == 0);
+}
 
 void
 uisrv_main(void)
@@ -233,33 +249,42 @@ uisrv_main(void)
     for (;;) {
         msglen = Receive(&client, &msg, sizeof (msg));
         assertv(msglen, msglen == sizeof (msg));
-        rc = Reply(client, NULL, 0);
-        assertv(rc, rc == 0);
 
         switch (msg.type) {
         case UIMSG_KEYBOARD:
+            uisrv_empty_reply(client);
             uisrv_kbd(&uisrv, msg.keypress);
             break;
         case UIMSG_SET_TIME:
+            uisrv_empty_reply(client);
             uisrv_set_time(&uisrv, msg.time_tenths);
             break;
         case UIMSG_SENSORS:
+            uisrv_empty_reply(client);
             uisrv_sensors(&uisrv, msg.sensors);
             break;
         case UIMSG_SWITCH_UPDATE:
+            uisrv_empty_reply(client);
             uisrv_update_switch_table(
                 &uisrv,
                 msg.swupdate.sw,
                 msg.swupdate.curved);
             break;
         case UIMSG_TRAINPOS_UPDATE:
+            uisrv_empty_reply(client);
             uisrv_trainpos_update(&uisrv, &msg.trainest);
             break;
         case UIMSG_DBGLOG:
+            uisrv_empty_reply(client);
             uisrv_dbglog(&uisrv, msg.dbglog.buf, msg.dbglog.len);
             break;
         case UIMSG_REVERSE_DONE:
+            uisrv_empty_reply(client);
             uisrv_finish_reverse(&uisrv);
+            break;
+        case UIMSG_CALIB_READY:
+            /* NO EMPTY REPLY */
+            uisrv.calib_rdy = true;
             break;
         default:
             panic("Invalid UI server message type %d", msg.type);
@@ -365,15 +390,23 @@ uisrv_init(struct uisrv *uisrv)
     switch_tid = Create(PRIORITY_UI - 1, &switch_listen);
     assertv(switch_tid, switch_tid >= 0);
 
+    uisrv->calib_tid = Create(PRIORITY_UI - 1, &calib_listen);
+    assert(uisrv->calib_tid >= 0);
+
     dbglog_tid = Create(PRIORITY_UI - 1, &dbglog_listen);
     assertv(dblog_tid, dbglog_tid >= 0);
 
+    /* Reversing state. Ba-wha? */
     uisrv->reverse_timer = Create(PRIORITY_UI - 1, &reverse_timer);
     uisrv->reverse_timer_running = false;
     uisrv->rvq_head = -1;
     uisrv->rvq_tail = -1;
     uisrv->rvq_count = 0;
     assert(uisrv->reverse_timer >= 0);
+
+    /* Calibration state. */
+    uisrv->calib_ok  = true;
+    uisrv->calib_rdy = false;
 }
 
 static void
@@ -443,8 +476,6 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_vcalib(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "stopcalib")) {
         uisrv_cmd_stopcalib(uisrv, &tokens[1], ntokens - 1);
-    } else if (!strcmp(tokens[0], "orient")) {
-        uisrv_cmd_orient(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tr!")) {
         uisrv_cmd_tr(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "sw!")) {
@@ -537,6 +568,9 @@ uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
 
     uisrv->traintab[cfg.train_id].running = true;
     trainctx_init(&uisrv->traintab[cfg.train_id].task, cfg.train_id);
+
+    /* Train servers running. No longer okay to run calibration. */
+    uisrv->calib_ok = false;
 }
 
 static void
@@ -691,83 +725,74 @@ uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc)
 {
-    uint8_t train, minspeed, maxspeed;
+    struct calibparam cp;
+    int rc;
     if (argc != 3) {
         Print(&uisrv->tty, "usage: vcalib TRAIN MINSPEED MAXSPEED");
         return;
     }
 
-    if (atou8(argv[0], &train) != 0) {
+    if (atou8(argv[0], &cp.train_id) != 0) {
         Printf(&uisrv->tty, "bad train '%s'", argv[0]);
         return;
     }
 
-    if (atou8(argv[1], &minspeed) != 0 || minspeed > 14) {
+    if (atou8(argv[1], &cp.minspeed) != 0 || cp.minspeed > 14) {
         Printf(&uisrv->tty, "bad speed '%s'", argv[1]);
         return;
     }
 
-    if (atou8(argv[2], &maxspeed) != 0 || maxspeed > 14) {
+    if (atou8(argv[2], &cp.maxspeed) != 0 || cp.maxspeed > 14) {
         Printf(&uisrv->tty, "bad speed '%s'", argv[2]);
         return;
     }
 
-    if (!uisrv->traintab[train].running) {
-        Printf(&uisrv->tty, "train %d not active", train);
+    if (cp.minspeed > cp.maxspeed) {
+        Print(&uisrv->tty, "empty speed range");
         return;
     }
 
-    train_vcalib(&uisrv->traintab[train].task, minspeed, maxspeed);
+    if (!uisrv->calib_ok || !uisrv->calib_rdy) {
+        Print(&uisrv->tty, "can't calibrate now");
+        return;
+    }
+
+    cp.stopping = false;
+    rc = Reply(uisrv->calib_tid, &cp, sizeof (cp));
+    assertv(rc, rc == 0);
+    uisrv->calib_rdy = false;
 }
 
 static void
 uisrv_cmd_stopcalib(struct uisrv *uisrv, char *argv[], int argc)
 {
-    uint8_t train;
-    uint8_t speed;
+    struct calibparam cp;
+    int rc;
     if (argc != 2) {
         Print(&uisrv->tty, "usage: stopcalib TRAIN SPEED");
         return;
     }
 
-    if (atou8(argv[0], &train) != 0) {
+    if (atou8(argv[0], &cp.train_id) != 0) {
         Printf(&uisrv->tty, "bad train '%s'", argv[0]);
         return;
     }
 
-    if (!uisrv->traintab[train].running) {
-        Printf(&uisrv->tty, "train %d not active", train);
-        return;
-    }
-
-    if (atou8(argv[1], &speed) != 0 || speed <= 0 || speed >= 15) {
+    if (atou8(argv[1], &cp.minspeed) != 0
+        || cp.minspeed <= 0 || cp.minspeed >= 15) {
         Printf(&uisrv->tty, "bad speed '%s'", argv[1]);
         return;
     }
 
-    train_stopcalib(&uisrv->traintab[train].task, speed);
-}
-
-static void
-uisrv_cmd_orient(struct uisrv *uisrv, char *argv[], int argc)
-{
-    uint8_t train;
-    if (argc != 1) {
-        Print(&uisrv->tty, "usage: orient TRAIN");
+    if (!uisrv->calib_ok || !uisrv->calib_rdy) {
+        Print(&uisrv->tty, "can't calibrate now");
         return;
     }
 
-    if (atou8(argv[0], &train) != 0) {
-        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
-        return;
-    }
-
-    if (!uisrv->traintab[train].running) {
-        Printf(&uisrv->tty, "train %d not active", train);
-        return;
-    }
-
-    train_orient(&uisrv->traintab[train].task);
+    cp.stopping = true;
+    rc = Reply(uisrv->calib_tid, &cp, sizeof (cp));
+    assertv(rc, rc == 0);
+    uisrv->calib_rdy = false;
 }
 
 static void
@@ -1288,6 +1313,25 @@ sensor_listen(void)
         rc = sensor_wait(&sens, sensors, -1, NULL);
         assertv(rc, rc == SENSOR_TRIPPED);
         ui_sensors(&ui, sensors);
+    }
+}
+
+static void
+calib_listen(void)
+{
+    struct calibparam p;
+    struct uimsg msg;
+    tid_t uisrv;
+    int rplylen;
+    uisrv = MyParentTid();
+    for (;;) {
+        msg.type = UIMSG_CALIB_READY;
+        rplylen  = Send(uisrv, &msg, sizeof (msg), &p, sizeof (p));
+        assertv(rplylen, rplylen == sizeof (p));
+        if (p.stopping)
+            calib_stopcalib(p.train_id, p.minspeed);
+        else
+            calib_vcalib(p.train_id, p.minspeed, p.maxspeed);
     }
 }
 

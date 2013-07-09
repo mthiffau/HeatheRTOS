@@ -11,25 +11,42 @@
 #include "xassert.h"
 #include "xmemcpy.h"
 #include "track_graph.h"
+#include "switch_srv.h"
+#include "track_pt.h"
 
 #include "u_syscall.h"
 #include "ns.h"
+#include "tcmux_srv.h"
+#include "sensor_srv.h"
 #include "tracksel_srv.h"
+#include "dbglog_srv.h"
+
+#define VCALIB_LAPS             3
+#define VCALIB_SENSORS_SKIP     3
 
 enum {
-    CALMSG_UPDATE,
+    CALMSG_VCALIB,
+    CALMSG_STOPCALIB,
     CALMSG_GET,
 };
 
 struct calmsg {
     int          type;
     uint8_t      train_id;
-    struct calib update_calib; /* CALMSG_UPDATE only */
+    union {
+        uint8_t  stopcalib_speed;
+        struct {
+            uint8_t minspeed, maxspeed;
+        } vcalib;
+    };
 };
 
 struct calsrv {
-    track_graph_t track;
-    struct calib  all[TRAINS_MAX];
+    struct tcmuxctx  tcmux;
+    struct sensorctx sens;
+    struct dbglogctx dbglog;
+    track_graph_t    track;
+    struct calib     all[TRAINS_MAX];
 };
 
 struct initcalib {
@@ -40,6 +57,11 @@ struct initcalib {
 
 static const struct initcalib initcalib[];
 static const unsigned int     n_initcalib;
+
+static void calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg);
+static void calibsrv_stopcalib(struct calsrv *cal, struct calmsg *msg);
+static track_node_t calibsrv_await(
+    struct calsrv *cal, track_node_t sensor, int *when);
 
 void
 calibsrv_main(void)
@@ -52,6 +74,9 @@ calibsrv_main(void)
 
     /* Initialize */
     cal.track = tracksel_ask();
+    tcmuxctx_init(&cal.tcmux);
+    sensorctx_init(&cal.sens);
+    dbglogctx_init(&cal.dbglog);
     memset(cal.all, '\0', sizeof (cal.all));
     for (i = 0; i < n_initcalib; i++) {
         const struct initcalib *ic = &initcalib[i];
@@ -73,8 +98,13 @@ calibsrv_main(void)
             rc = Reply(client, &cal.all[msg.train_id], sizeof (struct calib));
             assertv(rc, rc == 0);
             break;
-        case CALMSG_UPDATE:
-            cal.all[msg.train_id] = msg.update_calib;
+        case CALMSG_VCALIB:
+            calibsrv_vcalib(&cal, &msg);
+            rc = Reply(client, NULL, 0);
+            assertv(rc, rc == 0);
+            break;
+        case CALMSG_STOPCALIB:
+            calibsrv_stopcalib(&cal, &msg);
             rc = Reply(client, NULL, 0);
             assertv(rc, rc == 0);
             break;
@@ -82,6 +112,170 @@ calibsrv_main(void)
             panic("invalid calibration server message type %d", msg.type);
         }
     }
+}
+
+static track_node_t
+calibsrv_await(struct calsrv *cal, track_node_t sensor, int *when)
+{
+    sensors_t sensors[SENSOR_MODULES];
+    sensor1_t num;
+    unsigned  i;
+    int       rc;
+
+    if (sensor == NULL) {
+        for (i = 0; i < ARRAY_SIZE(sensors); i++)
+            sensors[i] = (sensors_t)-1;
+    } else {
+        assert(sensor->type == TRACK_NODE_SENSOR);
+        num = sensor->num;
+        for (i = 0; i < ARRAY_SIZE(sensors); i++)
+            sensors[i] = 0;
+        sensors[sensor1_module(num)] = 1 << sensor1_sensor(num);
+    }
+    rc = sensor_wait(&cal->sens, sensors, -1, when);
+    assertv(rc, rc == SENSOR_TRIPPED);
+
+    num = sensors_scan(sensors);
+    return num == SENSOR1_INVALID ? NULL : &cal->track->nodes[num];
+}
+
+static void
+calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
+{
+    struct track_path to_loop;
+    struct track_pt   train_pos, calib_start;
+    track_node_t      orignode;
+    unsigned          i;
+    int               rc;
+
+    /* Locate the train. */
+    tcmux_train_speed(&cal->tcmux, train, TRAIN_CRAWLSPEED);
+    orignode = calibsrv_await(cal, NULL, NULL);
+    tcmux_train_speed(&cal->tcmux, train, 0);
+
+    /* Move train into position for calibration */
+    track_pt_from_node(orignode, &train_pos);
+    track_pt_from_node(cal->track->calib_sensors[0], &calib_start);
+    rc = track_pathfind(
+        cal->track,
+        &train_pos,
+        1,
+        &calib_start,
+        1,
+        &to_loop);
+
+    if (rc != 0)
+        return; /* calibration failed */
+
+    /* Set all switches on path to destination */
+    for (i = 0; i < to_loop.n_branches; i++) {
+        const struct track_node *branch;
+        const struct track_edge *edge;
+        bool curved;
+        int j;
+        branch = to_loop.branches[i];
+        j      = TRACK_NODE_DATA(cal->track, branch, to_loop.node_ix);
+        assert(j >= 0);
+        if ((unsigned)j == to_loop.hops)
+            break;
+        edge   = to_loop.edges[j];
+        curved = edge == &branch->edge[TRACK_EDGE_CURVED];
+        if (i < to_loop.n_branches - 1)
+            tcmux_switch_curve(&cal->tcmux, branch->num, curved);
+        else
+            tcmux_switch_curve_sync(&cal->tcmux, branch->num, curved);
+    }
+
+    /* Send train to destination. */
+    tcmux_train_speed(&cal->tcmux, train, TRAIN_DEFSPEED);
+    calibsrv_await(cal, cal->track->calib_sensors[0], NULL);
+    tcmux_train_speed(&cal->tcmux, train, 0);
+
+    /* Switch all switches for calibration loop. */
+    for (i = 0; i < (unsigned)cal->track->n_calib_switches - 1; i++) {
+        tcmux_switch_curve(
+            &cal->tcmux,
+            cal->track->calib_switches[i]->num,
+            cal->track->calib_curved[i]);
+    }
+
+    tcmux_switch_curve_sync(
+        &cal->tcmux,
+        cal->track->calib_switches[i]->num,
+        cal->track->calib_curved[i]);
+
+}
+
+static void
+calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
+{
+    unsigned          i;
+    int               loop_um;
+
+    uint8_t train    = msg->train_id;
+    uint8_t minspeed = msg->vcalib.minspeed;
+    uint8_t maxspeed = msg->vcalib.maxspeed;
+    uint8_t speed;
+
+    /* Cap speeds to ensure they're valid. */
+    if (maxspeed > 14)
+        maxspeed = 14;
+    if (minspeed < 1)
+        minspeed = 1;
+
+    /* Get train/track into position. */
+    calibsrv_calibsetup(cal, train);
+
+    /* Figure out total calibration run distance. */
+    loop_um = 0;
+    for (i = 0; i < (unsigned)cal->track->n_calib_sensors; i++)
+        loop_um += cal->track->calib_mm[i];
+
+    loop_um *= VCALIB_LAPS;
+    for (i = 0; i < VCALIB_SENSORS_SKIP; i++)
+        loop_um -= cal->track->calib_mm[i + 1];
+
+    loop_um *= 1000;
+
+    /* Calibrate the speeds! */
+    for (speed = minspeed; speed <= maxspeed; speed++) {
+        int start_time, end_time, v;
+
+        tcmux_train_speed(&cal->tcmux, train, speed);
+        calibsrv_await(cal,
+            cal->track->calib_sensors[VCALIB_SENSORS_SKIP],
+            &start_time);
+
+        for (i = 0; i < VCALIB_LAPS; i++)
+            calibsrv_await(cal, cal->track->calib_sensors[0], &end_time);
+
+        v = loop_um / (end_time - start_time);
+        cal->all[train].vel_umpt[speed] = v;
+        dbglog(&cal->dbglog, "train%d speed %d = %d um/tick", train, speed, v);
+    }
+
+    tcmux_train_speed(&cal->tcmux, train, 0);
+}
+
+static void
+calibsrv_stopcalib(struct calsrv *cal, struct calmsg *msg)
+{
+    uint8_t train = msg->train_id;
+    uint8_t speed = msg->stopcalib_speed;
+
+    /* Cap speeds to ensure they're valid. */
+    if (speed > 14)
+        speed = 14;
+    if (speed < 1)
+        speed = 1;
+
+    /* Get train/track into position. */
+    calibsrv_calibsetup(cal, train);
+
+    /* Calibrate the stopping distance! */
+    tcmux_train_speed(&cal->tcmux, train, speed);
+    calibsrv_await(cal, cal->track->calib_sensors[0], NULL);
+    tcmux_train_speed(&cal->tcmux, train, 0);
 }
 
 void
@@ -96,13 +290,26 @@ calib_get(uint8_t train_id, struct calib *out)
 }
 
 void
-calib_update(uint8_t train_id, const struct calib *calib)
+calib_vcalib(uint8_t train_id, uint8_t minspeed, uint8_t maxspeed)
 {
     struct calmsg msg;
     int rplylen;
-    msg.type         = CALMSG_UPDATE;
-    msg.train_id     = train_id;
-    msg.update_calib = *calib;
+    msg.type            = CALMSG_VCALIB;
+    msg.train_id        = train_id;
+    msg.vcalib.minspeed = minspeed;
+    msg.vcalib.maxspeed = maxspeed;
+    rplylen = Send(WhoIs("calibsrv"), &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+void
+calib_stopcalib(uint8_t train_id, uint8_t speed)
+{
+    struct calmsg msg;
+    int rplylen;
+    msg.type            = CALMSG_STOPCALIB;
+    msg.train_id        = train_id;
+    msg.stopcalib_speed = speed;
     rplylen = Send(WhoIs("calibsrv"), &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }

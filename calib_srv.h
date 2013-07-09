@@ -20,5 +20,8 @@ void calibsrv_main(void);
 /* Get calibration data for a train. */
 void calib_get(uint8_t train_id, struct calib *out);
 
-/* Update calibration data. */
-void calib_update(uint8_t train_id, const struct calib *calib);
+/* Do a velocity calibration run. */
+void calib_vcalib(uint8_t train_id, uint8_t minspeed, uint8_t maxspeed);
+
+/* Do a stopping distance calibration run. */
+void calib_stopcalib(uint8_t train_id, uint8_t speed);
