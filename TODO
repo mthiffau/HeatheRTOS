@@ -1,4 +1,14 @@
-- Take care not to start trains with their front ON a switch.
-- Find route to PLACE rather than node.
-- Reverse if necessary from beginning stopped position.
-- Find/deal with reversals in routes.
+Real work:
+- Watch out for turnouts at start of path
+- Reversal okay check wiggle room
+- Acceleration model
+- Stopping distance model
+- Short routes
+- Routes including reversals
+- Track reservation, integrated with route finding
+- Batch calibration adjustment
+
+UI improvements:
+- Output freezing for observation or copy-paste
+- Full screen log display mode
+- Graphical track display
