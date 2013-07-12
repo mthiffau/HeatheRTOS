@@ -37,10 +37,6 @@
 #define CMD_MAXTOKS         16
 #define MAX_SENSORS         10
 
-#define MAX_TRAINS          256
-#define REVERSE_DELAY_TICKS 200
-#define REVERSE_CMD         15
-
 /* Escape sequences */
 #define TERM_RESET_DEVICE           "\ec"
 #define TERM_ERASE_ALL              "\e[2J"
@@ -111,27 +107,12 @@ enum {
     UIMSG_DBGLOG,
     UIMSG_SWITCH_UPDATE,
     UIMSG_TRAINPOS_UPDATE,
-    UIMSG_REVERSE,
-    UIMSG_REVERSE_DONE,
     UIMSG_CALIB_READY,
 };
 
 struct train {
-    uint8_t speed;
-
-    bool    reversing;      /* Is the train reversing */
-    int     rv_start_time;  /* When did it start reversing */
-    int     reverse_count;  /* How many concurrent reversals */
-
-    int     next;           /* Next index if we're in a queue */
-
     struct trainctx task;
     bool            running;
-};
-
-struct rv_msg {
-    uint8_t train;
-    int     time;
 };
 
 struct uimsg {
@@ -139,7 +120,6 @@ struct uimsg {
     union {
         int           time_tenths;
         char          keypress;
-        struct rv_msg rv;
         sensors_t     sensors[SENSOR_MODULES];
         struct {
             uint8_t   sw;
@@ -169,14 +149,7 @@ struct uisrv {
     uint32_t sensors[MAX_SENSORS];
     int      nsensors, lastsensor;
 
-    struct train traintab[MAX_TRAINS];
-
-    tid_t reverse_timer;
-    bool  reverse_timer_running;
-
-    int   rvq_head;
-    int   rvq_tail;
-    int   rvq_count;
+    struct train traintab[TRAINS_MAX];
 
     struct trainest trainest_last;
     track_graph_t   track;
@@ -208,7 +181,6 @@ static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
-static void start_reverse_timer(struct uisrv *uisrv);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
 static void uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est);
@@ -216,7 +188,6 @@ static void uisrv_set_time(struct uisrv *uisrv, int tenths);
 static void uisrv_sensors(
     struct uisrv *uisrv, sensors_t sensors[SENSOR_MODULES]);
 static void uisrv_dbglog(struct uisrv *uisrv, char *buf, int len);
-static void uisrv_finish_reverse(struct uisrv *uisrv);
 static void kbd_listen(void);
 static void time_listen(void);
 static void sensor_listen(void);
@@ -224,7 +195,6 @@ static void switch_listen(void);
 static void trainpos_listen(void);
 static void calib_listen(void);
 static void dbglog_listen(void);
-static void reverse_timer(void);
 
 static void
 uisrv_empty_reply(tid_t client)
@@ -278,10 +248,6 @@ uisrv_main(void)
             uisrv_empty_reply(client);
             uisrv_dbglog(&uisrv, msg.dbglog.buf, msg.dbglog.len);
             break;
-        case UIMSG_REVERSE_DONE:
-            uisrv_empty_reply(client);
-            uisrv_finish_reverse(&uisrv);
-            break;
         case UIMSG_CALIB_READY:
             /* NO EMPTY REPLY */
             uisrv.calib_rdy = true;
@@ -319,14 +285,8 @@ uisrv_init(struct uisrv *uisrv)
     tcmuxctx_init(&uisrv->tcmux);
 
     /* Initialize train table */
-    for (i = 0; i < MAX_TRAINS; i++) {
-        uisrv->traintab[i].speed         = 0;
-        uisrv->traintab[i].reversing     = false;
-        uisrv->traintab[i].rv_start_time = -1;
-        uisrv->traintab[i].reverse_count = 0;
-        uisrv->traintab[i].next          = -1;
-        uisrv->traintab[i].running       = false;
-    }
+    for (i = 0; i < TRAINS_MAX; i++)
+        uisrv->traintab[i].running = false;
 
     /* Print initialization message */
     Print(&uisrv->tty, TERM_RESET_DEVICE TERM_ERASE_ALL "Initializing...");
@@ -395,14 +355,6 @@ uisrv_init(struct uisrv *uisrv)
 
     dbglog_tid = Create(PRIORITY_UI - 1, &dbglog_listen);
     assertv(dblog_tid, dbglog_tid >= 0);
-
-    /* Reversing state. Ba-wha? */
-    uisrv->reverse_timer = Create(PRIORITY_UI - 1, &reverse_timer);
-    uisrv->reverse_timer_running = false;
-    uisrv->rvq_head = -1;
-    uisrv->rvq_tail = -1;
-    uisrv->rvq_count = 0;
-    assert(uisrv->reverse_timer >= 0);
 
     /* Calibration state. */
     uisrv->calib_ok  = true;
@@ -814,12 +766,8 @@ uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    if (!uisrv->traintab[which].reversing) {
-        /* Send out speed command */
-        tcmux_train_speed(&uisrv->tcmux, which, speed);
-    }
-    /* Store state in train table */
-    uisrv->traintab[which].speed = speed;
+    /* Send out speed command */
+    tcmux_train_speed(&uisrv->tcmux, which, speed);
 }
 
 static void
@@ -861,7 +809,6 @@ static void
 uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc)
 {
     uint8_t which;
-    struct train* train;
 
     /* Parse arguments */
     if (argc != 1) {
@@ -873,35 +820,8 @@ uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    train = &(uisrv->traintab[which]);
-
-    /* If the train is already reversing,
-       just increment it's reverse count */
-    if (train->reversing) {
-        train->reverse_count++;
-        return;
-    }
-
-    /* Mark the train as reversing */
-    train->reversing = true;
-    train->rv_start_time = Time(&uisrv->clock);
-    train->reverse_count = 1;
-
-    /* Immediately stop the train */
-    tcmux_train_speed(&uisrv->tcmux, which, 0);
-
-    /* Add the train to the reverse queue */
-    if (uisrv->rvq_count == 0) {
-        uisrv->rvq_head = which;
-        uisrv->rvq_tail = which;
-    } else {
-        uisrv->traintab[uisrv->rvq_tail].next = which;
-        uisrv->rvq_tail = which;
-    }
-    uisrv->rvq_count++;
-
-    /* If the reverse timer isn't running, send message to the reverse timer */
-    start_reverse_timer(uisrv);
+    /* Send the reverse command */
+    tcmux_train_speed(&uisrv->tcmux, which, 15);
 }
 
 static void
@@ -974,28 +894,6 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
             Printf(&uisrv->tty, "%s ", path.edges[i]->src->name);
         }
     }
-}
-
-static void
-start_reverse_timer(struct uisrv *uisrv)
-{
-    int replylen;
-    struct uimsg msg;
-    struct train *train;
-
-    assert(uisrv->rvq_count > 0);
-    if (uisrv->reverse_timer_running)
-        return;
-
-    train = &uisrv->traintab[uisrv->rvq_head];
-
-    msg.type     = UIMSG_REVERSE;
-    msg.rv.train = uisrv->rvq_head;
-    msg.rv.time  = train->rv_start_time + REVERSE_DELAY_TICKS;
-
-    uisrv->reverse_timer_running = true;
-    replylen = Send(uisrv->reverse_timer, &msg, sizeof(msg), NULL, 0);
-    assertv(replylen, replylen == 0);
 }
 
 static void
@@ -1174,39 +1072,6 @@ uisrv_dbglog(struct uisrv *uisrv, char *buf, int len)
 }
 
 static void
-uisrv_finish_reverse(struct uisrv *uisrv)
-{
-    uisrv->reverse_timer_running = false;
-
-    /* Get the head of the reverse queue */
-    int train_ix = uisrv->rvq_head;
-    assert(train_ix > 0);
-    struct train *train = &(uisrv->traintab[train_ix]);
-
-    /* If it turns out we are reversing, send the reverse command */
-    if (train->reverse_count % 2 == 1)
-        tcmux_train_speed(&uisrv->tcmux, train_ix, REVERSE_CMD);
-    tcmux_train_speed(&uisrv->tcmux, train_ix, train->speed);
-
-    /* The train isn't reversing any more */
-    train->reversing = false;
-    train->reverse_count = 0;
-
-    /* Take it off the queue */
-    uisrv->rvq_head = train->next;
-    uisrv->rvq_count--;
-    train->next = -1;
-
-    /* If the queue is empty now, we're done */
-    if (uisrv->rvq_count == 0) {
-        uisrv->rvq_tail = -1;
-        return;
-    }
-
-    start_reverse_timer(uisrv);
-}
-
-static void
 kbd_listen(void)
 {
     tid_t uisrv;
@@ -1355,36 +1220,6 @@ dbglog_listen(void)
         assert(msg.dbglog.len > 0);
         rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
         assertv(rplylen, rplylen == 0);
-    }
-}
-
-static void
-reverse_timer(void)
-{
-    int rc;
-    tid_t uisrv;
-    struct uimsg msg;
-    struct clkctx clock;
-
-    clkctx_init(&clock);
-
-    for (;;) {
-        /* Receive a reversal message from UI */
-        rc = Receive(&uisrv, &msg, sizeof(msg));
-        assertv(rc, rc == sizeof(msg));
-        assert(msg.type == UIMSG_REVERSE);
-        /* Reply immediately to unblock it */
-        rc = Reply(uisrv, NULL, 0);
-        assertv(rc, rc == 0);
-
-        /* Delay for the specified time */
-        rc = DelayUntil(&clock, msg.rv.time);
-        assertv(rc, rc == 0);
-
-        /* Tell the UI server we're done */
-        msg.type = UIMSG_REVERSE_DONE;
-        rc = Send(uisrv, &msg, sizeof(msg), NULL, 0);
-        assertv(rc, rc == 0);
     }
 }
 
