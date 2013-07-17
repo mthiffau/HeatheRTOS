@@ -2,6 +2,7 @@
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
+#include "poly.h"
 #include "bithack.h"
 #include "static_assert.h"
 #include "sensor.h"
@@ -614,16 +615,9 @@ trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
 static int
 trainsrv_accel_pos(struct train *tr, int t)
 {
-    float x = 0, tp = 1;
-    int ix;
-    unsigned i;
-    x = tr->calib.accel[0];
-    for (i = 1; i < ARRAY_SIZE(tr->calib.accel); i++) {
-        tp *= t;
-        x  += tr->calib.accel[i] * tp;
-    }
-    ix = (int)x;
-    return ix < 0 ? 0 : ix;
+    if (t <= 0)
+        return 0;
+    return (int)polyeval(&tr->calib.accel, (float)t);
 }
 
 #if 0
@@ -657,13 +651,13 @@ trainsrv_predict_dist_um(struct train *tr, int when)
         cutoff = tr->calib.accel_cutoff[tr->speed];
         if (tr->pctrl.accel_start > tr->pctrl.pos_time) {
             dt -= tr->pctrl.accel_start - tr->pctrl.pos_time;
-            if (dt <= 0) {
-                dist_um = 0;
-                break;
-            }
         }
-        if (when - tr->pctrl.accel_start < cutoff) {
-            dist_um  = trainsrv_accel_pos(tr, when - tr->pctrl.accel_start);
+        if (dt <= 0) {
+            dist_um = 0;
+            break;
+        }
+        if (dt < cutoff) {
+            dist_um  = trainsrv_accel_pos(tr, dt);
             dist_um -= trainsrv_accel_pos(tr,
                 tr->pctrl.pos_time - tr->pctrl.accel_start);
         } else {
@@ -671,8 +665,7 @@ trainsrv_predict_dist_um(struct train *tr, int when)
             dist_um  = trainsrv_accel_pos(tr, cutoff);
             dist_um -= trainsrv_accel_pos(tr,
                 tr->pctrl.pos_time - tr->pctrl.accel_start);
-            dist_um += (when - tr->pctrl.accel_start - cutoff)
-                * tr->calib.vel_umpt[tr->speed];
+            dist_um += (dt - cutoff) * tr->calib.vel_umpt[tr->speed];
         }
         break;
     default:

@@ -2,6 +2,7 @@
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
+#include "poly.h"
 #include "u_tid.h"
 #include "static_assert.h"
 #include "sensor.h"

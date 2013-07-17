@@ -7,6 +7,7 @@
 
 #include "xbool.h"
 #include "xint.h"
+#include "poly.h"
 #include "static_assert.h"
 #include "sensor.h"
 #include "xassert.h"

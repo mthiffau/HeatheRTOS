@@ -7,17 +7,19 @@
 CONFIG_H;
 XBOOL_H;
 XINT_H;
+POLY_H;
 U_TID_H;
 
 struct calib {
     int   vel_umpt[16];  /* cruising velocity at each speed */
     int   stop_um[16];   /* stopping distance at each speed */
-    float accel[5];      /* polynomial coefficients for position curve
-                            while speeding up */
-    int   accel_ref;     /* reference value for acceleration curve.
-                             = sum of velocities at speeds 8-12. */
-    int   accel_delay;   /* delay in ticks before train starts to move */
-    int   accel_cutoff[16]; /* cutoff time in ticks for acceleration curve */
+
+    /* Acceleration data. */
+    struct poly accel;
+    int         accel_delay;      /* delay in ticks before train moves */
+    int         accel_cutoff[16]; /* cutoff time in ticks for each speed */
+    int         accel_ref;        /* reference value for acceleration curve.
+                                     = sum of velocities at speeds 8-12. */
 };
 
 /* calibration server entry point. */
