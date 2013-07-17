@@ -454,6 +454,10 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     track_pt_reverse(&tr->pctrl.behind);
     track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
     track_pt_reverse(&tr->pctrl.behind);
+
+    /* FIXME We may be orienting backwards. */
+
+    /* Determine whether it's okay to reverse from here */
     trainsrv_determine_reverse_ok(tr);
 
     /* Position estimate as of what time. */
@@ -716,10 +720,15 @@ trainsrv_timer(struct train *tr, int time)
             tr->pctrl.state = PCTRL_STOPPED;
             dist = tr->pctrl.stop_um;
             if (dist >= 0) {
+                struct pqueue_entry *cur;
                 trainsrv_pctrl_advance_um(tr, dist);
                 trainsrv_determine_reverse_ok(tr);
-                while (pqueue_peekmin(&tr->sensor_times) != NULL)
+                while ((cur = pqueue_peekmin(&tr->sensor_times)) != NULL) {
+                    int mod  = sensor1_module(cur->val);
+                    int sens = sensor1_sensor(cur->val);
+                    tr->sensor_mask[mod] &= ~(1 << sens);
                     pqueue_popmin(&tr->sensor_times);
+                }
             } else {
                 trainsrv_start_orienting(tr); /* lost track of position */
             }
