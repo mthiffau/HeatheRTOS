@@ -39,7 +39,7 @@
 
 #define TRAIN_SENSOR_OVERESTIMATE_UM    (80 * 1000) // FIXME more like 4cm
 #define TRAIN_SWITCH_AHEAD_TICKS        50
-#define TRAIN_CRUISE_ERRTHRESH_UM       (40 * 1000) // FIXME more like 2cm
+#define TRAIN_MERGE_OFFSET_UM           100000 // 10cm
 
 enum {
     TRAINMSG_SETSPEED,
@@ -82,7 +82,7 @@ struct sensor_reply {
 struct train_pctrl {
     int                       state;
     struct track_pt           ahead, behind;
-    int                       pos_time;
+    int                       pos_time, accel_start;
     int                       stop_ticks, stop_um;
     bool                      reversed;
     const struct track_node  *lastsens;
@@ -128,6 +128,8 @@ struct train {
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
+static void trainsrv_swnext_init(struct train *tr);
+static void trainsrv_swnext_advance(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
 static void trainsrv_stop(struct train *tr);
 static void trainsrv_sensor_orienting(struct train *tr, track_node_t sens);
@@ -136,11 +138,15 @@ static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
 static void trainsrv_start_orienting(struct train *tr);
 static void trainsrv_sensor_timeout(struct train *tr, int time);
+static int  trainsrv_accel_pos(struct train *tr, int t);
+static int  trainsrv_predict_dist_um(struct train *tr, int when);
+static void trainsrv_pctrl_advance_ticks(struct train *tr, int now);
 static void trainsrv_pctrl_advance_um(struct train *tr, int dist_um);
 static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
 static void trainsrv_tryrequest_sensor(struct train *tr);
 static void trainsrv_pctrl_check_update(struct train *tr);
+static void trainsrv_pctrl_switch_turnouts(struct train *tr, bool all);
 static void trainsrv_send_estimate(struct train *tr);
 
 static void trainsrv_sensor_listen(void);
@@ -291,6 +297,30 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 }
 
 static void
+trainsrv_swnext_init(struct train *tr)
+{
+    tr->path_swnext = -1;
+    trainsrv_swnext_advance(tr);
+}
+
+static void
+trainsrv_swnext_advance(struct train *tr)
+{
+    if (tr->path_swnext >= 0 && (unsigned)tr->path_swnext >= tr->path.hops)
+        return;
+    tr->path_swnext++;
+    if (tr->path_swnext == 0
+        && tr->path.edges[tr->path_swnext]->src->type == TRACK_NODE_MERGE)
+        tr->path_swnext++;
+    while ((unsigned)tr->path_swnext < tr->path.hops) {
+        int type = tr->path.edges[tr->path_swnext]->src->type;
+        if (type == TRACK_NODE_MERGE || type == TRACK_NODE_BRANCH)
+            break;
+        tr->path_swnext++;
+    }
+}
+
+static void
 trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
     struct track_pt path_starts[2], path_dests[2];
@@ -330,15 +360,15 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
         tr->pctrl.reversed = !tr->pctrl.reversed;
     }
 
-    /* Watch for next sensor on path. */
-    tr->path_swnext   = 0;
+    trainsrv_swnext_init(tr);
     tr->pctrl.pos_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
 
-    /* Switch all turnouts up to the second sensor. */
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
+    dbglog(&tr->dbglog, "train%d sending speed %d", tr->train_id, tr->speed);
     /* already TRAIN_RUNNING */
     tr->pctrl.state = PCTRL_ACCEL;
+    tr->pctrl.accel_start = tr->pctrl.pos_time + tr->calib.accel_delay;
 }
 
 static void
@@ -357,18 +387,7 @@ trainsrv_stop(struct train *tr)
 
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
-    while ((unsigned)tr->path_swnext < tr->path.n_branches) {
-        track_node_t br;
-        bool         curved;
-        int          br_ix;
-        br    = tr->path.branches[tr->path_swnext++];
-        br_ix = TRACK_NODE_DATA(tr->track, br, tr->path.node_ix);
-        assert(br_ix >= 0);
-        if ((unsigned)br_ix >= tr->path.hops)
-            break;
-        curved = tr->path.edges[br_ix] == &br->edge[TRACK_EDGE_CURVED];
-        tcmux_switch_curve(&tr->tcmux, br->num, curved);
-    }
+    trainsrv_pctrl_switch_turnouts(tr, true);
 }
 
 static void
@@ -465,13 +484,9 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
         tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
-    if (est_pctrl.pos_time > time) {
-        int v  = tr->calib.vel_umpt[tr->speed];
-        int dt = est_pctrl.pos_time - time;
-        if (tr->pctrl.state == PCTRL_STOPPED)
-            v = 0;
-        trainsrv_pctrl_advance_um(tr, v * dt);
-    }
+    tr->pctrl.pos_time     = time;
+    if (est_pctrl.pos_time > time)
+        trainsrv_pctrl_advance_ticks(tr, est_pctrl.pos_time);
 
     /* Compute delta */
     tr->pctrl.lastsens = sens;
@@ -482,16 +497,9 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 
     /* Adjust behind to compensate for difference in ahead. */
     tr->pctrl.behind = tr->pctrl.ahead;
-    track_pt_advance_path(&tr->path, &tr->pctrl.behind, -TRAIN_LENGTH_UM);
-
-    /* Transition to cruising if our position estimate is good enough. */
-    if (tr->pctrl.state == PCTRL_ACCEL) {
-        int abs_err_um = tr->pctrl.err_um;
-        if (abs_err_um < 0)
-            abs_err_um = -abs_err_um;
-        if (abs_err_um < TRAIN_CRUISE_ERRTHRESH_UM)
-            tr->pctrl.state = PCTRL_CRUISE;
-    }
+    track_pt_reverse(&tr->pctrl.behind);
+    track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
+    track_pt_reverse(&tr->pctrl.behind);
 
     /* Print log messages */
     {
@@ -599,6 +607,87 @@ trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
     trainsrv_sensor_running(tr, sens, time);
 }
 
+static int
+trainsrv_accel_pos(struct train *tr, int t)
+{
+    float x = 0, tp = 1;
+    int ix;
+    unsigned i;
+    x = tr->calib.accel[0];
+    for (i = 1; i < ARRAY_SIZE(tr->calib.accel); i++) {
+        tp *= t;
+        x  += tr->calib.accel[i] * tp;
+    }
+    ix = (int)x;
+    return ix < 0 ? 0 : ix;
+}
+
+#if 0
+static int
+trainsrv_accel_vel(struct train *tr, int t)
+{
+    float v = 0, tp = 1;
+    int iv;
+    unsigned i;
+    v = tr->calib.accel[1];
+    for (i = 2; i < ARRAY_SIZE(tr->calib.accel); i++) {
+        tp *= t;
+        v  += i * tr->calib.accel[i] * tp;
+    }
+    iv = (int)v;
+    return iv < 0 ? 0 : iv;
+}
+#endif
+
+static int
+trainsrv_predict_dist_um(struct train *tr, int when)
+{
+    int dist_um, dt, cutoff;
+    //assert(when >= tr->pctrl.pos_time);
+    switch (tr->pctrl.state) {
+    case PCTRL_CRUISE:
+        dist_um = (when - tr->pctrl.pos_time) * tr->calib.vel_umpt[tr->speed];
+        break;
+    case PCTRL_ACCEL:
+        dt = when - tr->pctrl.accel_start;
+        cutoff = tr->calib.accel_cutoff[tr->speed];
+        if (tr->pctrl.accel_start > tr->pctrl.pos_time) {
+            dt -= tr->pctrl.accel_start - tr->pctrl.pos_time;
+            if (dt <= 0) {
+                dist_um = 0;
+                break;
+            }
+        }
+        if (when - tr->pctrl.accel_start < cutoff) {
+            dist_um  = trainsrv_accel_pos(tr, when - tr->pctrl.accel_start);
+            dist_um -= trainsrv_accel_pos(tr,
+                tr->pctrl.pos_time - tr->pctrl.accel_start);
+        } else {
+            assert(tr->pctrl.pos_time - tr->pctrl.accel_start < cutoff);
+            dist_um  = trainsrv_accel_pos(tr, cutoff);
+            dist_um -= trainsrv_accel_pos(tr,
+                tr->pctrl.pos_time - tr->pctrl.accel_start);
+            dist_um += (when - tr->pctrl.accel_start - cutoff)
+                * tr->calib.vel_umpt[tr->speed];
+        }
+        break;
+    default:
+        panic("panic! bad state %d", tr->pctrl.state);
+    }
+    return dist_um;
+}
+
+static void
+trainsrv_pctrl_advance_ticks(struct train *tr, int now)
+{
+    trainsrv_pctrl_advance_um(tr, trainsrv_predict_dist_um(tr, now));
+    tr->pctrl.pos_time = now;
+    if (tr->pctrl.state == PCTRL_ACCEL) {
+        if (now - tr->pctrl.accel_start >= tr->calib.accel_cutoff[tr->speed])
+            tr->pctrl.state = PCTRL_CRUISE;
+    }
+}
+
 static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
@@ -616,8 +705,6 @@ trainsrv_timer(struct train *tr, int time)
         return;
 
     dt = time - tr->pctrl.pos_time;
-    tr->pctrl.pos_time = time;
-
     switch (tr->pctrl.state) {
     /* TODO: Estimate position while accelerating/decelerating */
     case PCTRL_STOPPED:
@@ -631,6 +718,8 @@ trainsrv_timer(struct train *tr, int time)
             if (dist >= 0) {
                 trainsrv_pctrl_advance_um(tr, dist);
                 trainsrv_determine_reverse_ok(tr);
+                while (pqueue_peekmin(&tr->sensor_times) != NULL)
+                    pqueue_popmin(&tr->sensor_times);
             } else {
                 trainsrv_start_orienting(tr); /* lost track of position */
             }
@@ -639,9 +728,7 @@ trainsrv_timer(struct train *tr, int time)
 
     case PCTRL_ACCEL:
     case PCTRL_CRUISE:
-        dist  = tr->calib.vel_umpt[tr->speed];
-        dist *= dt;
-        trainsrv_pctrl_advance_um(tr, dist);
+        trainsrv_pctrl_advance_ticks(tr, time);
         break;
 
     default:
@@ -722,6 +809,14 @@ trainsrv_tryrequest_sensor(struct train *tr)
     else
         memcpy(reply.sensors, tr->sensor_mask, sizeof (reply.sensors));
 
+    dbglog(&tr->dbglog, "wait for %04x-%04x-%04x-%04x-%04x, timeout=%d",
+        reply.sensors[0],
+        reply.sensors[1],
+        reply.sensors[2],
+        reply.sensors[3],
+        reply.sensors[4],
+        reply.timeout);
+
     rc = Reply(tr->sensor_tid, &reply, sizeof (reply));
     assertv(rc, rc == 0);
     tr->sensor_rdy = false;
@@ -742,7 +837,8 @@ trainsrv_pctrl_check_update(struct train *tr)
     tr->pctrl.updated = false;
 
     /* Position control follows. Only while moving! */
-    if (tr->state != TRAIN_RUNNING || tr->pctrl.state == PCTRL_STOPPED)
+    if (tr->state != TRAIN_RUNNING ||
+        (tr->pctrl.state != PCTRL_CRUISE && tr->pctrl.state != PCTRL_ACCEL))
         return;
 
     /* Calculate current stopping point and stop if desired. */
@@ -753,34 +849,14 @@ trainsrv_pctrl_check_update(struct train *tr)
             tr->pctrl.ahead,
             tr->path.end);
 
-        if (distance_um <= tr->calib.stop_um[tr->speed])
+        if (distance_um <= tr->calib.stop_um[tr->speed]) {
             trainsrv_stop(tr);
+            return;
+        }
     }
 
     /* Check for branches ahead. */
-    while ((unsigned)tr->path_swnext < tr->path.n_branches) {
-        struct track_pt sw_pt;
-        track_node_t branch;
-        int br_ix, dist_um;
-        bool curved;
-
-        branch = tr->path.branches[tr->path_swnext];
-        br_ix  = TRACK_NODE_DATA(tr->track, branch, tr->path.node_ix);
-        assert(br_ix >= 0);
-        if ((unsigned)br_ix >= tr->path.hops)
-            break;
-
-        sw_pt.edge   = tr->path.edges[br_ix];
-        sw_pt.pos_um = 1000 * sw_pt.edge->len_mm - 1;
-        dist_um  = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sw_pt);
-        dist_um -= tr->calib.vel_umpt[tr->speed] * TRAIN_SWITCH_AHEAD_TICKS;
-        if (dist_um > 0)
-            break;
-
-        curved = sw_pt.edge == &sw_pt.edge->src->edge[TRACK_EDGE_CURVED];
-        tcmux_switch_curve(&tr->tcmux, branch->num, curved);
-        tr->path_swnext++;
-    }
+    trainsrv_pctrl_switch_turnouts(tr, false);
 
     /* Check for sensors ahead. */
     i = TRACK_NODE_DATA(tr->track, tr->pctrl.ahead.edge->src, tr->path.node_ix);
@@ -791,6 +867,46 @@ trainsrv_pctrl_check_update(struct train *tr)
             continue;
         trainsrv_expect_sensor(tr, node);
         nsensors++;
+    }
+}
+
+static void
+trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
+{
+    while ((unsigned)tr->path_swnext < tr->path.hops) {
+        struct track_pt sw_pt;
+        track_node_t branch;
+        bool curved;
+
+        branch = tr->path.edges[tr->path_swnext]->src;
+        if (branch->type == TRACK_NODE_BRANCH) {
+            sw_pt.edge   = tr->path.edges[tr->path_swnext];
+            sw_pt.pos_um = 1000 * sw_pt.edge->len_mm;
+        } else {
+            assert(branch->type == TRACK_NODE_MERGE);
+            sw_pt.edge   = tr->path.edges[tr->path_swnext - 1];
+            sw_pt.pos_um = TRAIN_MERGE_OFFSET_UM;
+        }
+
+        if (!switch_all) {
+            int dist_um;
+            dist_um  = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sw_pt);
+            dist_um -= trainsrv_predict_dist_um(tr,
+                tr->pctrl.pos_time + TRAIN_SWITCH_AHEAD_TICKS);
+            if (dist_um > 0)
+                break;
+        }
+
+        if (branch->type == TRACK_NODE_BRANCH) {
+            curved = sw_pt.edge == &sw_pt.edge->src->edge[TRACK_EDGE_CURVED];
+        } else {
+            curved = sw_pt.edge
+                == sw_pt.edge->reverse->src->edge[TRACK_EDGE_CURVED].reverse;
+        }
+
+        dbglog(&tr->dbglog, "setting %d to %s", branch->num, curved ? "curved" : "straight");
+        tcmux_switch_curve(&tr->tcmux, branch->num, curved);
+        trainsrv_swnext_advance(tr);
     }
 }
 
