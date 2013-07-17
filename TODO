@@ -8,6 +8,9 @@ Real work:
 - Track reservation, integrated with route finding
 - Batch calibration adjustment
 
+Bugs:
+- UI status line is gone?
+
 UI improvements:
 - Output freezing for observation or copy-paste
 - Full screen log display mode
