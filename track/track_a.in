@@ -167,16 +167,6 @@ dist   BR155 EX2   282mm
 dist   MR155 MR156   0mm
 
 # calibration cycle
-calib  D4
-calib  B6
-calib  MR13
-calib  C12
-calib  MR14
-calib  A4
-calib  B16
-calib  BR15
-calib  C10
-calib  BR16
 calib  B1
 calib  D14
 calib  MR17
@@ -187,3 +177,13 @@ calib  BR9
 calib  D5
 calib  E6
 calib  BR10
+calib  D4
+calib  B6
+calib  MR13
+calib  C12
+calib  MR14
+calib  A4
+calib  B16
+calib  BR15
+calib  C10
+calib  BR16
