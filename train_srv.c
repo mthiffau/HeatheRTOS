@@ -84,6 +84,7 @@ struct train_pctrl {
     int                       state;
     struct track_pt           ahead, behind;
     int                       est_time, accel_start;
+    int                       vel_umpt;
     int                       stop_ticks, stop_um;
     bool                      reversed;
     const struct track_node  *lastsens;
@@ -233,6 +234,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->pctrl.reversed = false;
     tr->pctrl.lastsens = NULL;
     tr->pctrl.updated  = false;
+    tr->pctrl.vel_umpt = 0;
     tr->estimate_client = -1;
 
     /* take initial calibration */
@@ -355,18 +357,14 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 static void
 trainsrv_stop(struct train *tr)
 {
-    bool cruise;
     if (tr->state != TRAIN_RUNNING)
         return; /* ignore */
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return; /* ignore */
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
-    cruise = tr->pctrl.state == PCTRL_CRUISE;
     tr->pctrl.state      = PCTRL_STOPPING;
     tr->pctrl.stop_ticks = PCTRL_STOP_TICKS;
-    tr->pctrl.stop_um    = cruise
-        ? polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed])
-        : -1;
+    tr->pctrl.stop_um    = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
 
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
@@ -443,6 +441,9 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     track_pt_reverse(&tr->pctrl.behind);
     track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
     track_pt_reverse(&tr->pctrl.behind);
+
+    /* Initial velocity is zero */
+    tr->pctrl.vel_umpt = 0;
 
     /* FIXME We may be orienting backwards. */
 
@@ -665,11 +666,22 @@ trainsrv_predict_dist_um(struct train *tr, int when)
 static void
 trainsrv_pctrl_advance_ticks(struct train *tr, int now)
 {
+    /* Update position. */
     trainsrv_pctrl_advance_um(tr, trainsrv_predict_dist_um(tr, now));
     tr->pctrl.est_time = now;
     if (tr->pctrl.state == PCTRL_ACCEL) {
-        if (now - tr->pctrl.accel_start >= tr->calib.accel_cutoff[tr->speed])
-            tr->pctrl.state = PCTRL_CRUISE;
+        /* Update velocity */
+        int dt = now - tr->pctrl.accel_start;
+        if (dt < 0) {
+            /* Unchanged */
+        } else if (dt < tr->calib.accel_cutoff[tr->speed]) {
+            struct poly v;
+            polydiff(&tr->calib.accel, &v);
+            tr->pctrl.vel_umpt = polyeval(&v, dt);
+        } else {
+            tr->pctrl.vel_umpt = tr->calib.vel_umpt[tr->speed];
+            tr->pctrl.state    = PCTRL_CRUISE; /* also no longer accel */
+        }
     }
 }
 
@@ -839,7 +851,7 @@ trainsrv_pctrl_check_update(struct train *tr)
             tr->pctrl.ahead,
             tr->path.end);
 
-        stop_um = polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed]);
+        stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
         if (distance_um <= stop_um) {
             trainsrv_stop(tr);
             return;
