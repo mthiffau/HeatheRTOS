@@ -432,6 +432,12 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     tr->pctrl.ahead.pos_um =
         tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
 
+    /* Adjust ahead position for stopping distance of crawling speed. */
+    track_pt_advance(
+        &tr->switches,
+        &tr->pctrl.ahead,
+        polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[TRAIN_CRAWLSPEED]));
+
     /* Behind position */
     tr->pctrl.behind = tr->pctrl.ahead;
     track_pt_reverse(&tr->pctrl.behind);
