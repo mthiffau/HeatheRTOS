@@ -13,6 +13,7 @@ U_TID_H;
 struct calib {
     int   vel_umpt[16];  /* cruising velocity at each speed */
     int   stop_um[16];   /* stopping distance at each speed */
+    int   stop_ref;      /* reference value for stopping distances */
 
     /* Acceleration data. */
     struct poly accel;

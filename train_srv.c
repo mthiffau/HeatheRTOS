@@ -238,11 +238,6 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     /* take initial calibration */
     calib_get(tr->train_id, &tr->calib);
 
-    /* Adjust stopping distance values. They're too long by
-     * SENSOR_AVG_DELAY_TICKS worth of distance at cruising velocity. */
-    for (i = 0; i < ARRAY_SIZE(tr->calib.vel_umpt); i++)
-        tr->calib.stop_um[i] -= tr->calib.vel_umpt[i] * SENSOR_AVG_DELAY_TICKS;
-
     tr->sensor_rdy = false;
     pqueue_init(
         &tr->sensor_times,
@@ -366,7 +361,10 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     tr->pctrl.updated  = true;
 
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
-    dbglog(&tr->dbglog, "train%d sending speed %d", tr->train_id, tr->speed);
+    dbglog(&tr->dbglog, "train%d sending speed %d (v=%d um/tick)",
+        tr->train_id,
+        tr->speed,
+        tr->calib.vel_umpt[tr->speed]);
     /* already TRAIN_RUNNING */
     tr->pctrl.state = PCTRL_ACCEL;
     tr->pctrl.accel_start = tr->pctrl.pos_time + tr->calib.accel_delay;

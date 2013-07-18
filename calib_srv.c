@@ -22,7 +22,7 @@
 #include "tracksel_srv.h"
 #include "dbglog_srv.h"
 
-#define VCALIB_LAPS             3
+#define VCALIB_ERR_THRESHOLD    20
 #define VCALIB_SENSORS_SKIP     3
 
 enum {
@@ -52,7 +52,6 @@ struct calsrv {
 
 struct initcalib {
     uint8_t       train_id;
-    track_graph_t track;
     struct calib  calib;
 };
 
@@ -81,8 +80,7 @@ calibsrv_main(void)
     memset(cal.all, '\0', sizeof (cal.all));
     for (i = 0; i < n_initcalib; i++) {
         const struct initcalib *ic = &initcalib[i];
-        if (ic->track == cal.track)
-            cal.all[ic->train_id] = ic->calib;
+        cal.all[ic->train_id] = ic->calib;
     }
 
     /* Register */
@@ -211,7 +209,7 @@ static void
 calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
 {
     unsigned          i;
-    int               loop_um;
+    int               exclude_um, lap_um;
 
     uint8_t train    = msg->train_id;
     uint8_t minspeed = msg->vcalib.minspeed;
@@ -228,29 +226,36 @@ calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
     calibsrv_calibsetup(cal, train);
 
     /* Figure out total calibration run distance. */
-    loop_um = 0;
+    lap_um = 0;
     for (i = 0; i < (unsigned)cal->track->n_calib_sensors; i++)
-        loop_um += cal->track->calib_mm[i];
+        lap_um += 1000 * cal->track->calib_mm[i];
 
-    loop_um *= VCALIB_LAPS;
+    exclude_um = 0;
     for (i = 0; i < VCALIB_SENSORS_SKIP; i++)
-        loop_um -= cal->track->calib_mm[i + 1];
-
-    loop_um *= 1000;
+        exclude_um += 1000 * cal->track->calib_mm[i + 1];
 
     /* Calibrate the speeds! */
     for (speed = minspeed; speed <= maxspeed; speed++) {
-        int start_time, end_time, v;
+        int start_time, end_time, travel_um, v, v_diff;
 
         tcmux_train_speed(&cal->tcmux, train, speed);
         calibsrv_await(cal,
             cal->track->calib_sensors[VCALIB_SENSORS_SKIP],
             &start_time);
 
-        for (i = 0; i < VCALIB_LAPS; i++)
+        travel_um = -exclude_um;
+        v = -9999;
+        do {
             calibsrv_await(cal, cal->track->calib_sensors[0], &end_time);
+            travel_um += lap_um;
+            v_diff = v;
+            v = travel_um / (end_time - start_time);
+            v_diff -= v;
+            if (v_diff < 0)
+                v_diff = -v_diff;
+            dbglog(&cal->dbglog, "train%d speed %d v_diff=%d", train, speed, v_diff);
+        } while (v_diff > VCALIB_ERR_THRESHOLD);
 
-        v = loop_um / (end_time - start_time);
         cal->all[train].vel_umpt[speed] = v;
         dbglog(&cal->dbglog, "train%d speed %d = %d um/tick", train, speed, v);
     }
@@ -318,44 +323,46 @@ calib_stopcalib(uint8_t train_id, uint8_t speed)
 /* Initial calibration data. */
 static const struct initcalib initcalib[] = {
     {
-        /* 00:41 Tue 09 July 2013 */
         .train_id = 45,
-        .track    = &track_a,
         .calib = {
+            /* 19:57 Wed 17 July 2013, track B */
             .vel_umpt = {
-                0, 0, 0, 0, 0, 0, 0, 0, 3777, 4203, 4579, 5130, 5597, 0, 0
+                0,
+                0,
+                706,
+                1234,
+                1721,
+                2306,
+                2854,
+                3454,
+                3820,
+                4254,
+                4615,
+                5168,
+                5612,
+                5893,
+                0
             },
+            /* 19:57 Wed 17 July 2013, track B */
             .stop_um = {
-                0, 0, 0, 0, 0, 0, 0, 0, 494000, 557000, 613000, 687000, 770000, 0, 0
+                0,
+                0,
+                60000  - 3 * 706,
+                139000 - 3 * 1234,
+                206000 - 3 * 1721,
+                267000 - 3 * 2306,
+                358000 - 3 * 2854,
+                445000 - 3 * 3454,
+                492000 - 3 * 3820,
+                540000 - 3 * 4254,
+                627000 - 3 * 4615,
+                699000 - 3 * 5168,
+                773000 - 3 * 5612,
+                846000 - 3 * 6014,
+                0
             },
-            .accel = {
-                .deg = 4,
-                .a = {
-                    1.9212548188229261e+002,
-                    1.6563720815027833e+002,
-                    5.9044859742372934e+000,
-                    -2.0497816203332430e-002,
-                    6.4817958742409077e-005
-                },
-            },
-            .accel_ref   = 3814 + 4227 + 4608 + 5155 + 5620,
-            .accel_delay = 100,
-            .accel_cutoff= {
-                0, 0, 60, 122, 148, 201, 223, 233, 241, 262, 273, 296, 299, -1
-            },
-        }
-    },
-    {
-        /* 23:50 Mon 08 July 2013 */
-        .train_id = 45,
-        .track    = &track_b,
-        .calib = {
-            .vel_umpt = {
-                0, 0, 0, 0, 0, 0, 0, 0, 3793, 4218, 4588, 5129, 5589, 0, 0
-            },
-            .stop_um = {
-                0, 0, 0, 0, 0, 0, 0, 0, 504000, 567000, 609000, 693000, 755000, 0, 0
-            },
+            .stop_ref = 3820 + 4254 + 4615 + 5168 + 5612,
+            /* 10pm? Tue 16 July 2013, track B */
             .accel = {
                 .deg = 4,
                 .a   = {
@@ -369,34 +376,64 @@ static const struct initcalib initcalib[] = {
             .accel_ref   = 3814 + 4227 + 4608 + 5155 + 5620,
             .accel_delay = 100,
             .accel_cutoff= {
-                0, 0, 60, 122, 148, 201, 223, 233, 241, 262, 273, 296, 299, -1
+                0,
+                0,
+                0,
+                60,
+                122,
+                148,
+                201,
+                223,
+                233,
+                241,
+                262,
+                273,
+                296,
+                299,
+                -1
             },
         }
     },
     {
-        /* 00:41 Tue 09 July 2013 */
+        /* 23:09 Mon 08 July 2013, track B */
         .train_id = 50,
-        .track    = &track_a,
         .calib = {
             .vel_umpt = {
-                0, 0, 0, 0, 0, 0, 0, 0, 3805, 4342, 4812, 5258, 5781, 0, 0
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                3801,
+                4318,
+                4807,
+                5265,
+                5784,
+                0,
+                0
             },
             .stop_um = {
-                0, 0, 0, 0, 0, 0, 0, 0, 458000, 504000, 573000, 667000, 723000, 0, 0
-            }
-        }
-    },
-    {
-        /* 23:09 Mon 08 July 2013 */
-        .train_id = 50,
-        .track    = &track_b,
-        .calib = {
-            .vel_umpt = {
-                0, 0, 0, 0, 0, 0, 0, 0, 3801, 4318, 4807, 5265, 5784, 0, 0
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                443000 - 3 * 3801,
+                519000 - 3 * 4318,
+                584000 - 3 * 4807,
+                657000 - 3 * 5265,
+                703000 - 3 * 5784,
+                0,
+                0
             },
-            .stop_um = {
-                0, 0, 0, 0, 0, 0, 0, 0, 443000, 519000, 584000, 657000, 703000, 0, 0
-            }
+            .stop_ref = 3801 + 4318 + 4807 + 5265 + 5784,
+            /* TODO more measurements and accel info */
         }
     }
 };
