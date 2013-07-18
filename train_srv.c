@@ -255,24 +255,6 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tcmuxctx_init(&tr->tcmux);
     switchctx_init(&tr->switches);
     dbglogctx_init(&tr->dbglog);
-
-    /* log starting calibration */
-    dbglog(&tr->dbglog, "train%d track %s initial velocities (um/tick): %d %d %d %d %d",
-        cfg->train_id,
-        tr->track->name,
-        tr->calib.vel_umpt[8],
-        tr->calib.vel_umpt[9],
-        tr->calib.vel_umpt[10],
-        tr->calib.vel_umpt[11],
-        tr->calib.vel_umpt[12]);
-    dbglog(&tr->dbglog, "train%d track %s stopping distances (um): %d %d %d %d %d",
-        cfg->train_id,
-        tr->track->name,
-        tr->calib.stop_um[8],
-        tr->calib.stop_um[9],
-        tr->calib.stop_um[10],
-        tr->calib.stop_um[11],
-        tr->calib.stop_um[12]);
 }
 
 static void
@@ -382,7 +364,9 @@ trainsrv_stop(struct train *tr)
     cruise = tr->pctrl.state == PCTRL_CRUISE;
     tr->pctrl.state      = PCTRL_STOPPING;
     tr->pctrl.stop_ticks = PCTRL_STOP_TICKS;
-    tr->pctrl.stop_um    = cruise ? tr->calib.stop_um[tr->speed] : -1;
+    tr->pctrl.stop_um    = cruise
+        ? polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed])
+        : -1;
 
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
@@ -843,13 +827,14 @@ trainsrv_pctrl_check_update(struct train *tr)
 
     /* Calculate current stopping point and stop if desired. */
     if (tr->pctrl.state == PCTRL_CRUISE || tr->pctrl.state == PCTRL_ACCEL) {
-        int distance_um;
+        int stop_um, distance_um;
         distance_um = track_pt_distance_path(
             &tr->path,
             tr->pctrl.ahead,
             tr->path.end);
 
-        if (distance_um <= tr->calib.stop_um[tr->speed]) {
+        stop_um = polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed]);
+        if (distance_um <= stop_um) {
             trainsrv_stop(tr);
             return;
         }
