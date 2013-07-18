@@ -83,7 +83,7 @@ struct sensor_reply {
 struct train_pctrl {
     int                       state;
     struct track_pt           ahead, behind;
-    int                       pos_time, accel_start;
+    int                       est_time, accel_start;
     int                       stop_ticks, stop_um;
     bool                      reversed;
     const struct track_node  *lastsens;
@@ -229,7 +229,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->speed    = TRAIN_DEFSPEED;
 
     tr->pctrl.state = PCTRL_STOPPED;
-    tr->pctrl.pos_time = -1;
+    tr->pctrl.est_time = -1;
     tr->pctrl.reversed = false;
     tr->pctrl.lastsens = NULL;
     tr->pctrl.updated  = false;
@@ -339,7 +339,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     }
 
     trainsrv_swnext_init(tr);
-    tr->pctrl.pos_time = Time(&tr->clock);
+    tr->pctrl.est_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
 
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
@@ -349,7 +349,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
         tr->calib.vel_umpt[tr->speed]);
     /* already TRAIN_RUNNING */
     tr->pctrl.state = PCTRL_ACCEL;
-    tr->pctrl.accel_start = tr->pctrl.pos_time + tr->calib.accel_delay;
+    tr->pctrl.accel_start = tr->pctrl.est_time + tr->calib.accel_delay;
 }
 
 static void
@@ -444,7 +444,7 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     trainsrv_determine_reverse_ok(tr);
 
     /* Position estimate as of what time. */
-    tr->pctrl.pos_time = Time(&tr->clock);
+    tr->pctrl.est_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
 
     /* Train is now stopped. */
@@ -471,9 +471,9 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
     tr->pctrl.ahead.pos_um =
         tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
-    tr->pctrl.pos_time     = time;
-    if (est_pctrl.pos_time > time)
-        trainsrv_pctrl_advance_ticks(tr, est_pctrl.pos_time);
+    tr->pctrl.est_time     = time;
+    if (est_pctrl.est_time > time)
+        trainsrv_pctrl_advance_ticks(tr, est_pctrl.est_time);
 
     /* Compute delta */
     tr->pctrl.lastsens = sens;
@@ -623,16 +623,16 @@ static int
 trainsrv_predict_dist_um(struct train *tr, int when)
 {
     int dist_um, dt, cutoff;
-    //assert(when >= tr->pctrl.pos_time);
+    //assert(when >= tr->pctrl.est_time);
     switch (tr->pctrl.state) {
     case PCTRL_CRUISE:
-        dist_um = (when - tr->pctrl.pos_time) * tr->calib.vel_umpt[tr->speed];
+        dist_um = (when - tr->pctrl.est_time) * tr->calib.vel_umpt[tr->speed];
         break;
     case PCTRL_ACCEL:
         dt = when - tr->pctrl.accel_start;
         cutoff = tr->calib.accel_cutoff[tr->speed];
-        if (tr->pctrl.accel_start > tr->pctrl.pos_time) {
-            dt -= tr->pctrl.accel_start - tr->pctrl.pos_time;
+        if (tr->pctrl.accel_start > tr->pctrl.est_time) {
+            dt -= tr->pctrl.accel_start - tr->pctrl.est_time;
         }
         if (dt <= 0) {
             dist_um = 0;
@@ -641,12 +641,12 @@ trainsrv_predict_dist_um(struct train *tr, int when)
         if (dt < cutoff) {
             dist_um  = trainsrv_accel_pos(tr, dt);
             dist_um -= trainsrv_accel_pos(tr,
-                tr->pctrl.pos_time - tr->pctrl.accel_start);
+                tr->pctrl.est_time - tr->pctrl.accel_start);
         } else {
-            assert(tr->pctrl.pos_time - tr->pctrl.accel_start < cutoff);
+            assert(tr->pctrl.est_time - tr->pctrl.accel_start < cutoff);
             dist_um  = trainsrv_accel_pos(tr, cutoff);
             dist_um -= trainsrv_accel_pos(tr,
-                tr->pctrl.pos_time - tr->pctrl.accel_start);
+                tr->pctrl.est_time - tr->pctrl.accel_start);
             dist_um += (dt - cutoff) * tr->calib.vel_umpt[tr->speed];
         }
         break;
@@ -660,7 +660,7 @@ static void
 trainsrv_pctrl_advance_ticks(struct train *tr, int now)
 {
     trainsrv_pctrl_advance_um(tr, trainsrv_predict_dist_um(tr, now));
-    tr->pctrl.pos_time = now;
+    tr->pctrl.est_time = now;
     if (tr->pctrl.state == PCTRL_ACCEL) {
         if (now - tr->pctrl.accel_start >= tr->calib.accel_cutoff[tr->speed])
             tr->pctrl.state = PCTRL_CRUISE;
@@ -683,7 +683,7 @@ trainsrv_timer(struct train *tr, int time)
     if (tr->state != TRAIN_RUNNING)
         return;
 
-    dt = time - tr->pctrl.pos_time;
+    dt = time - tr->pctrl.est_time;
     switch (tr->pctrl.state) {
     /* TODO: Estimate position while accelerating/decelerating */
     case PCTRL_STOPPED:
@@ -741,7 +741,7 @@ trainsrv_expect_sensor(struct train *tr, track_node_t sens)
     sens_dist_um  += tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
     sens_dist_um  += TRAIN_SENSOR_OVERESTIMATE_UM;
     vel            = tr->calib.vel_umpt[tr->speed];
-    ticks          = tr->pctrl.pos_time + sens_dist_um / vel;
+    ticks          = tr->pctrl.est_time + sens_dist_um / vel;
 
     tr->sensor_mask[smod] |= ssens;
     rc = pqueue_add(&tr->sensor_times, sens->num, ticks);
@@ -767,7 +767,7 @@ trainsrv_tryrequest_sensor(struct train *tr)
             min = pqueue_peekmin(&tr->sensor_times);
             if (min == NULL)
                 return;
-            if (min->key >= tr->pctrl.pos_time
+            if (min->key >= tr->pctrl.est_time
                 || tr->pctrl.state != PCTRL_CRUISE)
                 break;
             min_val = min->val;
@@ -784,7 +784,7 @@ trainsrv_tryrequest_sensor(struct train *tr)
     } else if (tr->pctrl.state != PCTRL_CRUISE) {
         reply.timeout = -1;
     } else {
-        reply.timeout = min->key - tr->pctrl.pos_time;
+        reply.timeout = min->key - tr->pctrl.est_time;
         assert(reply.timeout >= 0);
     }
 
@@ -877,7 +877,7 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
             int dist_um;
             dist_um  = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sw_pt);
             dist_um -= trainsrv_predict_dist_um(tr,
-                tr->pctrl.pos_time + TRAIN_SWITCH_AHEAD_TICKS);
+                tr->pctrl.est_time + TRAIN_SWITCH_AHEAD_TICKS);
             if (dist_um > 0)
                 break;
         }
