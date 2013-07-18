@@ -341,6 +341,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     }
 
     trainsrv_swnext_init(tr);
+    tr->pctrl.vel_umpt = 0;
     tr->pctrl.est_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
 
