@@ -35,6 +35,7 @@
 #define TRAIN_BACK_OFFS_UM      145000
 #define TRAIN_LENGTH_UM         214000
 
+#define PCTRL_CMD_TICKS         3
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        400
 
@@ -362,10 +363,19 @@ trainsrv_stop(struct train *tr)
         return; /* ignore */
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return; /* ignore */
+
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
+
     tr->pctrl.state      = PCTRL_STOPPING;
     tr->pctrl.stop_ticks = PCTRL_STOP_TICKS;
     tr->pctrl.stop_um    = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+
+    dbglog(&tr->dbglog, "train%d stopping at %s-%dum, v=%dum/cs, d=%dum",
+        tr->train_id,
+        tr->pctrl.ahead.edge->dest->name,
+        tr->pctrl.ahead.pos_um,
+        tr->pctrl.vel_umpt,
+        tr->pctrl.stop_um);
 
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
@@ -610,23 +620,6 @@ trainsrv_accel_pos(struct train *tr, int t)
     return (int)polyeval(&tr->calib.accel, (float)t);
 }
 
-#if 0
-static int
-trainsrv_accel_vel(struct train *tr, int t)
-{
-    float v = 0, tp = 1;
-    int iv;
-    unsigned i;
-    v = tr->calib.accel[1];
-    for (i = 2; i < ARRAY_SIZE(tr->calib.accel); i++) {
-        tp *= t;
-        v  += i * tr->calib.accel[i] * tp;
-    }
-    iv = (int)v;
-    return iv < 0 ? 0 : iv;
-}
-#endif
-
 static int
 trainsrv_predict_dist_um(struct train *tr, int when)
 {
@@ -664,26 +657,52 @@ trainsrv_predict_dist_um(struct train *tr, int when)
     return dist_um;
 }
 
+static int
+trainsrv_pctrl_predict_vel_umpt(struct train *tr, int when)
+{
+    int vel_umpt, dt, cutoff;
+    //assert(when >= tr->pctrl.est_time);
+    switch (tr->pctrl.state) {
+    case PCTRL_CRUISE:
+        vel_umpt = tr->calib.vel_umpt[tr->speed];
+        break;
+    case PCTRL_ACCEL:
+        dt = when - tr->pctrl.accel_start;
+        cutoff = tr->calib.accel_cutoff[tr->speed];
+        if (tr->pctrl.accel_start > tr->pctrl.est_time) {
+            dt -= tr->pctrl.accel_start - tr->pctrl.est_time;
+        }
+        if (dt <= 0)
+            vel_umpt = tr->pctrl.vel_umpt;
+        else if (dt >= cutoff)
+            vel_umpt = tr->calib.vel_umpt[tr->speed];
+        else {
+            struct poly v;
+            polydiff(&tr->calib.accel, &v);
+            vel_umpt = (int)polyeval(&v, dt);
+        }
+        break;
+    default:
+        panic("panic! bad state %d", tr->pctrl.state);
+    }
+    return vel_umpt;
+}
+
 static void
 trainsrv_pctrl_advance_ticks(struct train *tr, int now)
 {
+    int dt, cutoff;
     /* Update position. */
     trainsrv_pctrl_advance_um(tr, trainsrv_predict_dist_um(tr, now));
+    /* Update velocity. */
+    tr->pctrl.vel_umpt = trainsrv_pctrl_predict_vel_umpt(tr, now);
+    /* Update state */
+    dt     = now - tr->pctrl.accel_start;
+    cutoff = tr->calib.accel_cutoff[tr->speed];
+    if (tr->pctrl.state == PCTRL_ACCEL && dt >= cutoff)
+        tr->pctrl.state = PCTRL_CRUISE;
+    /* Update time of estimate. */
     tr->pctrl.est_time = now;
-    if (tr->pctrl.state == PCTRL_ACCEL) {
-        /* Update velocity */
-        int dt = now - tr->pctrl.accel_start;
-        if (dt < 0) {
-            /* Unchanged */
-        } else if (dt < tr->calib.accel_cutoff[tr->speed]) {
-            struct poly v;
-            polydiff(&tr->calib.accel, &v);
-            tr->pctrl.vel_umpt = polyeval(&v, dt);
-        } else {
-            tr->pctrl.vel_umpt = tr->calib.vel_umpt[tr->speed];
-            tr->pctrl.state    = PCTRL_CRUISE; /* also no longer accel */
-        }
-    }
 }
 
 static void
@@ -846,13 +865,17 @@ trainsrv_pctrl_check_update(struct train *tr)
 
     /* Calculate current stopping point and stop if desired. */
     if (tr->pctrl.state == PCTRL_CRUISE || tr->pctrl.state == PCTRL_ACCEL) {
-        int stop_um, distance_um;
-        distance_um = track_pt_distance_path(
-            &tr->path,
-            tr->pctrl.ahead,
-            tr->path.end);
+        struct track_pt cmd_ahead;
+        int stop_um, distance_um, cmd_dist_um, cmd_time, cmd_vel_umpt;
 
-        stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+        cmd_ahead   = tr->pctrl.ahead;
+        cmd_time    = tr->pctrl.est_time + PCTRL_CMD_TICKS;
+        cmd_dist_um = trainsrv_predict_dist_um(tr, cmd_time);
+        track_pt_advance_path(&tr->path, &cmd_ahead, cmd_dist_um);
+        distance_um = track_pt_distance_path(&tr->path, cmd_ahead, tr->path.end);
+
+        cmd_vel_umpt = trainsrv_pctrl_predict_vel_umpt(tr, cmd_time);
+        stop_um      = polyeval(&tr->calib.stop_um, cmd_vel_umpt);
         if (distance_um <= stop_um) {
             trainsrv_stop(tr);
             return;

@@ -383,7 +383,7 @@ static const struct initcalib initcalib[] = {
                 }
             },
             .accel_ref   = 3814 + 4227 + 4608 + 5155 + 5620,
-            .accel_delay = 100,
+            .accel_delay = 95,
             .accel_cutoff= {
                 0,
                 0,
@@ -403,6 +403,7 @@ static const struct initcalib initcalib[] = {
             },
         }
     },
+
     {
         /* 23:09 Mon 08 July 2013, track B */
         .train_id = 50,
