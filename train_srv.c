@@ -41,6 +41,7 @@
 
 #define TRAIN_SENSOR_OVERESTIMATE_UM    (80 * 1000) // FIXME more like 4cm
 #define TRAIN_SWITCH_AHEAD_TICKS        50
+#define TRAIN_SENSOR_AHEAD_TICKS        50
 #define TRAIN_MERGE_OFFSET_UM           100000 // 10cm
 
 enum {
@@ -51,12 +52,6 @@ enum {
     TRAINMSG_SENSOR_TIMEOUT,
     TRAINMSG_TIMER,
     TRAINMSG_ESTIMATE
-};
-
-enum {
-    TRAIN_DISORIENTED,
-    TRAIN_ORIENTING,
-    TRAIN_RUNNING,
 };
 
 enum {
@@ -99,22 +94,15 @@ struct train {
     struct tcmuxctx           tcmux;
     struct switchctx          switches;
     struct dbglogctx          dbglog;
+    struct sensorctx          sensors;
 
     /* General train state */
-    int                       state;
     const struct track_graph *track;
     uint8_t                   train_id;
     uint8_t                   speed;
 
     /* Calibration data */
     struct calib              calib;
-
-    /* Sensor bookkeeping */
-    tid_t                     sensor_tid;
-    bool                      sensor_rdy;
-    sensors_t                 sensor_mask[SENSOR_MODULES];
-    struct pqueue             sensor_times;
-    struct pqueue_node        sensor_times_nodes[SENSOR_MODULES * SENSORS_PER_MODULE];
 
     /* Timer */
     tid_t                     timer_tid;
@@ -126,20 +114,20 @@ struct train {
     /* Path to follow */
     struct track_path         path;
     int                       path_swnext;
+    int                       path_sensnext;
     bool                      reverse_ok;
 };
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
+static void trainsrv_orient_train(struct train *t);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
 static void trainsrv_swnext_init(struct train *tr);
 static void trainsrv_swnext_advance(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
 static void trainsrv_stop(struct train *tr);
-static void trainsrv_sensor_orienting(struct train *tr, track_node_t sens);
 static void trainsrv_sensor_running(struct train *tr, track_node_t sens, int time);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
-static void trainsrv_start_orienting(struct train *tr);
 static void trainsrv_sensor_timeout(struct train *tr, int time);
 static int  trainsrv_accel_pos(struct train *tr, int t);
 static int  trainsrv_predict_dist_um(struct train *tr, int when);
@@ -147,12 +135,11 @@ static void trainsrv_pctrl_advance_ticks(struct train *tr, int now);
 static void trainsrv_pctrl_advance_um(struct train *tr, int dist_um);
 static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
-static void trainsrv_tryrequest_sensor(struct train *tr);
 static void trainsrv_pctrl_check_update(struct train *tr);
+static void trainsrv_pctrl_expect_sensors(struct train *tr);
 static void trainsrv_pctrl_switch_turnouts(struct train *tr, bool all);
 static void trainsrv_send_estimate(struct train *tr);
 
-static void trainsrv_sensor_listen(void);
 static void trainsrv_timer_listen(void);
 static void trainsrv_empty_reply(tid_t client);
 static void trainsrv_fmt_name(uint8_t train_id, char buf[32]);
@@ -172,10 +159,11 @@ trainsrv_main(void)
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
 
-    trainsrv_init(&tr, &cfg);
     trainsrv_fmt_name(tr.train_id, srv_name);
     rc = RegisterAs(srv_name);
     assertv(rc, rc == 0);
+
+    trainsrv_init(&tr, &cfg);
 
     for (;;) {
         msglen = Receive(&client, &msg, sizeof (msg));
@@ -194,13 +182,11 @@ trainsrv_main(void)
             trainsrv_stop(&tr);
             break;
         case TRAINMSG_SENSOR:
-            assert(client == tr.sensor_tid);
-            assert(!tr.sensor_rdy);
+	    trainsrv_empty_reply(client);
             trainsrv_sensor(&tr, msg.sensors, msg.time);
-            break;
+	    break;
         case TRAINMSG_SENSOR_TIMEOUT:
-            assert(client == tr.sensor_tid);
-            assert(!tr.sensor_rdy);
+	    trainsrv_empty_reply(client);
             trainsrv_sensor_timeout(&tr, msg.time);
             break;
         case TRAINMSG_TIMER:
@@ -215,7 +201,6 @@ trainsrv_main(void)
         default:
             panic("invalid train message type %d", msg.type);
         }
-        trainsrv_tryrequest_sensor(&tr);
         trainsrv_pctrl_check_update(&tr);
     }
 }
@@ -223,9 +208,6 @@ trainsrv_main(void)
 static void
 trainsrv_init(struct train *tr, struct traincfg *cfg)
 {
-    unsigned i;
-
-    tr->state    = TRAIN_DISORIENTED;
     tr->track    = tracksel_ask();
     tr->train_id = cfg->train_id;
     tr->speed    = TRAIN_DEFSPEED;
@@ -241,16 +223,6 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     /* take initial calibration */
     calib_get(tr->train_id, &tr->calib);
 
-    tr->sensor_rdy = false;
-    pqueue_init(
-        &tr->sensor_times,
-        ARRAY_SIZE(tr->sensor_times_nodes),
-        tr->sensor_times_nodes);
-    for (i = 0; i < ARRAY_SIZE(tr->sensor_mask); i++)
-        tr->sensor_mask[i] = 0;
-    tr->sensor_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_sensor_listen);
-    assert(tr->sensor_tid >= 0);
-
     tr->timer_tid = Create(PRIORITY_TRAIN - 1, &trainsrv_timer_listen);
     assert(tr->timer_tid >= 0);
 
@@ -258,14 +230,15 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tcmuxctx_init(&tr->tcmux);
     switchctx_init(&tr->switches);
     dbglogctx_init(&tr->dbglog);
+    sensorctx_init(&tr->sensors);
+
+    trainsrv_orient_train(tr);
 }
 
 static void
 trainsrv_setspeed(struct train *tr, uint8_t speed)
 {
     assert(speed > 0 && speed < 15);
-    if (tr->state != TRAIN_RUNNING)
-        return; /* ignore */
     if (speed < TRAIN_MINSPEED)
         speed = TRAIN_MINSPEED;
     if (speed > TRAIN_MAXSPEED)
@@ -306,7 +279,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
     struct track_pt path_starts[2], path_dests[2];
     int rc, n_starts;
-    if (tr->state != TRAIN_RUNNING || tr->pctrl.state != PCTRL_STOPPED)
+    if (tr->pctrl.state != PCTRL_STOPPED)
         return;
 
     /* Get path to follow */
@@ -342,6 +315,8 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     }
 
     trainsrv_swnext_init(tr);
+    tr->path_sensnext = 1; /* Ignore first sensor if it is the source
+			    * of the first edge on the path */
     tr->pctrl.vel_umpt = 0;
     tr->pctrl.est_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
@@ -359,8 +334,6 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 static void
 trainsrv_stop(struct train *tr)
 {
-    if (tr->state != TRAIN_RUNNING)
-        return; /* ignore */
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return; /* ignore */
 
@@ -416,21 +389,27 @@ trainsrv_determine_reverse_ok(struct train *tr)
 }
 
 static void
-trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
+trainsrv_orient_train(struct train *tr)
 {
-    unsigned i;
-    int ahead_offs_um;
+    int ahead_offs_um, i, rc;
+    sensors_t all_sensors[SENSOR_MODULES];
+    track_node_t sensnode;
+
+    /* Start the train crawling */
+    tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
+
+    /* Wait for all sensors */
+    for (i = 0; i < SENSOR_MODULES; i++)
+	all_sensors[i] = (sensors_t)-1;
+
+    rc = sensor_wait(&tr->sensors, all_sensors, -1, NULL);
+    assertv(rc, rc == SENSOR_TRIPPED);
+
     /* Stop the train  */
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
 
-    /* Clear sensor state. */
-    for (i = 0; i < ARRAY_SIZE(tr->sensor_mask); i++)
-        tr->sensor_mask[i] = 0;
-
-    pqueue_init(
-        &tr->sensor_times,
-        ARRAY_SIZE(tr->sensor_times_nodes),
-        tr->sensor_times_nodes);
+    /* Determine which sensor was hit */
+    sensnode = &tr->track->nodes[sensors_scan(all_sensors)];
 
     /* Set up initial oriented state. */
 
@@ -456,8 +435,6 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     /* Initial velocity is zero */
     tr->pctrl.vel_umpt = 0;
 
-    /* FIXME We may be orienting backwards. */
-
     /* Determine whether it's okay to reverse from here */
     trainsrv_determine_reverse_ok(tr);
 
@@ -466,7 +443,6 @@ trainsrv_sensor_orienting(struct train *tr, track_node_t sensnode)
     tr->pctrl.updated  = true;
 
     /* Train is now stopped. */
-    tr->state       = TRAIN_RUNNING;
     tr->pctrl.state = PCTRL_STOPPED;
 }
 
@@ -545,70 +521,23 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 }
 
 static void
-trainsrv_start_orienting(struct train *tr)
-{
-    tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
-    tr->state = TRAIN_ORIENTING;
-}
-
-static void
 trainsrv_sensor_timeout(struct train *tr, int time)
 {
-    tr->sensor_rdy = true;
-    if (tr->state == TRAIN_DISORIENTED) {
-        trainsrv_start_orienting(tr);
-        return;
-    }
-
-    for (;;) {
-        struct pqueue_entry *first_sensor;
-        int first_val;
-        first_sensor = pqueue_peekmin(&tr->sensor_times);
-        if (first_sensor == NULL)
-            break;
-        if (first_sensor->key >= time)
-            break;
-        first_val = first_sensor->val;
-        pqueue_popmin(&tr->sensor_times);
-        tr->sensor_mask[sensor1_module(first_val)] &=
-            ~(1 << sensor1_sensor(first_val));
-    }
+    (void)tr;
+    (void)time;
 }
 
 static void
 trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
 {
     const struct track_node *sens;
-    struct pqueue_entry *first_sensor;
     sensor1_t hit;
 
-    assert(tr->state != TRAIN_DISORIENTED);
-
-    tr->sensor_rdy = true;
     hit = sensors_scan(sensors);
     assert(hit != SENSOR1_INVALID);
     sens = &tr->track->nodes[hit];
     assert(sens->type == TRACK_NODE_SENSOR);
 
-    if (tr->state == TRAIN_ORIENTING) {
-        trainsrv_sensor_orienting(tr, sens);
-        return;
-    }
-
-    for (;;) {
-        int first_val;
-        first_sensor = pqueue_peekmin(&tr->sensor_times);
-        if (first_sensor == NULL)
-            break;
-        first_val = first_sensor->val;
-        pqueue_popmin(&tr->sensor_times);
-        tr->sensor_mask[sensor1_module(first_val)] &=
-            ~(1 << sensor1_sensor(first_val));
-        if (first_val == hit)
-            break;
-    }
-
-    assert(tr->state == TRAIN_RUNNING);
     trainsrv_sensor_running(tr, sens, time);
 }
 
@@ -718,9 +647,6 @@ trainsrv_timer(struct train *tr, int time)
 {
     int dt, dist;
 
-    if (tr->state != TRAIN_RUNNING)
-        return;
-
     dt = time - tr->pctrl.est_time;
     switch (tr->pctrl.state) {
     /* TODO: Estimate position while accelerating/decelerating */
@@ -732,19 +658,9 @@ trainsrv_timer(struct train *tr, int time)
         if (tr->pctrl.stop_ticks < 0) {
             tr->pctrl.state = PCTRL_STOPPED;
             dist = tr->pctrl.stop_um;
-            if (dist >= 0) {
-                struct pqueue_entry *cur;
-                trainsrv_pctrl_advance_um(tr, dist);
-                trainsrv_determine_reverse_ok(tr);
-                while ((cur = pqueue_peekmin(&tr->sensor_times)) != NULL) {
-                    int mod  = sensor1_module(cur->val);
-                    int sens = sensor1_sensor(cur->val);
-                    tr->sensor_mask[mod] &= ~(1 << sens);
-                    pqueue_popmin(&tr->sensor_times);
-                }
-            } else {
-                trainsrv_start_orienting(tr); /* lost track of position */
-            }
+            assert(dist >= 0);
+	    trainsrv_pctrl_advance_um(tr, dist);
+	    trainsrv_determine_reverse_ok(tr);
         }
         break;
 
@@ -758,97 +674,61 @@ trainsrv_timer(struct train *tr, int time)
     }
 }
 
+struct sens_param {
+    struct sensorctx ctx;
+    track_node_t sens;
+};
+
 static void
-trainsrv_expect_sensor(struct train *tr, track_node_t sens)
+sensor_worker(void)
 {
-    struct track_pt sens_pt;
-    int smod, ssens;
-    int rc, ticks, sens_dist_um, vel;
+    int rc;
+    tid_t train;
+    int time;
+    sensors_t sensors[SENSOR_MODULES] = { 0 };
+    struct trainmsg msg;
+    struct sens_param sp;
 
-    assert(sens->type == TRACK_NODE_SENSOR);
+    rc = Receive(&train, &sp, sizeof(sp));
+    assertv(rc, rc == sizeof(sp));
+    rc = Reply(train, NULL, 0);
+    assertv(rc, rc == 0);
 
-    smod  = sensor1_module(sens->num);
-    ssens = 1 << sensor1_sensor(sens->num);
-    if (tr->sensor_mask[smod] & ssens)
-        return;
+    sensors[sensor1_module(sp.sens->num)] = (1 << sensor1_sensor(sp.sens->num));
 
-    /* Calculate expected sensor time */
-    sens_pt.edge   = sens->reverse->edge[TRACK_EDGE_AHEAD].reverse;
-    sens_pt.pos_um = 0;
-    sens_dist_um   = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
-    sens_dist_um  += tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
-    sens_dist_um  += TRAIN_SENSOR_OVERESTIMATE_UM;
-    vel            = tr->calib.vel_umpt[tr->speed];
-    ticks          = tr->pctrl.est_time + sens_dist_um / vel;
+    rc = sensor_wait(&sp.ctx, sensors, 2 * TRAIN_SENSOR_AHEAD_TICKS, &time);
+    msg.time = time;
+    if (rc == SENSOR_TRIPPED) {
+	msg.type = TRAINMSG_SENSOR;
+	memcpy(msg.sensors, sensors, sizeof(sensors));
+    } else {
+	msg.type = TRAINMSG_SENSOR_TIMEOUT;
+    }
 
-    tr->sensor_mask[smod] |= ssens;
-    rc = pqueue_add(&tr->sensor_times, sens->num, ticks);
+    rc = Send(train, &msg, sizeof(msg), NULL, 0);
     assertv(rc, rc == 0);
 }
 
 static void
-trainsrv_tryrequest_sensor(struct train *tr)
+trainsrv_expect_sensor(struct train *tr, track_node_t sens)
 {
-    struct sensor_reply reply;
-    struct pqueue_entry *min;
-    int rc;
+    int replylen;
+    tid_t worker;
+    struct sens_param sp;
 
-    if (!tr->sensor_rdy || tr->state == TRAIN_DISORIENTED)
-        return;
+    sp.ctx = tr->sensors;
+    sp.sens = sens;
 
-    if (tr->state == TRAIN_ORIENTING) {
-        min = NULL;
-    } else {
-        /* Find earliest time, removing those in the past. */
-        for (;;) {
-            int min_val;
-            min = pqueue_peekmin(&tr->sensor_times);
-            if (min == NULL)
-                return;
-            if (min->key >= tr->pctrl.est_time
-                || tr->pctrl.state != PCTRL_CRUISE)
-                break;
-            min_val = min->val;
-            pqueue_popmin(&tr->sensor_times);
-            tr->sensor_mask[sensor1_module(min_val)] &=
-                ~(1 << sensor1_sensor(min_val));
-        }
-    }
+    worker = Create(PRIORITY_TRAIN - 1, &sensor_worker);
+    assert(worker >= 0);
 
-    if (tr->state != TRAIN_RUNNING) {
-        reply.timeout = -1;
-    } else if (tr->pctrl.state == PCTRL_STOPPING) {
-        reply.timeout = tr->pctrl.stop_ticks;
-    } else if (tr->pctrl.state != PCTRL_CRUISE) {
-        reply.timeout = -1;
-    } else {
-        reply.timeout = min->key - tr->pctrl.est_time;
-        assert(reply.timeout >= 0);
-    }
-
-    if (tr->state == TRAIN_ORIENTING)
-        memset(reply.sensors, 0xff, sizeof (reply.sensors));
-    else
-        memcpy(reply.sensors, tr->sensor_mask, sizeof (reply.sensors));
-
-    dbglog(&tr->dbglog, "wait for %04x-%04x-%04x-%04x-%04x, timeout=%d",
-        reply.sensors[0],
-        reply.sensors[1],
-        reply.sensors[2],
-        reply.sensors[3],
-        reply.sensors[4],
-        reply.timeout);
-
-    rc = Reply(tr->sensor_tid, &reply, sizeof (reply));
-    assertv(rc, rc == 0);
-    tr->sensor_rdy = false;
+    replylen = Send(worker, &sp, sizeof(sp), NULL, 0);
+    assertv(replylen, replylen == 0);
 }
 
 static void
 trainsrv_pctrl_check_update(struct train *tr)
 {
-    unsigned i, nsensors;
-
     if (!tr->pctrl.updated)
         return;
 
@@ -859,8 +739,7 @@ trainsrv_pctrl_check_update(struct train *tr)
     tr->pctrl.updated = false;
 
     /* Position control follows. Only while moving! */
-    if (tr->state != TRAIN_RUNNING ||
-        (tr->pctrl.state != PCTRL_CRUISE && tr->pctrl.state != PCTRL_ACCEL))
+    if (tr->pctrl.state != PCTRL_CRUISE && tr->pctrl.state != PCTRL_ACCEL)
         return;
 
     /* Calculate current stopping point and stop if desired. */
@@ -888,14 +767,38 @@ trainsrv_pctrl_check_update(struct train *tr)
     trainsrv_pctrl_switch_turnouts(tr, false);
 
     /* Check for sensors ahead. */
-    i = TRACK_NODE_DATA(tr->track, tr->pctrl.ahead.edge->src, tr->path.node_ix);
-    nsensors = 0;
-    while (i < tr->path.hops && nsensors < 2) {
-        track_node_t node = tr->path.edges[i++]->dest;
-        if (node->type != TRACK_NODE_SENSOR)
-            continue;
-        trainsrv_expect_sensor(tr, node);
-        nsensors++;
+    trainsrv_pctrl_expect_sensors(tr);
+}
+
+static void
+trainsrv_pctrl_expect_sensors(struct train *tr)
+{
+    for(;(unsigned)tr->path_sensnext < tr->path.hops; tr->path_sensnext++) {
+	struct track_pt sens_pt;
+	track_node_t sens;
+	int sensdist_um, travel_um;
+
+	sens = tr->path.edges[tr->path_sensnext]->src;
+	if (sens->type != TRACK_NODE_SENSOR)
+	    continue;
+
+	track_pt_from_node(sens, &sens_pt);
+
+	sensdist_um = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
+	if (tr->pctrl.reversed)
+	    sensdist_um += TRAIN_BACK_OFFS_UM;
+	else
+	    sensdist_um += TRAIN_FRONT_OFFS_UM;
+	
+	travel_um = trainsrv_predict_dist_um(
+	    tr, 
+	    tr->pctrl.est_time + TRAIN_SENSOR_AHEAD_TICKS);
+	
+	if (sensdist_um > travel_um) {
+	    break;
+	}
+	
+	trainsrv_expect_sensor(tr, sens);
     }
 }
 
@@ -958,34 +861,6 @@ trainsrv_send_estimate(struct train *tr)
     assertv(rc, rc == 0);
 
     tr->estimate_client = -1;
-}
-
-static void
-trainsrv_sensor_listen(void)
-{
-    struct sensorctx sens;
-    struct trainmsg msg;
-    struct sensor_reply reply;
-    int rc, rplylen;
-    tid_t train;
-
-    train = MyParentTid();
-    sensorctx_init(&sens);
-
-    rc = SENSOR_TIMEOUT;
-    msg.time = 0;
-    for (;;) {
-        if (rc == SENSOR_TIMEOUT) {
-            memset(msg.sensors, '\0', sizeof (msg.sensors));
-            msg.type = TRAINMSG_SENSOR_TIMEOUT;
-        } else {
-            memcpy(msg.sensors, reply.sensors, sizeof (msg.sensors));
-            msg.type = TRAINMSG_SENSOR;
-        }
-        rplylen = Send(train, &msg, sizeof (msg), &reply, sizeof (reply));
-        assertv(rplylen, rplylen == sizeof (reply));
-        rc = sensor_wait(&sens, reply.sensors, reply.timeout, &msg.time);
-    }
 }
 
 static void
