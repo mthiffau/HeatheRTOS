@@ -4,7 +4,7 @@
 #include "xassert.h"
 
 float
-polyeval(struct poly *p, float t)
+polyeval(const struct poly *p, float t)
 {
     float x, tp = 1.f;
     int i;
@@ -18,7 +18,7 @@ polyeval(struct poly *p, float t)
 }
 
 void
-polydiff(struct poly *p, struct poly *p_prime)
+polydiff(const struct poly *p, struct poly *p_prime)
 {
     assert(p->deg >= 0);
     if (p->deg == 0) {
@@ -33,7 +33,7 @@ polydiff(struct poly *p, struct poly *p_prime)
 }
 
 float
-polyroot(struct poly *p, float t0, float eps, int maxiter)
+polyroot(const struct poly *p, float t0, float eps, int maxiter)
 {
     /* Newton's method */
     int i;
@@ -49,7 +49,7 @@ polyroot(struct poly *p, float t0, float eps, int maxiter)
 }
 
 float
-polyinv(struct poly *p, float x, float t0, float eps, int maxiter)
+polyinv(const struct poly *p, float x, float t0, float eps, int maxiter)
 {
     struct poly q = *p;
     q.a[0] -= x;

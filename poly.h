@@ -15,10 +15,10 @@ struct poly {
 };
 
 /* Evaluate p(t). */
-float polyeval(struct poly *p, float t);
+float polyeval(const struct poly *p, float t);
 
 /* Differentiate p to yield p_prime. */
-void polydiff(struct poly *p, struct poly *p_prime);
+void polydiff(const struct poly *p, struct poly *p_prime);
 
 /* Find a root of p(t) using Newton's method.
  *
@@ -28,7 +28,7 @@ void polydiff(struct poly *p, struct poly *p_prime);
  *
  * Returns the final estimate of t. It's possible that |p(t)| >= eps
  * in the case that the iteration limit is exceeded. */
-float polyroot(struct poly *p, float t0, float eps, int maxiter);
+float polyroot(const struct poly *p, float t0, float eps, int maxiter);
 
 /* Find t such that p(t)=x. Further parameters as in polyroot. */
-float polyinv(struct poly *p, float x, float t0, float eps, int maxiter);
+float polyinv(const struct poly *p, float x, float t0, float eps, int maxiter);
