@@ -877,6 +877,8 @@ trainsrv_pctrl_check_update(struct train *tr)
         cmd_vel_umpt = trainsrv_pctrl_predict_vel_umpt(tr, cmd_time);
         stop_um      = polyeval(&tr->calib.stop_um, cmd_vel_umpt);
         if (distance_um <= stop_um) {
+	    /* FIXME this won't need to happen once we're esitmating during decel*/
+	    track_pt_advance_path(&tr->path, &tr->pctrl.ahead, cmd_dist_um);
             trainsrv_stop(tr);
             return;
         }
