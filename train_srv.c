@@ -182,11 +182,11 @@ trainsrv_main(void)
             trainsrv_stop(&tr);
             break;
         case TRAINMSG_SENSOR:
-	    trainsrv_empty_reply(client);
+            trainsrv_empty_reply(client);
             trainsrv_sensor(&tr, msg.sensors, msg.time);
-	    break;
+            break;
         case TRAINMSG_SENSOR_TIMEOUT:
-	    trainsrv_empty_reply(client);
+            trainsrv_empty_reply(client);
             trainsrv_sensor_timeout(&tr, msg.time);
             break;
         case TRAINMSG_TIMER:
@@ -316,7 +316,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 
     trainsrv_swnext_init(tr);
     tr->path_sensnext = 1; /* Ignore first sensor if it is the source
-			    * of the first edge on the path */
+                            * of the first edge on the path */
     tr->pctrl.vel_umpt = 0;
     tr->pctrl.est_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
@@ -400,7 +400,7 @@ trainsrv_orient_train(struct train *tr)
 
     /* Wait for all sensors */
     for (i = 0; i < SENSOR_MODULES; i++)
-	all_sensors[i] = (sensors_t)-1;
+        all_sensors[i] = (sensors_t)-1;
 
     rc = sensor_wait(&tr->sensors, all_sensors, -1, NULL);
     assertv(rc, rc == SENSOR_TRIPPED);
@@ -659,8 +659,8 @@ trainsrv_timer(struct train *tr, int time)
             tr->pctrl.state = PCTRL_STOPPED;
             dist = tr->pctrl.stop_um;
             assert(dist >= 0);
-	    trainsrv_pctrl_advance_um(tr, dist);
-	    trainsrv_determine_reverse_ok(tr);
+            trainsrv_pctrl_advance_um(tr, dist);
+            trainsrv_determine_reverse_ok(tr);
         }
         break;
 
@@ -699,10 +699,10 @@ sensor_worker(void)
     rc = sensor_wait(&sp.ctx, sensors, 2 * TRAIN_SENSOR_AHEAD_TICKS, &time);
     msg.time = time;
     if (rc == SENSOR_TRIPPED) {
-	msg.type = TRAINMSG_SENSOR;
-	memcpy(msg.sensors, sensors, sizeof(sensors));
+        msg.type = TRAINMSG_SENSOR;
+        memcpy(msg.sensors, sensors, sizeof(sensors));
     } else {
-	msg.type = TRAINMSG_SENSOR_TIMEOUT;
+        msg.type = TRAINMSG_SENSOR_TIMEOUT;
     }
 
     rc = Send(train, &msg, sizeof(msg), NULL, 0);
@@ -756,8 +756,8 @@ trainsrv_pctrl_check_update(struct train *tr)
         cmd_vel_umpt = trainsrv_pctrl_predict_vel_umpt(tr, cmd_time);
         stop_um      = polyeval(&tr->calib.stop_um, cmd_vel_umpt);
         if (distance_um <= stop_um) {
-	    /* FIXME this won't need to happen once we're esitmating during decel*/
-	    track_pt_advance_path(&tr->path, &tr->pctrl.ahead, cmd_dist_um);
+            /* FIXME this won't need to happen once we're esitmating during decel*/
+            track_pt_advance_path(&tr->path, &tr->pctrl.ahead, cmd_dist_um);
             trainsrv_stop(tr);
             return;
         }
@@ -774,31 +774,31 @@ static void
 trainsrv_pctrl_expect_sensors(struct train *tr)
 {
     for(;(unsigned)tr->path_sensnext < tr->path.hops; tr->path_sensnext++) {
-	struct track_pt sens_pt;
-	track_node_t sens;
-	int sensdist_um, travel_um;
+        struct track_pt sens_pt;
+        track_node_t sens;
+        int sensdist_um, travel_um;
 
-	sens = tr->path.edges[tr->path_sensnext]->src;
-	if (sens->type != TRACK_NODE_SENSOR)
-	    continue;
+        sens = tr->path.edges[tr->path_sensnext]->src;
+        if (sens->type != TRACK_NODE_SENSOR)
+            continue;
 
-	track_pt_from_node(sens, &sens_pt);
+        track_pt_from_node(sens, &sens_pt);
 
-	sensdist_um = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
-	if (tr->pctrl.reversed)
-	    sensdist_um += TRAIN_BACK_OFFS_UM;
-	else
-	    sensdist_um += TRAIN_FRONT_OFFS_UM;
-	
-	travel_um = trainsrv_predict_dist_um(
-	    tr, 
-	    tr->pctrl.est_time + TRAIN_SENSOR_AHEAD_TICKS);
-	
-	if (sensdist_um > travel_um) {
-	    break;
-	}
-	
-	trainsrv_expect_sensor(tr, sens);
+        sensdist_um = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
+        if (tr->pctrl.reversed)
+            sensdist_um += TRAIN_BACK_OFFS_UM;
+        else
+            sensdist_um += TRAIN_FRONT_OFFS_UM;
+
+        travel_um = trainsrv_predict_dist_um(
+            tr, 
+            tr->pctrl.est_time + TRAIN_SENSOR_AHEAD_TICKS);
+
+        if (sensdist_um > travel_um) {
+            break;
+        }
+
+        trainsrv_expect_sensor(tr, sens);
     }
 }
 
