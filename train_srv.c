@@ -159,7 +159,7 @@ trainsrv_main(void)
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
 
-    trainsrv_fmt_name(tr.train_id, srv_name);
+    trainsrv_fmt_name(cfg.train_id, srv_name);
     rc = RegisterAs(srv_name);
     assertv(rc, rc == 0);
 
