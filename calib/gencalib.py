@@ -27,7 +27,6 @@ import subprocess
 import re
 
 SENSOR_DELAY_TICKS = 3
-TRCMD_DELAY_TICKS  = 0
 
 STOPDIST_DEGREE    = 2
 ACCEL_DEGREE       = 4
@@ -70,7 +69,7 @@ def read_stopdist(train):
 def fit_stopdist(train, stopdist):
     adjusted = []
     for v, x in stopdist:
-        x -= (SENSOR_DELAY_TICKS + TRCMD_DELAY_TICKS) * v
+        x -= SENSOR_DELAY_TICKS * v
         adjusted.append('{}, {}\n'.format(v, x))
     p = subprocess.Popen(
         ['node', '../polysolve.js', str(STOPDIST_DEGREE)],

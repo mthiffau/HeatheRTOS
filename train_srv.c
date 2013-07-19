@@ -35,7 +35,6 @@
 #define TRAIN_BACK_OFFS_UM      145000
 #define TRAIN_LENGTH_UM         214000
 
-#define PCTRL_CMD_TICKS         3
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        400
 
@@ -131,6 +130,7 @@ static void trainsrv_sensor(
 static void trainsrv_sensor_timeout(struct train *tr, int time);
 static int  trainsrv_accel_pos(struct train *tr, int t);
 static int  trainsrv_predict_dist_um(struct train *tr, int when);
+static int trainsrv_predict_vel_umpt(struct train *tr, int when);
 static void trainsrv_pctrl_advance_ticks(struct train *tr, int now);
 static void trainsrv_pctrl_advance_um(struct train *tr, int dist_um);
 static void trainsrv_timer(struct train *tr, int time);
@@ -586,7 +586,7 @@ trainsrv_predict_dist_um(struct train *tr, int when)
 }
 
 static int
-trainsrv_pctrl_predict_vel_umpt(struct train *tr, int when)
+trainsrv_predict_vel_umpt(struct train *tr, int when)
 {
     int vel_umpt, dt, cutoff;
     //assert(when >= tr->pctrl.est_time);
@@ -623,7 +623,7 @@ trainsrv_pctrl_advance_ticks(struct train *tr, int now)
     /* Update position. */
     trainsrv_pctrl_advance_um(tr, trainsrv_predict_dist_um(tr, now));
     /* Update velocity. */
-    tr->pctrl.vel_umpt = trainsrv_pctrl_predict_vel_umpt(tr, now);
+    tr->pctrl.vel_umpt = trainsrv_predict_vel_umpt(tr, now);
     /* Update state */
     dt     = now - tr->pctrl.accel_start;
     cutoff = tr->calib.accel_cutoff[tr->speed];
@@ -740,20 +740,13 @@ trainsrv_pctrl_check_update(struct train *tr)
 
     /* Calculate current stopping point and stop if desired. */
     if (tr->pctrl.state == PCTRL_CRUISE || tr->pctrl.state == PCTRL_ACCEL) {
-        struct track_pt cmd_ahead;
-        int stop_um, distance_um, cmd_dist_um, cmd_time, cmd_vel_umpt;
-
-        cmd_ahead   = tr->pctrl.ahead;
-        cmd_time    = tr->pctrl.est_time + PCTRL_CMD_TICKS;
-        cmd_dist_um = trainsrv_predict_dist_um(tr, cmd_time);
-        track_pt_advance_path(&tr->path, &cmd_ahead, cmd_dist_um);
-        distance_um = track_pt_distance_path(&tr->path, cmd_ahead, tr->path.end);
-
-        cmd_vel_umpt = trainsrv_pctrl_predict_vel_umpt(tr, cmd_time);
-        stop_um      = polyeval(&tr->calib.stop_um, cmd_vel_umpt);
-        if (distance_um <= stop_um) {
-            /* FIXME this won't need to happen once we're esitmating during decel*/
-            track_pt_advance_path(&tr->path, &tr->pctrl.ahead, cmd_dist_um);
+        int stop_um, end_um;
+        stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+        end_um = track_pt_distance_path(
+            &tr->path,
+            tr->pctrl.ahead,
+            tr->path.end);
+        if (end_um <= stop_um) {
             trainsrv_stop(tr);
             return;
         }
