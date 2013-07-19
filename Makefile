@@ -60,7 +60,7 @@ $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD_DIRS)
 $(BUILD)/%.c.s: $(BUILD)/%.c.i $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -S -o $@ $(CFLAGS) $<
 
-$(BUILD)/%.c.i: %.c $(CFLAGS_FILE) |$(BUILD_DIRS) track/list.h
+$(BUILD)/%.c.i: %.c $(CFLAGS_FILE) |$(BUILD_DIRS) track/list.h calib/initcalib.list
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD)/%.S.o: $(BUILD)/%.S.s |$(BUILD_DIRS)
@@ -75,11 +75,14 @@ track/%.c: track/%.in track/gentrack.py track/list.h
 track/list.h: $(TRACKS)
 	cd track && bash list.sh
 
+calib/initcalib.list: calib/gencalib.py $(wildcard calib/*.in)
+	cd calib && ./gencalib.py >$(notdir $@)
+
 $(BUILD_DIRS):
 	mkdir $@
 
 clean:
-	rm -rf $(BUILD) $(TR_SRCS) track/*.[ch]
+	rm -rf $(BUILD) $(TR_SRCS) track/*.[ch] calib/initcalib.list
 
 install: $(MAIN) $(TEST) $(REPEATER)
 	cp $(MAIN) $$tftp && chmod a+r $$tftp/$(notdir $(MAIN))
