@@ -900,42 +900,6 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
 {
-    /*
-    bool big_change;
-    int dx;
-
-    dx = est->ahead_mm - uisrv->trainest_last.ahead_mm;
-    if (dx < 0)
-        dx = -dx;
-
-    big_change = dx > 50
-        || est->ahead    != uisrv->trainest_last.ahead
-        || est->lastsens != uisrv->trainest_last.lastsens
-        || est->err_mm   != uisrv->trainest_last.err_mm;
-
-    if (!big_change)
-        return;
-        */
-
-    /* Find log2 of ahead_mm */
-    /*
-    static const int MultiplyDeBruijnBitPosition[32] =
-    {
-          0, 9, 1, 10, 13, 21, 2, 29, 11, 14, 16, 18, 22, 25, 3, 30,
-            8, 12, 20, 28, 15, 17, 24, 7, 19, 27, 23, 6, 26, 5, 4, 31
-    };
-
-    log_mm = est->ahead_mm;
-
-    log_mm |= log_mm >> 1; // first round down to one less than a power of 2 
-    log_mm |= log_mm >> 2;
-    log_mm |= log_mm >> 4;
-    log_mm |= log_mm >> 8;
-    log_mm |= log_mm >> 16;
-
-    log_mm = MultiplyDeBruijnBitPosition[(uint32_t)(v * 0x07C4ACDDU) >> 27];
-    // done finding log */
-
     Printf(&uisrv->tty,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(TRAINPOS_ROW), STR(TRAINPOS_COL))
@@ -1140,6 +1104,7 @@ trainpos_listen(void)
 {
     struct trainctx train;
     struct traincfg cfg;
+    struct clkctx clock;
     struct uimsg msg;
     int rc, msglen;
     tid_t uisrv;
@@ -1150,12 +1115,14 @@ trainpos_listen(void)
     rc = Reply(uisrv, NULL, 0);
     assertv(rc, rc == 0);
 
-    /* Setup train context */
+    /* Setup contexts */
+    clkctx_init(&clock);
     trainctx_init(&train, cfg.train_id);
 
     msg.type = UIMSG_TRAINPOS_UPDATE;
     for (;;) {
         int rplylen;
+        Delay(&clock, 20);
         train_estimate(&train, &msg.trainest);
         rplylen = Send(uisrv, &msg, sizeof (msg), NULL, 0);
         assertv(rplylen, rplylen == 0);

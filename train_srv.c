@@ -138,7 +138,7 @@ static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
 static void trainsrv_pctrl_check_update(struct train *tr);
 static void trainsrv_pctrl_expect_sensors(struct train *tr);
 static void trainsrv_pctrl_switch_turnouts(struct train *tr, bool all);
-static void trainsrv_send_estimate(struct train *tr);
+static void trainsrv_send_estimate(struct train *tr, tid_t client);
 
 static void trainsrv_timer_listen(void);
 static void trainsrv_empty_reply(tid_t client);
@@ -195,8 +195,7 @@ trainsrv_main(void)
             trainsrv_timer(&tr, msg.time);
             break;
         case TRAINMSG_ESTIMATE:
-            assert(tr.estimate_client < 0);
-            tr.estimate_client = client;
+            trainsrv_send_estimate(&tr, client);
             break;
         default:
             panic("invalid train message type %d", msg.type);
@@ -732,9 +731,6 @@ trainsrv_pctrl_check_update(struct train *tr)
     if (!tr->pctrl.updated)
         return;
 
-    /* Reply to estimate client if any */
-    trainsrv_send_estimate(tr);
-
     /* Reset updated flag. */
     tr->pctrl.updated = false;
 
@@ -843,24 +839,19 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
 }
 
 static void
-trainsrv_send_estimate(struct train *tr)
+trainsrv_send_estimate(struct train *tr, tid_t client)
 {
     struct trainest est;
     int rc;
-
-    assert(tr->pctrl.updated);
-    if (tr->estimate_client < 0)
-        return;
 
     est.train_id = tr->train_id;
     est.ahead    = tr->pctrl.ahead;
     est.behind   = tr->pctrl.behind;
     est.lastsens = tr->pctrl.lastsens;
+    est.err_mm   = tr->pctrl.err_um / 1000;
 
-    rc = Reply(tr->estimate_client, &est, sizeof (est));
+    rc = Reply(client, &est, sizeof (est));
     assertv(rc, rc == 0);
-
-    tr->estimate_client = -1;
 }
 
 static void
