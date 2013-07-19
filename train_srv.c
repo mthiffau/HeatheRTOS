@@ -38,6 +38,7 @@
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        400
 
+#define TRAIN_ACCEL_STABILIZE_TICKS     25
 #define TRAIN_SENSOR_OVERESTIMATE_UM    (80 * 1000) // FIXME more like 4cm
 #define TRAIN_SWITCH_AHEAD_TICKS        50
 #define TRAIN_SENSOR_AHEAD_TICKS        50
@@ -99,6 +100,7 @@ struct train {
     const struct track_graph *track;
     uint8_t                   train_id;
     uint8_t                   speed;
+    uint8_t                   desired_speed;
 
     /* Calibration data */
     struct calib              calib;
@@ -207,9 +209,9 @@ trainsrv_main(void)
 static void
 trainsrv_init(struct train *tr, struct traincfg *cfg)
 {
-    tr->track    = tracksel_ask();
-    tr->train_id = cfg->train_id;
-    tr->speed    = TRAIN_DEFSPEED;
+    tr->track         = tracksel_ask();
+    tr->train_id      = cfg->train_id;
+    tr->desired_speed = TRAIN_DEFSPEED;
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.est_time = -1;
@@ -242,11 +244,8 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
         speed = TRAIN_MINSPEED;
     if (speed > TRAIN_MAXSPEED)
         speed = TRAIN_MAXSPEED;
-    tr->speed = speed;
-    if (tr->pctrl.state == PCTRL_CRUISE) {
-        tcmux_train_speed(&tr->tcmux, tr->train_id, speed);
-        tr->pctrl.state = PCTRL_ACCEL;
-    }
+    tr->desired_speed = speed;
+    /* TODO? maybe change while we're moving? MAYBE */
 }
 
 static void
@@ -305,6 +304,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     if (rc < 0 || tr->path.hops == 0)
         return;
 
+    /* Initial reverse if necessary */
     if (tr->reverse_ok && tr->path.edges[0] == path_starts[1].edge) {
         tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
         tr->pctrl.ahead  = path_starts[1];
@@ -313,6 +313,27 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
         tr->pctrl.reversed = !tr->pctrl.reversed;
     }
 
+    /* Find speed to use. */
+    for (tr->speed = tr->desired_speed; tr->speed >= TRAIN_MINSPEED; tr->speed--) {
+        int accel_time     = tr->calib.accel_cutoff[tr->speed];
+        int accel_end_um   = polyeval(&tr->calib.accel, accel_time);
+        int vel_umpt       = tr->calib.vel_umpt[tr->speed];
+        int stop_um        = polyeval(&tr->calib.stop_um, vel_umpt);
+        int min_allowed_um = accel_end_um + stop_um;
+        min_allowed_um    += vel_umpt * TRAIN_ACCEL_STABILIZE_TICKS;
+        dbglog(&tr->dbglog,
+            "considering speed %d: min allowed %d um vs. needed %d um",
+            tr->speed,
+            min_allowed_um,
+            1000 * (int)tr->path.len_mm);
+        if ((unsigned)min_allowed_um <= 1000 * tr->path.len_mm)
+            break;
+    }
+    /* FIXME clamping the speed to minimum */
+    if (tr->speed < TRAIN_MINSPEED)
+        tr->speed = TRAIN_MINSPEED;
+
+    /* Set up motion state */
     trainsrv_swnext_init(tr);
     tr->path_sensnext = 1; /* Ignore first sensor if it is the source
                             * of the first edge on the path */
@@ -432,6 +453,7 @@ trainsrv_orient_train(struct train *tr)
     track_pt_reverse(&tr->pctrl.behind);
 
     /* Initial velocity is zero */
+    tr->speed          = 0;
     tr->pctrl.vel_umpt = 0;
 
     /* Determine whether it's okay to reverse from here */

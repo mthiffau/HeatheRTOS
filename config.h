@@ -19,7 +19,7 @@
 #define TRAINS_MAX          256
 
 #define TRAIN_CRAWLSPEED    2
-#define TRAIN_MINSPEED      4
+#define TRAIN_MINSPEED      2
 #define TRAIN_MAXSPEED      14
 #define TRAIN_DEFSPEED      8
 
