@@ -20,10 +20,10 @@
 #include "static_assert.h"
 #include "xmemcpy.h"
 
-#define WRITE_MAXLEN  32
-#define GETC_BUF_SIZE 512
-#define PUTC_BUF_SIZE 512
-#define UART_FIFO_SIZE 16
+#define WRITE_MAXLEN    32
+#define GETC_BUF_SIZE   (1 << 15) /* 32 kB */
+#define PUTC_BUF_SIZE   (1 << 15) /* 32 kB */
+#define UART_FIFO_SIZE  16
 
 /* It's possible for a character to come in while we're draining the FIFO,
  * but (as far as we know) no more than 1. But paranoia, so 4. */
@@ -319,12 +319,14 @@ serial_rx(
     assertv(rc, rc == 0);
     assert(len >= 1);
     if (srv->getc_client < 0) {
+        assert(srv->getc_buf.len + len <= srv->getc_buf.size);
         rbuf_write(&srv->getc_buf, buf, len);
     } else {
         rply = buf[0];
         rc = Reply(srv->getc_client, &rply, sizeof (rply));
         assertv(rc, rc == 0);
         srv->getc_client = -1;
+        assert(srv->getc_buf.len + len - 1 <= srv->getc_buf.size);
         rbuf_write(&srv->getc_buf, buf + 1, len - 1);
     }
 }
@@ -348,6 +350,7 @@ serial_write(struct serialsrv *srv, tid_t client, uint8_t *buf, int len)
 {
     int rply, rc;
 
+    assert(srv->putc_buf.len + len <= srv->putc_buf.size);
     rbuf_write(&srv->putc_buf, buf, len);
     if (len > 0 && srv->cts && srv->txr)
         serial_writechars(srv);

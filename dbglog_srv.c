@@ -56,6 +56,7 @@ dbglogsrv_main(void)
         case DBGLOGMSG_LOG:
             rc = Reply(client, NULL, 0);
             assertv(rc, rc == 0);
+            assert(log.log.len + msg.len <= log.log.size);
             rbuf_write(&log.log, msg.buf, msg.len);
             rbuf_putc(&log.log, '\n');
             break;
