@@ -2,6 +2,7 @@
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
+#include "xmath.h"
 #include "poly.h"
 #include "u_tid.h"
 #include "static_assert.h"
@@ -210,6 +211,8 @@ calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
 {
     unsigned          i;
     int               exclude_um, lap_um;
+    int               vel_umpt[16];
+    float             alpha; /* linear adjustment factor */
 
     uint8_t train    = msg->train_id;
     uint8_t minspeed = msg->vcalib.minspeed;
@@ -256,11 +259,40 @@ calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
             dbglog(&cal->dbglog, "train%d speed %d v_diff=%d", train, speed, v_diff);
         } while (v_diff > VCALIB_ERR_THRESHOLD);
 
-        cal->all[train].vel_umpt[speed] = v;
+        vel_umpt[speed] = v;
         dbglog(&cal->dbglog, "train%d speed %d = %d um/tick", train, speed, v);
     }
 
     tcmux_train_speed(&cal->tcmux, train, 0);
+
+    /* Determine scaling factor */
+    int ahi, alo;
+    alpha = 1.f;
+    for (speed = minspeed; speed <= maxspeed; speed++)
+        alpha *= (float)vel_umpt[speed] / (float)cal->all[train].vel_umpt[speed];
+
+    alpha = nthroot(maxspeed - minspeed + 1, alpha, 4);
+
+    alo  = (int)(alpha * 10000);
+    ahi  = alo / 10000;
+    alo %= 10000;
+    dbglog(&cal->dbglog, "calibration alpha=%d.%04d", ahi, alo);
+
+    /* Scale calibration values */
+    for (i = 0; i < ARRAY_SIZE(cal->all[train].vel_umpt); i++) {
+        int newvel;
+        if (i >= minspeed && i <= maxspeed)
+            newvel = vel_umpt[i];
+        else
+            newvel = (int)(alpha * (float)cal->all[train].vel_umpt[i]);
+        cal->all[train].vel_umpt[i] = newvel;
+    }
+
+    for (i = 0; i <= (unsigned)cal->all[train].stop_um.deg; i++)
+        cal->all[train].stop_um.a[i] *= alpha;
+
+    for (i = 0; i <= (unsigned)cal->all[train].accel.deg; i++)
+        cal->all[train].accel.a[i] *= alpha;
 }
 
 static void
