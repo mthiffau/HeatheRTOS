@@ -257,45 +257,36 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     }
 }
 
-int
-track_routefind(
-    const struct track_routespec *spec,
-    struct track_route *route_out)
+static int
+rfind_dijkstra(struct routefind *rf, struct track_pt *final_dest_pt)
 {
-    struct routefind rf;
-    unsigned            i;
-    int                 rc, path_hops;
-    struct track_pt dest_pt;
-    track_node_t        dest; /* holds the chosen destination */
-
-    rfind_init(&rf, spec);
-
-    /* DIJKSTRA */
+    unsigned i;
+    int rc;
     for (;;) {
         const struct track_node *node;
         struct pqueue_entry     *min;
         unsigned                 n_edges;
         struct node_info        *cur_info;
 
-        min = pqueue_peekmin(&rf.border);
+        min = pqueue_peekmin(&rf->border);
         if (min == NULL)
             return -1;
 
-        if (min->val >= (unsigned)spec->track->n_nodes) {
+        if (min->val >= (unsigned)rf->spec->track->n_nodes) {
             /* Not a node. It's a destination! */
-            int which = min->val - spec->track->n_nodes;
-            dest_pt = spec->dest;
+            int which = min->val - rf->spec->track->n_nodes;
+            *final_dest_pt = rf->spec->dest;
             if (which == ROUTEFIND_DEST_REVERSE)
-                track_pt_reverse(&dest_pt);
+                track_pt_reverse(final_dest_pt);
             else
                 assert(which == ROUTEFIND_DEST_FORWARD);
             break;
         }
 
-        node = &spec->track->nodes[min->val];
-        pqueue_popmin(&rf.border);
+        node = &rf->spec->track->nodes[min->val];
+        pqueue_popmin(&rf->border);
 
-        cur_info = &TRACK_NODE_DATA(spec->track, node, rf.node_info);
+        cur_info = &TRACK_NODE_DATA(rf->spec->track, node, rf->node_info);
         cur_info->visited = true;
         n_edges = (unsigned)track_node_edges[node->type];
         for (i = 0; i < n_edges; i++) {
@@ -305,21 +296,22 @@ track_routefind(
             int                      old_dist, new_dist;
             int                      dest_which;
             edge           = &node->edge[i];
-            edge_dest_ix   = edge->dest - spec->track->nodes;
-            edge_dest_info = &TRACK_NODE_DATA(spec->track, edge->dest, rf.node_info);
+            edge_dest_ix   = edge->dest - rf->spec->track->nodes;
+            edge_dest_info = &TRACK_NODE_DATA(rf->spec->track, edge->dest, rf->node_info);
 
-            dest_which = TRACK_EDGE_DATA(spec->track, edge, rf.edge_dest_sel);
+            dest_which = TRACK_EDGE_DATA(rf->spec->track, edge, rf->edge_dest_sel);
             if (dest_which >= 0) {
+                struct track_pt dest_pt;
                 unsigned dest_val;
                 int      dest_dist;
-                dest_val   = spec->track->n_nodes + dest_which;
+                dest_val   = rf->spec->track->n_nodes + dest_which;
                 dest_dist  = cur_info->distance;
                 dest_dist += edge->len_mm;
-                dest_pt    = spec->dest;
+                dest_pt    = rf->spec->dest;
                 if (dest_which == ROUTEFIND_DEST_REVERSE)
                     track_pt_reverse(&dest_pt);
                 dest_dist -= dest_pt.pos_um / 1000;
-                rc = pqueue_add(&rf.border, dest_val, dest_dist);
+                rc = pqueue_add(&rf->border, dest_val, dest_dist);
                 assertv(rc, rc == 0);
             }
 
@@ -336,52 +328,74 @@ track_routefind(
                 edge_dest_info->parent   = edge;
                 edge_dest_info->pathsrc  = cur_info->pathsrc;
                 if (old_dist == -1)
-                    rc = pqueue_add(&rf.border, edge_dest_ix, new_dist);
+                    rc = pqueue_add(&rf->border, edge_dest_ix, new_dist);
                 else
-                    rc = pqueue_decreasekey(&rf.border, edge_dest_ix, new_dist);
+                    rc = pqueue_decreasekey(&rf->border, edge_dest_ix, new_dist);
                 assertv(rc, rc == 0);
             }
         }
     }
+    return 0;
+}
 
+static void
+rfind_reconstruct(
+    struct routefind *rf,
+    struct track_pt dest_pt,
+    struct track_route *route_out)
+{
+    unsigned i;
     /* Reconstruct path backwards */
-    dest               = dest_pt.edge->src;
-    int bighops        = TRACK_NODE_DATA(spec->track, dest, rf.node_info).bighops + 1;
-    int totalhops      = TRACK_NODE_DATA(spec->track, dest, rf.node_info).totalhops + 1;
+    track_node_t dest  = dest_pt.edge->src;
+    int bighops        = TRACK_NODE_DATA(rf->spec->track, dest, rf->node_info).bighops + 1;
+    int totalhops      = TRACK_NODE_DATA(rf->spec->track, dest, rf->node_info).totalhops + 1;
     route_out->n_paths = bighops;
     while (--bighops >= 0) {
+        int path_hops;
         struct track_path *path_out = &route_out->paths[bighops];
-
         for (i = 0; i < ARRAY_SIZE(path_out->node_ix); i++)
             path_out->node_ix[i] = -1;
 
         dest                = dest_pt.edge->src;
         path_out->end       = dest_pt;
-        path_out->start     = TRACK_NODE_DATA(spec->track, dest, rf.node_info).pathsrc;
-        path_hops           = TRACK_NODE_DATA(spec->track, dest, rf.node_info).hops + 1;
-        path_out->track     = spec->track;
+        path_out->start     = TRACK_NODE_DATA(rf->spec->track, dest, rf->node_info).pathsrc;
+        path_hops           = TRACK_NODE_DATA(rf->spec->track, dest, rf->node_info).hops + 1;
+        path_out->track     = rf->spec->track;
         path_out->hops      = path_hops;
         path_out->len_mm    = 0;
-        TRACK_NODE_DATA(spec->track, dest_pt.edge->dest, path_out->node_ix) = path_hops;
+        TRACK_NODE_DATA(rf->spec->track, dest_pt.edge->dest, path_out->node_ix) = path_hops;
         route_out->edges[--totalhops] = dest_pt.edge;
         path_hops--;
         path_out->len_mm += dest_pt.edge->len_mm - dest_pt.pos_um / 1000;
-        TRACK_NODE_DATA(spec->track, dest_pt.edge->src, path_out->node_ix) = path_hops;
+        TRACK_NODE_DATA(rf->spec->track, dest_pt.edge->src, path_out->node_ix) = path_hops;
         while (path_hops > 0) {
-            struct node_info *dest_info = &TRACK_NODE_DATA(spec->track, dest, rf.node_info);
+            struct node_info *dest_info = &TRACK_NODE_DATA(rf->spec->track, dest, rf->node_info);
             assert(dest_info->hops == path_hops);
             path_out->len_mm += dest_info->parent->len_mm;
             route_out->edges[--totalhops] = dest_info->parent;
             path_hops--;
             dest = dest_info->parent->src;
-            TRACK_NODE_DATA(spec->track, dest, path_out->node_ix) = path_hops;
+            TRACK_NODE_DATA(rf->spec->track, dest, path_out->node_ix) = path_hops;
         }
         path_out->edges = &route_out->edges[totalhops];
         path_out->len_mm -= path_out->start.edge->len_mm;
         path_out->len_mm += path_out->start.pos_um / 1000;
     }
+}
 
-    return 0;
+int
+track_routefind(
+    const struct track_routespec *spec,
+    struct track_route *route_out)
+{
+    struct routefind rf;
+    int              rc;
+    struct track_pt  dest_pt;
+    rfind_init(&rf, spec);
+    rc = rfind_dijkstra(&rf, &dest_pt);
+    if (rc == 0)
+        rfind_reconstruct(&rf, dest_pt, route_out);
+    return rc;
 }
 
 void track_routespec_init(struct track_routespec *q)
