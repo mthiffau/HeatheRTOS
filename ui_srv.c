@@ -887,7 +887,10 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     /* Find the path! */
+#if 0
     rc = track_pathfind(uisrv->track, &points[0], 1, &points[1], 1, &path);
+#endif
+    rc = -1;
     if (rc == -1) {
         Print(&uisrv->tty, "no (directed) path");
     } else {

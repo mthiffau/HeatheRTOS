@@ -113,7 +113,8 @@ struct train {
     tid_t                     estimate_client;
 
     /* Path to follow */
-    struct track_path         path;
+    struct track_route        route;
+    struct track_path        *path;
     int                       path_swnext;
     int                       path_sensnext;
     bool                      reverse_ok;
@@ -258,14 +259,14 @@ trainsrv_swnext_init(struct train *tr)
 static void
 trainsrv_swnext_advance(struct train *tr)
 {
-    if (tr->path_swnext >= 0 && (unsigned)tr->path_swnext >= tr->path.hops)
+    if (tr->path_swnext >= 0 && (unsigned)tr->path_swnext >= tr->path->hops)
         return;
     tr->path_swnext++;
     if (tr->path_swnext == 0
-        && tr->path.edges[tr->path_swnext]->src->type == TRACK_NODE_MERGE)
+        && tr->path->edges[tr->path_swnext]->src->type == TRACK_NODE_MERGE)
         tr->path_swnext++;
-    while ((unsigned)tr->path_swnext < tr->path.hops) {
-        int type = tr->path.edges[tr->path_swnext]->src->type;
+    while ((unsigned)tr->path_swnext < tr->path->hops) {
+        int type = tr->path->edges[tr->path_swnext]->src->type;
         if (type == TRACK_NODE_MERGE || type == TRACK_NODE_BRANCH)
             break;
         tr->path_swnext++;
@@ -275,40 +276,43 @@ trainsrv_swnext_advance(struct train *tr)
 static void
 trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
-    struct track_pt path_starts[2], path_dests[2];
-    int rc, n_starts;
+    struct track_routespec rspec;
+    int rc;
     if (tr->pctrl.state != PCTRL_STOPPED)
         return;
 
     /* Get path to follow */
-    n_starts = 0;
-    path_starts[n_starts++] = tr->pctrl.ahead;
-    if (tr->reverse_ok) {
-        path_starts[n_starts] = tr->pctrl.behind;
-        track_pt_reverse(&path_starts[n_starts]);
-        n_starts++;
-    }
+    track_routespec_init(&rspec);
+    rspec.track        = tr->track;
+    rspec.switches     = tr->switches;
+    rspec.src_centre   = tr->pctrl.ahead;
+    rspec.err_um       = 0; /* FIXME */
+    rspec.init_rev_ok  = tr->reverse_ok;
+    rspec.rev_ok       = true;
+    rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
+    rspec.dest         = dest;
 
-    path_dests[0] = dest;
-    path_dests[1] = path_dests[0];
-    track_pt_reverse(&path_dests[1]);
+    /* Adjust centre FIXME this should go away. */
+    track_pt_reverse(&rspec.src_centre);
+    track_pt_advance(&tr->switches, &rspec.src_centre, TRAIN_LENGTH_UM / 2);
+    track_pt_reverse(&rspec.src_centre);
 
-    rc = track_pathfind(
-        tr->track,
-        path_starts,
-        n_starts,
-        path_dests,
-        ARRAY_SIZE(path_dests),
-        &tr->path);
+    rc = track_routefind(&rspec, &tr->route);
+    if (rc < 0 || tr->route.n_paths == 0)
+        return;
 
-    if (rc < 0 || tr->path.hops == 0)
+    tr->path = &tr->route.paths[0];
+    if (tr->path->hops == 0)
         return;
 
     /* Initial reverse if necessary */
-    if (tr->reverse_ok && tr->path.edges[0] == path_starts[1].edge) {
+    if (tr->path->edges[0] == rspec.src_centre.edge->reverse) {
+        struct track_pt tmp_pt;
         tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
-        tr->pctrl.ahead  = path_starts[1];
-        tr->pctrl.behind = path_starts[0];
+        tmp_pt           = tr->pctrl.ahead;
+        tr->pctrl.ahead  = tr->pctrl.behind;
+        tr->pctrl.behind = tmp_pt;
+        track_pt_reverse(&tr->pctrl.ahead);
         track_pt_reverse(&tr->pctrl.behind);
         tr->pctrl.reversed = !tr->pctrl.reversed;
     }
@@ -325,8 +329,8 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
             "considering speed %d: min allowed %d um vs. needed %d um",
             tr->speed,
             min_allowed_um,
-            1000 * (int)tr->path.len_mm);
-        if ((unsigned)min_allowed_um <= 1000 * tr->path.len_mm)
+            1000 * (int)tr->path->len_mm);
+        if ((unsigned)min_allowed_um <= 1000 * tr->path->len_mm)
             break;
     }
     /* FIXME clamping the speed to minimum */
@@ -493,13 +497,13 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     /* Compute delta */
     tr->pctrl.lastsens = sens;
     tr->pctrl.err_um   = track_pt_distance_path(
-        &tr->path,
+        tr->path,
         tr->pctrl.ahead,
         est_pctrl.ahead);
 
     if (tr->pctrl.err_um > 0) {
         /* Might have expected later sensors with too early a timeout. */
-        tr->path_sensnext = TRACK_NODE_DATA(tr->track, sens, tr->path.node_ix);
+        tr->path_sensnext = TRACK_NODE_DATA(tr->track, sens, tr->path->node_ix);
         tr->path_sensnext++;
     }
 
@@ -665,8 +669,8 @@ static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
     tr->pctrl.updated = true;
-    track_pt_advance_path(&tr->path, &tr->pctrl.ahead,  dist_um);
-    track_pt_advance_path(&tr->path, &tr->pctrl.behind, dist_um);
+    track_pt_advance_path(tr->path, &tr->pctrl.ahead,  dist_um);
+    track_pt_advance_path(tr->path, &tr->pctrl.behind, dist_um);
 }
 
 static void
@@ -771,9 +775,9 @@ trainsrv_pctrl_check_update(struct train *tr)
         int stop_um, end_um;
         stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
         end_um = track_pt_distance_path(
-            &tr->path,
+            tr->path,
             tr->pctrl.ahead,
-            tr->path.end);
+            tr->path->end);
         if (end_um <= stop_um) {
             trainsrv_stop(tr);
             return;
@@ -790,18 +794,18 @@ trainsrv_pctrl_check_update(struct train *tr)
 static void
 trainsrv_pctrl_expect_sensors(struct train *tr)
 {
-    for(;(unsigned)tr->path_sensnext < tr->path.hops; tr->path_sensnext++) {
+    for(;(unsigned)tr->path_sensnext < tr->path->hops; tr->path_sensnext++) {
         struct track_pt sens_pt;
         track_node_t sens;
         int sensdist_um, travel_um;
 
-        sens = tr->path.edges[tr->path_sensnext]->src;
+        sens = tr->path->edges[tr->path_sensnext]->src;
         if (sens->type != TRACK_NODE_SENSOR)
             continue;
 
         track_pt_from_node(sens, &sens_pt);
 
-        sensdist_um = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sens_pt);
+        sensdist_um = track_pt_distance_path(tr->path, tr->pctrl.ahead, sens_pt);
         if (tr->pctrl.reversed)
             sensdist_um += TRAIN_BACK_OFFS_UM;
         else
@@ -822,24 +826,24 @@ trainsrv_pctrl_expect_sensors(struct train *tr)
 static void
 trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
 {
-    while ((unsigned)tr->path_swnext < tr->path.hops) {
+    while ((unsigned)tr->path_swnext < tr->path->hops) {
         struct track_pt sw_pt;
         track_node_t branch;
         bool curved;
 
-        branch = tr->path.edges[tr->path_swnext]->src;
+        branch = tr->path->edges[tr->path_swnext]->src;
         if (branch->type == TRACK_NODE_BRANCH) {
-            sw_pt.edge   = tr->path.edges[tr->path_swnext];
+            sw_pt.edge   = tr->path->edges[tr->path_swnext];
             sw_pt.pos_um = 1000 * sw_pt.edge->len_mm;
         } else {
             assert(branch->type == TRACK_NODE_MERGE);
-            sw_pt.edge   = tr->path.edges[tr->path_swnext - 1];
+            sw_pt.edge   = tr->path->edges[tr->path_swnext - 1];
             sw_pt.pos_um = TRAIN_MERGE_OFFSET_UM;
         }
 
         if (!switch_all) {
             int dist_um;
-            dist_um  = track_pt_distance_path(&tr->path, tr->pctrl.ahead, sw_pt);
+            dist_um  = track_pt_distance_path(tr->path, tr->pctrl.ahead, sw_pt);
             dist_um -= trainsrv_predict_dist_um(tr,
                 tr->pctrl.est_time + TRAIN_SWITCH_AHEAD_TICKS);
             if (dist_um > 0)

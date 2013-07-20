@@ -46,6 +46,7 @@ struct calmsg {
 struct calsrv {
     struct tcmuxctx  tcmux;
     struct sensorctx sens;
+    struct switchctx switches;
     struct dbglogctx dbglog;
     track_graph_t    track;
     struct calib     all[TRAINS_MAX];
@@ -77,6 +78,7 @@ calibsrv_main(void)
     cal.track = tracksel_ask();
     tcmuxctx_init(&cal.tcmux);
     sensorctx_init(&cal.sens);
+    switchctx_init(&cal.switches);
     dbglogctx_init(&cal.dbglog);
     memset(cal.all, '\0', sizeof (cal.all));
     for (i = 0; i < n_initcalib; i++) {
@@ -142,11 +144,13 @@ calibsrv_await(struct calsrv *cal, track_node_t sensor, int *when)
 static void
 calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
 {
-    struct track_path to_loop;
-    struct track_pt   train_pos, calib_start;
-    track_node_t      orignode;
-    unsigned          i;
-    int               rc;
+    struct track_routespec rspec;
+    struct track_route     to_loop_route;
+    struct track_path     *to_loop;
+    struct track_pt        train_pos, calib_start;
+    track_node_t           orignode;
+    unsigned               i;
+    int                    rc;
 
     /* Locate the train. */
     tcmux_train_speed(&cal->tcmux, train, TRAIN_CRAWLSPEED);
@@ -156,34 +160,35 @@ calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
     /* Move train into position for calibration */
     track_pt_from_node(orignode, &train_pos);
     track_pt_from_node(cal->track->calib_sensors[0], &calib_start);
-    rc = track_pathfind(
-        cal->track,
-        &train_pos,
-        1,
-        &calib_start,
-        1,
-        &to_loop);
 
+    track_routespec_init(&rspec);
+    rspec.track        = cal->track;
+    rspec.switches     = cal->switches;
+    rspec.src_centre   = train_pos;
+    rspec.train_len_um = 215000; /* FIXME hardcoded 21.5cm */
+    rspec.err_um       = 200000; /* FIXME hardcoded 20cm */
+    rspec.init_rev_ok  = false;
+    rspec.rev_ok       = false;
+    rspec.dest         = calib_start;
+
+    rc = track_routefind(&rspec, &to_loop_route);
     if (rc != 0)
         return; /* calibration failed */
 
+    assert(to_loop_route.n_paths == 1);
+    to_loop = &to_loop_route.paths[0];
+
     /* Set all switches on path to destination */
-    for (i = 0; i < to_loop.n_branches; i++) {
+    for (i = 0; i < to_loop->hops; i++) {
         const struct track_node *branch;
         const struct track_edge *edge;
         bool curved;
-        int j;
-        branch = to_loop.branches[i];
-        j      = TRACK_NODE_DATA(cal->track, branch, to_loop.node_ix);
-        assert(j >= 0);
-        if ((unsigned)j == to_loop.hops)
-            break;
-        edge   = to_loop.edges[j];
+        edge   = to_loop->edges[i];
+        branch = edge->src;
+        if (branch->type != TRACK_NODE_BRANCH)
+            continue;
         curved = edge == &branch->edge[TRACK_EDGE_CURVED];
-        if (i < to_loop.n_branches - 1)
-            tcmux_switch_curve(&cal->tcmux, branch->num, curved);
-        else
-            tcmux_switch_curve_sync(&cal->tcmux, branch->num, curved);
+        tcmux_switch_curve(&cal->tcmux, branch->num, curved);
     }
 
     /* Send train to destination. */

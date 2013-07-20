@@ -7,8 +7,9 @@
 XBOOL_H;
 TRACK_GRAPH_H;
 SWITCH_SRV_H;
+STATIC_ASSERT_H;
 
-#define PATHFIND_DESTS_MAX      8
+#define ROUTE_PATHS_MAX         4
 
 /* A 'directed point' on the track, i.e. a point along a directed edge.
  * The point is represented by the directed edge and a distance remaining
@@ -21,21 +22,33 @@ struct track_pt {
     int          pos_um;
 };
 
-/* A path on the track between two points. */
+/* A path on the track between two points.
+ *
+ * In a path, the destination of each edge is the source of the next edge. */
 struct track_path {
     track_graph_t   track;
     struct track_pt start, end; /* start on edges[0], end on edges[hops-1] */
     size_t          hops, len_mm;
-    track_edge_t    edges[TRACK_NODES_MAX];
-    size_t          n_branches;
-    track_node_t    branches[TRACK_NODES_MAX];
+    track_edge_t   *edges;
 
     /* Index of each node in this path. Gives the edge OUT from that
      * node. Last node gets mapped to hops (1 past the end of edges).
      * Nodes outside of the path are mapped to -1. */
-    int           node_ix[TRACK_NODES_MAX];
+    int16_t         node_ix[TRACK_NODES_MAX];
 };
 
+STATIC_ASSERT(track_path_node_ix_size, TRACK_NODES_MAX <= (1 << 15));
+
+/* A route on the track between two points.
+ *
+ * A route consists of multiple paths. Each path's end point is the starting
+ * point of the next path. */
+struct track_route {
+    track_graph_t     track;
+    struct track_path paths[ROUTE_PATHS_MAX];
+    int               n_paths;
+    track_edge_t      edges[TRACK_NODES_MAX];
+};
 
 /* Reverse the given point in place. */
 void track_pt_reverse(struct track_pt *pt);
@@ -66,14 +79,27 @@ int track_pt_distance_path(
     struct track_pt a,
     struct track_pt b);
 
-/* Find a (good, directed) path from any src to any dest on
- * the given track. Only up to PATHFIND_DESTS_MAX destinations
- * may be provided. If a path is found, stores it in path_out
+/* Find a (good) route for a train on the given track.
+ * If a route is found, stores it in route_out
  * and returns 0. Otherwise, returns -1. */
-int track_pathfind(
-    track_graph_t          track,
-    const struct track_pt *src_pts,
-    unsigned               src_count,
-    const struct track_pt *dests,
-    unsigned               dest_count,
-    struct track_path     *path_out);
+struct track_routespec;
+int track_routefind(
+    const struct track_routespec *q,
+    struct track_route *route_out);
+
+struct track_routespec {
+    int              magic;        /* Should be TRACK_ROUTESPEC_MAGIC (in .c) */
+
+    track_graph_t    track;        /* What track? */
+    struct switchctx switches;     /* Switch state handle */
+
+    struct track_pt  src_centre;   /* Initial position of train. */
+    int              train_len_um; /* Length of the train */
+    int              err_um;       /* Initial error bound (non-negative). */
+    bool             init_rev_ok;  /* Is it okay to reverse at start? */
+    bool             rev_ok;       /* Is it okay to reverse en route? */
+
+    struct track_pt  dest;         /* Destination for centre of train */
+};
+
+void track_routespec_init(struct track_routespec *q);
