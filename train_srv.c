@@ -38,10 +38,10 @@
 #define PCTRL_ACCEL_SENSORS     3
 #define PCTRL_STOP_TICKS        400
 
-#define TRAIN_ACCEL_STABILIZE_TICKS     25
+#define TRAIN_ACCEL_STABILIZE_TICKS     50
 #define TRAIN_SENSOR_OVERESTIMATE_UM    (80 * 1000) // FIXME more like 4cm
-#define TRAIN_SWITCH_AHEAD_TICKS        50
-#define TRAIN_SENSOR_AHEAD_TICKS        50
+#define TRAIN_SWITCH_AHEAD_TICKS        100
+#define TRAIN_SENSOR_AHEAD_TICKS        100
 #define TRAIN_MERGE_OFFSET_UM           100000 // 10cm
 
 enum {
@@ -496,6 +496,12 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         &tr->path,
         tr->pctrl.ahead,
         est_pctrl.ahead);
+
+    if (tr->pctrl.err_um > 0) {
+        /* Might have expected later sensors with too early a timeout. */
+        tr->path_sensnext = TRACK_NODE_DATA(tr->track, sens, tr->path.node_ix);
+        tr->path_sensnext++;
+    }
 
     /* Adjust behind to compensate for difference in ahead. */
     tr->pctrl.behind = tr->pctrl.ahead;
