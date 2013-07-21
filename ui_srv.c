@@ -366,8 +366,12 @@ static void
 uisrv_kbd(struct uisrv *uisrv, char keypress)
 {
     switch (keypress) {
-    case '\r':
     case '\n':
+        /* HACK: terminals are badly behaved.
+         * But we always get a carriage return when the user hits enter. */
+        break;
+
+    case '\r':
         uisrv_runcmd(uisrv);
         break;
 
