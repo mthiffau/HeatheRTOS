@@ -382,6 +382,18 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
     src_info  = rf_node_info(rf, src);
     dest_info = rf_node_info(rf, dest);
 
+    /* Reject the 'wrong' branch of a turnout
+     * if it's too close to starting position. */
+    if (src->type == TRACK_NODE_BRANCH) {
+        int threshold_mm = rf->spec->train_len_um / 2000;
+        threshold_mm    += rf->spec->err_um / 1000;
+        if (src_info->distance < threshold_mm) {
+            bool curved = edge == &src->edge[TRACK_EDGE_CURVED];
+            if (curved != switch_iscurved(rf->spec->switches, src->num))
+                return; /* reject this edge */
+        }
+    }
+
     /* Check for end destinations on the edge. */
     dest_which = *rf_edge_dest(rf, edge);
     if (rf_dest_valid(dest_which)) {

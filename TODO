@@ -1,12 +1,7 @@
 Real work:
-- Watch out for turnouts at start of path
-- Reversal okay check wiggle room
-- Acceleration model
-- Stopping distance model
-- Short routes
-- Routes including reversals
+- Track train while it's stopping?
+- Switching turnouts near but beyond end of path
 - Track reservation, integrated with route finding
-- Batch calibration adjustment
 
 Bugs:
 - UI status line is gone?

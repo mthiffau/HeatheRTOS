@@ -330,7 +330,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     rspec.track        = tr->track;
     rspec.switches     = &tr->switches;
     rspec.src_centre   = tr->pctrl.centre;
-    rspec.err_um       = 0; /* FIXME */
+    rspec.err_um       = 50000; /* FIXME hardcoded 5cm */
     rspec.init_rev_ok  = tr->reverse_ok;
     rspec.rev_ok       = true;
     rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
