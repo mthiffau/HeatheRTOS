@@ -23,6 +23,7 @@
 
 #include "track_graph.h"
 #include "tracksel_srv.h"
+#include "track_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"

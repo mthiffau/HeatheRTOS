@@ -26,9 +26,9 @@ enum {
 };
 
 struct trackmsg {
-    int     type;
-    int     train_id;
-    int     edge_ix;
+    int          type;
+    int          train_id;
+    track_edge_t edge;
 };
 
 struct reservation {
@@ -41,9 +41,12 @@ struct tracksrv {
     struct reservation reservations[TRACK_EDGES_MAX];
 };
 
-static void tracksrv_reserve(struct tracksrv *track, tid_t client, int edge_ix, int train);
-static void tracksrv_release(struct tracksrv *track, tid_t client, int edge_ix, int train);
-static void   tracksrv_query(struct tracksrv *track, tid_t client, int edge_ix);
+static void tracksrv_reserve(
+    struct tracksrv *track, tid_t client, track_edge_t edge, int train);
+static void tracksrv_release(
+    struct tracksrv *track, tid_t client, track_edge_t edge, int train);
+static void   tracksrv_query(
+    struct tracksrv *track, tid_t client, track_edge_t edge);
 
 void
 tracksrv_main(void)
@@ -73,13 +76,13 @@ tracksrv_main(void)
 
         switch (msg.type) {
         case TRACKMSG_RESERVE:
-	    tracksrv_reserve(&tracksrv, client, msg.edge_ix, msg.train_id);
+	    tracksrv_reserve(&tracksrv, client, msg.edge, msg.train_id);
             break;
         case TRACKMSG_RELEASE:
-	    tracksrv_release(&tracksrv, client, msg.edge_ix, msg.train_id);
+	    tracksrv_release(&tracksrv, client, msg.edge, msg.train_id);
             break;
         case TRACKMSG_QUERY:
-	    tracksrv_query(&tracksrv, client, msg.edge_ix);
+	    tracksrv_query(&tracksrv, client, msg.edge);
             break;
         default:
             panic("invalid track server message type %d", msg.type);
@@ -88,62 +91,85 @@ tracksrv_main(void)
 }
 
 static void 
-tracksrv_reserve(struct tracksrv *track, tid_t client, int edge_ix, int train)
+tracksrv_reserve(
+    struct tracksrv *track,
+    tid_t client,
+    track_edge_t edge,
+    int train)
 {
-    bool is_reserved, reserve_success;
-    int  reserver, rc;
+    struct reservation *res, *rres;
+    bool reserve_success;
+    int  rc;
 
-    is_reserved = track->reservations[edge_ix].reserved;
-    reserver    = track->reservations[edge_ix].train_id;
+    res  = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    rres = &TRACK_EDGE_DATA(track->track, edge->reverse, track->reservations);
 
-    if (!is_reserved || (is_reserved && (reserver == train))) {
-	reserve_success = true;
-	track->reservations[edge_ix].reserved = true;
-	track->reservations[edge_ix].train_id = train;
-    } else
-	reserve_success = false;
+    reserve_success = false;
+    if (!res->reserved) {
+        assert(!rres->reserved);
+        reserve_success = true;
+    } else if (res->train_id == train) {
+        assert(rres->reserved && rres->train_id == train);
+        reserve_success = true;
+    }
+
+    if (reserve_success) {
+	res->reserved = true;
+	res->train_id = train;
+        rres->reserved = true;
+        rres->train_id = train;
+    }
 
     rc = Reply(client, &reserve_success, sizeof(bool));
     assertv(rc, rc == 0);
 }
 
 static void
-tracksrv_release(struct tracksrv *track, tid_t client, int edge_ix, int train)
+tracksrv_release(
+    struct tracksrv *track,
+    tid_t client,
+    track_edge_t edge,
+    int train)
 {
-    bool is_reserved;
-    int  reserver, rc;
+    struct reservation *res, *rres;
+    int rc;
 
-    is_reserved = track->reservations[edge_ix].reserved;
-    reserver    = track->reservations[edge_ix].train_id;
+    res  = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    rres = &TRACK_EDGE_DATA(track->track, edge->reverse, track->reservations);
     
     /* It should be reserved, and it should be us that reserved it */
-    assert(is_reserved);
-    assert(reserver == train);
+    assert(res->reserved);
+    assert(res->train_id == train);
+    assert(rres->reserved);
+    assert(rres->train_id == train);
 
-    track->reservations[edge_ix].reserved = false;
-    track->reservations[edge_ix].train_id = -1;
+    res->reserved  = false;
+    res->train_id  = -1;
+    rres->reserved = false;
+    rres->train_id = -1;
 
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
 }
 
 static void
-tracksrv_query(struct tracksrv *track, tid_t client, int edge_ix)
+tracksrv_query(
+    struct tracksrv *track,
+    tid_t client,
+    track_edge_t edge)
 {
-    bool is_reserved;
+    struct reservation *res;
     int  rc;
 
-    is_reserved = track->reservations[edge_ix].reserved;
-
-    rc = Reply(client, &is_reserved, sizeof(bool));
+    res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    rc = Reply(client, &res->train_id, sizeof (res->train_id));
     assertv(rc, rc == 0);
 }
 
 void
-trackctx_init(struct trackctx *ctx, track_graph_t track, int train_id)
+trackctx_init(struct trackctx *ctx, int train_id)
 {
     ctx->tracksrv_tid = WhoIs("tracksrv");
-    ctx->track = track;
     ctx->train_id = train_id;
 }
 
@@ -156,10 +182,10 @@ track_reserve(struct trackctx *ctx, track_edge_t edge)
 
     msg.type     = TRACKMSG_RESERVE;
     msg.train_id = ctx->train_id;
-    msg.edge_ix  = ((edge->src - ctx->track->nodes) << 1) | (edge - edge->src->edge);
+    msg.edge     = edge;
 
     rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), &reserve_success, sizeof(bool));
-    assertv(rplylen, rplylen == 0);
+    assertv(rplylen, rplylen == sizeof (reserve_success));
 
     return reserve_success;
 }
@@ -172,25 +198,24 @@ track_release(struct trackctx *ctx, track_edge_t edge)
 
     msg.type     = TRACKMSG_RELEASE;
     msg.train_id = ctx->train_id;
-    msg.edge_ix  = ((edge->src - ctx->track->nodes) << 1) | (edge - edge->src->edge);
+    msg.edge     = edge;
 
     rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }
 
-bool
-track_isreserved(struct trackctx *ctx, track_edge_t edge)
+int
+track_query(struct trackctx *ctx, track_edge_t edge)
 {
     struct trackmsg msg;
-    bool is_reserved;
-    int rplylen;
+    int who, rplylen;
 
     msg.type = TRACKMSG_QUERY;
     msg.train_id = ctx->train_id;
-    msg.edge_ix  = ((edge->src - ctx->track->nodes) << 1) | (edge - edge->src->edge);
+    msg.edge     = edge;
 
-    rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), &is_reserved, sizeof (bool));
-    assertv(rplylen, rplylen == sizeof (bool));
+    rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), &who, sizeof (who));
+    assertv(rplylen, rplylen == sizeof (who));
 
-    return is_reserved;
+    return who;
 }

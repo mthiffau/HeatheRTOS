@@ -24,12 +24,15 @@
 #include "sensor_srv.h"
 #include "switch_srv.h"
 #include "tracksel_srv.h"
+#include "track_srv.h"
 #include "track_pt.h"
 #include "train_srv.h"
 #include "calib_srv.h"
 #include "dbglog_srv.h"
 
 #include "bwio.h"
+
+#define UISRV_FAKE_TRAIN_ID 0
 
 #define STR(x)              STR1(x)
 #define STR1(x)             #x
@@ -146,6 +149,7 @@ struct uisrv {
     struct serialctx tty;
     struct clkctx    clock;
     struct tcmuxctx  tcmux;
+    struct trackctx  res;
 
     char    cmd[CMD_MAXLEN + 1];
     int     cmdlen;
@@ -185,6 +189,8 @@ static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
@@ -449,6 +455,10 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_lt(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "path")) {
         uisrv_cmd_path(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tres")) {
+        uisrv_cmd_tres(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tfree")) {
+        uisrv_cmd_tfree(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -479,6 +489,7 @@ uisrv_cmd_q(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc)
 {
+    tid_t track_tid;
     if (argc != 1) {
         Print(&uisrv->tty, "usage: track NAME");
         return;
@@ -494,6 +505,11 @@ uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc)
         Printf(&uisrv->tty, "no track named %s", argv[0]);
     else
         tracksel_tell(uisrv->track);
+
+    /* Start track (reservation) server */
+    track_tid = Create(PRIORITY_TRACK, &tracksrv_main);
+    assertv(track_tid, track_tid >= 0);
+    trackctx_init(&uisrv->res, UISRV_FAKE_TRAIN_ID);
 }
 
 static void
@@ -924,6 +940,94 @@ uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc)
             Printf(&uisrv->tty, "%s ", path.edges[i]->src->name);
         }
     }
+}
+
+static track_edge_t
+uisrv_cmd_read_edge(struct uisrv *uisrv, char *src_name, char *dest_name)
+{
+    track_node_t src, dest;
+    int i, n_edges;
+
+    src  = track_node_byname(uisrv->track, src_name);
+    if (src == NULL) {
+        Printf(&uisrv->tty, "error: unknown node %s", src_name);
+        return NULL;
+    }
+
+    dest = track_node_byname(uisrv->track, dest_name);
+    if (dest == NULL) {
+        Printf(&uisrv->tty, "error: unknown node %s", dest_name);
+        return NULL;
+    }
+
+    n_edges = track_node_edges[src->type];
+    for (i = 0; i < n_edges; i++) {
+        if (src->edge[i].dest == dest)
+            break;
+    }
+
+    if (i < n_edges)
+        return &src->edge[i];
+
+    Printf(&uisrv->tty, "error: no edge from %s to %s",
+        src->name,
+        dest->name);
+    return NULL;
+}
+
+static void
+uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc)
+{
+    track_edge_t edge;
+    bool success;
+    const char *msg;
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: path SRC DEST");
+        return;
+    }
+
+    edge = uisrv_cmd_read_edge(uisrv, argv[0], argv[1]);
+    if (edge == NULL)
+        return; /* Already printed an error message */
+
+    success = track_reserve(&uisrv->res, edge);
+    msg     = success ? "reserved" : "failed to reserve";
+    Printf(&uisrv->tty, "%s edge %s -> %s", msg, argv[0], argv[1]);
+}
+
+static void
+uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc)
+{
+    track_edge_t edge;
+    const char *msg;
+    bool success;
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: path SRC DEST");
+        return;
+    }
+
+    edge = uisrv_cmd_read_edge(uisrv, argv[0], argv[1]);
+    if (edge == NULL)
+        return; /* Already printed an error message */
+
+    success = track_query(&uisrv->res, edge) == UISRV_FAKE_TRAIN_ID;
+    if (success) {
+        track_release(&uisrv->res, edge);
+        msg = "released";
+    } else {
+        msg = "don't own";
+    }
+    Printf(&uisrv->tty, "%s edge %s -> %s", msg, argv[0], argv[1]);
 }
 
 static void
