@@ -21,7 +21,7 @@ struct traincfg {
 
 struct trainest {
     uint8_t         train_id;
-    struct track_pt ahead, behind;
+    struct track_pt centre;
     track_node_t    lastsens;
     int             err_mm; /* position error at last sensor */
 };

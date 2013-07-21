@@ -907,12 +907,10 @@ uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR(STR(TRAINPOS_ROW), STR(TRAINPOS_COL))
         //TERM_ERASE_EOL
-        "%02d: A:%5s-%04dmm, B:%5s-%04dmm",
+        "%02d: %5s-%04dmm",
         est->train_id,
-        est->ahead.edge->dest->name,
-        est->ahead.pos_um / 1000,
-        est->behind.edge->dest->name,
-        est->behind.pos_um / 1000);
+        est->centre.edge->dest->name,
+        est->centre.pos_um / 1000);
 
     if (est->lastsens != NULL) {
         Printf(&uisrv->tty, ", err %04dmm @ %5s",

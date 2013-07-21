@@ -163,7 +163,7 @@ calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
 
     track_routespec_init(&rspec);
     rspec.track        = cal->track;
-    rspec.switches     = cal->switches;
+    rspec.switches     = &cal->switches;
     rspec.src_centre   = train_pos;
     rspec.train_len_um = 215000; /* FIXME hardcoded 21.5cm */
     rspec.err_um       = 200000; /* FIXME hardcoded 20cm */

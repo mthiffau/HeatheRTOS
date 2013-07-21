@@ -78,7 +78,7 @@ struct sensor_reply {
 
 struct train_pctrl {
     int                       state;
-    struct track_pt           ahead, behind;
+    struct track_pt           centre;
     int                       est_time, accel_start;
     int                       vel_umpt;
     int                       stop_ticks, stop_um;
@@ -274,49 +274,8 @@ trainsrv_swnext_advance(struct train *tr)
 }
 
 static void
-trainsrv_moveto(struct train *tr, struct track_pt dest)
+trainsrv_embark(struct train *tr)
 {
-    struct track_routespec rspec;
-    int rc;
-    if (tr->pctrl.state != PCTRL_STOPPED)
-        return;
-
-    /* Get path to follow */
-    track_routespec_init(&rspec);
-    rspec.track        = tr->track;
-    rspec.switches     = tr->switches;
-    rspec.src_centre   = tr->pctrl.ahead;
-    rspec.err_um       = 0; /* FIXME */
-    rspec.init_rev_ok  = tr->reverse_ok;
-    rspec.rev_ok       = true;
-    rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
-    rspec.dest         = dest;
-
-    /* Adjust centre FIXME this should go away. */
-    track_pt_reverse(&rspec.src_centre);
-    track_pt_advance(&tr->switches, &rspec.src_centre, TRAIN_LENGTH_UM / 2);
-    track_pt_reverse(&rspec.src_centre);
-
-    rc = track_routefind(&rspec, &tr->route);
-    if (rc < 0 || tr->route.n_paths == 0)
-        return;
-
-    tr->path = &tr->route.paths[0];
-    if (tr->path->hops == 0)
-        return;
-
-    /* Initial reverse if necessary */
-    if (tr->path->edges[0] == rspec.src_centre.edge->reverse) {
-        struct track_pt tmp_pt;
-        tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
-        tmp_pt           = tr->pctrl.ahead;
-        tr->pctrl.ahead  = tr->pctrl.behind;
-        tr->pctrl.behind = tmp_pt;
-        track_pt_reverse(&tr->pctrl.ahead);
-        track_pt_reverse(&tr->pctrl.behind);
-        tr->pctrl.reversed = !tr->pctrl.reversed;
-    }
-
     /* Find speed to use. */
     for (tr->speed = tr->desired_speed; tr->speed >= TRAIN_MINSPEED; tr->speed--) {
         int accel_time     = tr->calib.accel_cutoff[tr->speed];
@@ -325,14 +284,10 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
         int stop_um        = polyeval(&tr->calib.stop_um, vel_umpt);
         int min_allowed_um = accel_end_um + stop_um;
         min_allowed_um    += vel_umpt * TRAIN_ACCEL_STABILIZE_TICKS;
-        dbglog(&tr->dbglog,
-            "considering speed %d: min allowed %d um vs. needed %d um",
-            tr->speed,
-            min_allowed_um,
-            1000 * (int)tr->path->len_mm);
         if ((unsigned)min_allowed_um <= 1000 * tr->path->len_mm)
             break;
     }
+
     /* FIXME clamping the speed to minimum */
     if (tr->speed < TRAIN_MINSPEED)
         tr->speed = TRAIN_MINSPEED;
@@ -346,13 +301,85 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     tr->pctrl.updated  = true;
 
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
+    /* already TRAIN_RUNNING */
+    tr->pctrl.state = PCTRL_ACCEL;
+    tr->pctrl.accel_start = tr->pctrl.est_time + tr->calib.accel_delay;
+
     dbglog(&tr->dbglog, "train%d sending speed %d (v=%d um/tick)",
         tr->train_id,
         tr->speed,
         tr->calib.vel_umpt[tr->speed]);
-    /* already TRAIN_RUNNING */
-    tr->pctrl.state = PCTRL_ACCEL;
-    tr->pctrl.accel_start = tr->pctrl.est_time + tr->calib.accel_delay;
+    dbglog(&tr->dbglog, "train%d moving from %s-%dmm to %s-%dmm",
+        tr->train_id,
+        tr->path->start.edge->dest->name,
+        tr->path->start.pos_um / 1000,
+        tr->path->end.edge->dest->name,
+        tr->path->end.pos_um / 1000);
+}
+
+static void
+trainsrv_moveto(struct train *tr, struct track_pt dest)
+{
+    struct track_routespec rspec;
+    int rc;
+    if (tr->pctrl.state != PCTRL_STOPPED)
+        return;
+
+    /* Get path to follow */
+    track_routespec_init(&rspec);
+    rspec.track        = tr->track;
+    rspec.switches     = &tr->switches;
+    rspec.src_centre   = tr->pctrl.centre;
+    rspec.err_um       = 0; /* FIXME */
+    rspec.init_rev_ok  = tr->reverse_ok;
+    rspec.rev_ok       = true;
+    rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
+    rspec.dest         = dest;
+
+    rc = track_routefind(&rspec, &tr->route);
+    if (rc < 0 || tr->route.n_paths == 0)
+        return;
+
+    tr->path = &tr->route.paths[0];
+    if (tr->path->hops == 0)
+        return;
+
+#if 0
+    {
+        struct ringbuf rbuf;
+        int i, j;
+        char mem[8192];
+        rbuf_init(&rbuf, mem, sizeof (mem));
+        rbuf_printf(&rbuf, "\e[2J");
+        for (i = 0; i < tr->route.n_paths; i++) {
+            struct track_path *path = &tr->route.paths[i];
+            rbuf_printf(&rbuf, "path %d:", i);
+            rbuf_printf(&rbuf, " [start=%s-%dmm, end=%s-%dmm, hops=%d]",
+                path->start.edge->dest->name,
+                path->start.pos_um / 1000,
+                path->end.edge->dest->name,
+                path->end.pos_um / 1000,
+                (int)path->hops);
+            for (j = 0; j < (int)path->hops; j++)
+                rbuf_printf(&rbuf, " [%s->%s]",
+                    path->edges[j]->src->name,
+                    path->edges[j]->dest->name);
+            rbuf_putc(&rbuf, '\n');
+        }
+        rbuf_putc(&rbuf, '\0');
+        panic("%s", mem);
+    }
+#endif
+
+    /* Initial reverse if necessary */
+    if (tr->path->edges[0] == rspec.src_centre.edge->reverse) {
+        tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
+        track_pt_reverse(&tr->pctrl.centre);
+        tr->pctrl.reversed = !tr->pctrl.reversed;
+    }
+
+    /* Go! */
+    trainsrv_embark(tr);
 }
 
 static void
@@ -369,47 +396,14 @@ trainsrv_stop(struct train *tr)
 
     dbglog(&tr->dbglog, "train%d stopping at %s-%dum, v=%dum/cs, d=%dum",
         tr->train_id,
-        tr->pctrl.ahead.edge->dest->name,
-        tr->pctrl.ahead.pos_um,
+        tr->pctrl.centre.edge->dest->name,
+        tr->pctrl.centre.pos_um,
         tr->pctrl.vel_umpt,
         tr->pctrl.stop_um);
 
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
     trainsrv_pctrl_switch_turnouts(tr, true);
-}
-
-static void
-trainsrv_determine_reverse_ok(struct train *tr)
-{
-    track_edge_t edge = tr->pctrl.behind.edge;
-    while (edge != tr->pctrl.ahead.edge) {
-        int ix;
-        if (edge->dest->type == TRACK_NODE_MERGE) {
-            bool want_curve =
-                edge->reverse == &edge->dest->reverse->edge[TRACK_EDGE_CURVED];
-            bool have_curve =
-                switch_iscurved(&tr->switches, edge->dest->reverse->num);
-            if (want_curve != have_curve) {
-                tr->reverse_ok = false;
-                return;
-            }
-        }
-
-        if (edge->dest->type == TRACK_NODE_EXIT)
-            break;
-
-        ix = TRACK_EDGE_AHEAD;
-        if (edge->dest->type == TRACK_NODE_BRANCH) {
-            if (switch_iscurved(&tr->switches, edge->dest->num))
-                ix = TRACK_EDGE_CURVED;
-            else
-                ix = TRACK_EDGE_STRAIGHT;
-        }
-
-        edge = &edge->dest->edge[ix];
-    }
-    tr->reverse_ok = true;
 }
 
 static void
@@ -437,31 +431,26 @@ trainsrv_orient_train(struct train *tr)
 
     /* Set up initial oriented state. */
 
-    /* Ahead position */
-    ahead_offs_um =
-        tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
-    tr->pctrl.ahead.edge   = &sensnode->edge[TRACK_EDGE_AHEAD];
-    tr->pctrl.ahead.pos_um =
-        tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
+    /* Centre position. Calculated by going from the front of the train. */
+    ahead_offs_um = TRAIN_FRONT_OFFS_UM;
+    tr->pctrl.centre.edge   = &sensnode->edge[TRACK_EDGE_AHEAD];
+    tr->pctrl.centre.pos_um =
+        tr->pctrl.centre.edge->len_mm * 1000 - ahead_offs_um;
 
-    /* Adjust ahead position for stopping distance of crawling speed. */
+    track_pt_reverse(&tr->pctrl.centre);
+    track_pt_advance(&tr->switches, &tr->pctrl.centre, TRAIN_LENGTH_UM / 2);
+    track_pt_reverse(&tr->pctrl.centre);
+
+    /* Adjust centre position for stopping distance of crawling speed. */
     track_pt_advance(
         &tr->switches,
-        &tr->pctrl.ahead,
+        &tr->pctrl.centre,
         polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[TRAIN_CRAWLSPEED]));
-
-    /* Behind position */
-    tr->pctrl.behind = tr->pctrl.ahead;
-    track_pt_reverse(&tr->pctrl.behind);
-    track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
-    track_pt_reverse(&tr->pctrl.behind);
 
     /* Initial velocity is zero */
     tr->speed          = 0;
     tr->pctrl.vel_umpt = 0;
-
-    /* Determine whether it's okay to reverse from here */
-    trainsrv_determine_reverse_ok(tr);
+    tr->reverse_ok     = false;
 
     /* Position estimate as of what time. */
     tr->pctrl.est_time = Time(&tr->clock);
@@ -487,19 +476,25 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
 
     tr->pctrl.updated      = true;
-    tr->pctrl.ahead.edge   = &sens->edge[TRACK_EDGE_AHEAD];
-    tr->pctrl.ahead.pos_um =
-        tr->pctrl.ahead.edge->len_mm * 1000 - ahead_offs_um;
     tr->pctrl.est_time     = time;
+    tr->pctrl.centre.edge  = &sens->edge[TRACK_EDGE_AHEAD];
+    tr->pctrl.centre.pos_um =
+        tr->pctrl.centre.edge->len_mm * 1000 - ahead_offs_um;
+
+    track_pt_reverse(&tr->pctrl.centre);
+    track_pt_advance(&tr->switches, &tr->pctrl.centre, TRAIN_LENGTH_UM / 2);
+    track_pt_reverse(&tr->pctrl.centre);
+
     if (est_pctrl.est_time > time)
         trainsrv_pctrl_advance_ticks(tr, est_pctrl.est_time);
 
     /* Compute delta */
     tr->pctrl.lastsens = sens;
+    assert(TRACK_NODE_DATA(tr->track, tr->pctrl.centre.edge->src, tr->path->node_ix) >= 0);
     tr->pctrl.err_um   = track_pt_distance_path(
         tr->path,
-        tr->pctrl.ahead,
-        est_pctrl.ahead);
+        tr->pctrl.centre,
+        est_pctrl.centre);
 
     if (tr->pctrl.err_um > 0) {
         /* Might have expected later sensors with too early a timeout. */
@@ -507,26 +502,17 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         tr->path_sensnext++;
     }
 
-    /* Adjust behind to compensate for difference in ahead. */
-    tr->pctrl.behind = tr->pctrl.ahead;
-    track_pt_reverse(&tr->pctrl.behind);
-    track_pt_advance(&tr->switches, &tr->pctrl.behind, TRAIN_LENGTH_UM);
-    track_pt_reverse(&tr->pctrl.behind);
-
     /* Print log messages */
     {
-        int ahead_um, ahead_cm, behind_um, behind_cm, est_ahead_um, est_ahead_cm;
+        int centre_um, centre_cm, est_centre_um, est_centre_cm;
         int err_um, err_cm;
         bool err_neg;
-        ahead_um  = tr->pctrl.ahead.pos_um;
-        ahead_cm  = ahead_um / 10000;
-        ahead_um %= 10000;
-        behind_um  = tr->pctrl.behind.pos_um;
-        behind_cm  = behind_um / 10000;
-        behind_um %= 10000;
-        est_ahead_um  = est_pctrl.ahead.pos_um;
-        est_ahead_cm  = est_ahead_um / 10000;
-        est_ahead_um %= 10000;
+        centre_um  = tr->pctrl.centre.pos_um;
+        centre_cm  = centre_um / 10000;
+        centre_um %= 10000;
+        est_centre_um  = est_pctrl.centre.pos_um;
+        est_centre_cm  = est_centre_um / 10000;
+        est_centre_um %= 10000;
         err_um  = tr->pctrl.err_um;
         err_neg = err_um < 0;
         if (err_neg)
@@ -534,17 +520,14 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         err_cm  = err_um / 10000;
         err_um %= 10000;
         dbglog(&tr->dbglog,
-            "%s: act. at %s-%d.%04dcm (behind=%s-%d.%04dcm), est. at %s-%d.%04dcm, err=%c%d.%04dcm",
+            "%s: act. at %s-%d.%04dcm, est. at %s-%d.%04dcm, err=%c%d.%04dcm",
             sens->name,
-            tr->pctrl.ahead.edge->dest->name,
-            ahead_cm,
-            ahead_um,
-            tr->pctrl.behind.edge->dest->name,
-            behind_cm,
-            behind_um,
-            est_pctrl.ahead.edge->dest->name,
-            est_ahead_cm,
-            est_ahead_um,
+            tr->pctrl.centre.edge->dest->name,
+            centre_cm,
+            centre_um,
+            est_pctrl.centre.edge->dest->name,
+            est_centre_cm,
+            est_centre_um,
             err_neg ? '-' : '+',
             err_cm,
             err_um);
@@ -669,8 +652,7 @@ static void
 trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
     tr->pctrl.updated = true;
-    track_pt_advance_path(tr->path, &tr->pctrl.ahead,  dist_um);
-    track_pt_advance_path(tr->path, &tr->pctrl.behind, dist_um);
+    track_pt_advance_path(tr->path, &tr->pctrl.centre,  dist_um);
 }
 
 static void
@@ -678,20 +660,29 @@ trainsrv_timer(struct train *tr, int time)
 {
     int dt, dist;
 
-    dt = time - tr->pctrl.est_time;
     switch (tr->pctrl.state) {
     /* TODO: Estimate position while accelerating/decelerating */
     case PCTRL_STOPPED:
         break;
 
     case PCTRL_STOPPING:
+        dt = time - tr->pctrl.est_time;
+        tr->pctrl.est_time = time;
         tr->pctrl.stop_ticks -= dt;
         if (tr->pctrl.stop_ticks < 0) {
+            struct track_path *last_path;
             tr->pctrl.state = PCTRL_STOPPED;
             dist = tr->pctrl.stop_um;
             assert(dist >= 0);
             trainsrv_pctrl_advance_um(tr, dist);
-            trainsrv_determine_reverse_ok(tr);
+            tr->reverse_ok = true;
+            last_path = &tr->route.paths[tr->route.n_paths - 1];
+            if (tr->path != last_path) {
+                tr->path++;
+                tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
+                track_pt_reverse(&tr->pctrl.centre);
+                trainsrv_embark(tr);
+            }
         }
         break;
 
@@ -774,9 +765,10 @@ trainsrv_pctrl_check_update(struct train *tr)
     if (tr->pctrl.state == PCTRL_CRUISE || tr->pctrl.state == PCTRL_ACCEL) {
         int stop_um, end_um;
         stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+        assert(TRACK_NODE_DATA(tr->track, tr->pctrl.centre.edge->src, tr->path->node_ix) >= 0);
         end_um = track_pt_distance_path(
             tr->path,
-            tr->pctrl.ahead,
+            tr->pctrl.centre,
             tr->path->end);
         if (end_um <= stop_um) {
             trainsrv_stop(tr);
@@ -805,14 +797,16 @@ trainsrv_pctrl_expect_sensors(struct train *tr)
 
         track_pt_from_node(sens, &sens_pt);
 
-        sensdist_um = track_pt_distance_path(tr->path, tr->pctrl.ahead, sens_pt);
+        assert(TRACK_NODE_DATA(tr->track, tr->pctrl.centre.edge->src, tr->path->node_ix) >= 0);
+        sensdist_um = track_pt_distance_path(tr->path, tr->pctrl.centre, sens_pt);
+        sensdist_um -= TRAIN_LENGTH_UM / 2;
         if (tr->pctrl.reversed)
             sensdist_um += TRAIN_BACK_OFFS_UM;
         else
             sensdist_um += TRAIN_FRONT_OFFS_UM;
 
         travel_um = trainsrv_predict_dist_um(
-            tr, 
+            tr,
             tr->pctrl.est_time + TRAIN_SENSOR_AHEAD_TICKS);
 
         if (sensdist_um > travel_um) {
@@ -843,7 +837,9 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
 
         if (!switch_all) {
             int dist_um;
-            dist_um  = track_pt_distance_path(tr->path, tr->pctrl.ahead, sw_pt);
+            assert(TRACK_NODE_DATA(tr->track, tr->pctrl.centre.edge->src, tr->path->node_ix) >= 0);
+            dist_um  = track_pt_distance_path(tr->path, tr->pctrl.centre, sw_pt);
+            dist_um -= TRAIN_LENGTH_UM / 2;
             dist_um -= trainsrv_predict_dist_um(tr,
                 tr->pctrl.est_time + TRAIN_SWITCH_AHEAD_TICKS);
             if (dist_um > 0)
@@ -870,8 +866,7 @@ trainsrv_send_estimate(struct train *tr, tid_t client)
     int rc;
 
     est.train_id = tr->train_id;
-    est.ahead    = tr->pctrl.ahead;
-    est.behind   = tr->pctrl.behind;
+    est.centre   = tr->pctrl.centre;
     est.lastsens = tr->pctrl.lastsens;
     est.err_mm   = tr->pctrl.err_um / 1000;
 

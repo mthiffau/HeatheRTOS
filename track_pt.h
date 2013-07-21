@@ -63,6 +63,17 @@ void track_pt_advance(
     struct track_pt *pt,
     int distance_um);
 
+/* Advance a point along the current track state, keeping a record of
+ * the edges over which it passes. distance_um must not be negative */
+void
+track_pt_advance_trace(
+    struct switchctx *switches,
+    struct track_pt *pt,
+    int distance_um,
+    track_edge_t *edges,
+    int *n_edges,
+    int max_edges);
+
 /* Advance a point along a given path. distance_um may be negative,
  * in which case the point is regressed backward along the path. */
 void track_pt_advance_path(
@@ -88,18 +99,18 @@ int track_routefind(
     struct track_route *route_out);
 
 struct track_routespec {
-    int              magic;        /* Should be TRACK_ROUTESPEC_MAGIC (in .c) */
+    int               magic;        /* Should be TRACK_ROUTESPEC_MAGIC (in .c) */
 
-    track_graph_t    track;        /* What track? */
-    struct switchctx switches;     /* Switch state handle */
+    track_graph_t     track;        /* What track? */
+    struct switchctx *switches;     /* Switch state handle */
 
-    struct track_pt  src_centre;   /* Initial position of train. */
-    int              train_len_um; /* Length of the train */
-    int              err_um;       /* Initial error bound (non-negative). */
-    bool             init_rev_ok;  /* Is it okay to reverse at start? */
-    bool             rev_ok;       /* Is it okay to reverse en route? */
+    struct track_pt   src_centre;   /* Initial position of train. */
+    int               train_len_um; /* Length of the train */
+    int               err_um;       /* Initial error bound (non-negative). */
+    bool              init_rev_ok;  /* Is it okay to reverse at start? */
+    bool              rev_ok;       /* Is it okay to reverse en route? */
 
-    struct track_pt  dest;         /* Destination for centre of train */
+    struct track_pt   dest;         /* Destination for centre of train */
 };
 
 void track_routespec_init(struct track_routespec *q);
