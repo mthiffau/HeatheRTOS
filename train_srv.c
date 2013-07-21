@@ -681,6 +681,7 @@ trainsrv_timer(struct train *tr, int time)
                 tr->path++;
                 tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
                 track_pt_reverse(&tr->pctrl.centre);
+                tr->pctrl.reversed = !tr->pctrl.reversed;
                 trainsrv_embark(tr);
             }
         }
