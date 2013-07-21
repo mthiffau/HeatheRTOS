@@ -14,6 +14,8 @@
 #include "u_syscall.h"
 #include "ns.h"
 
+#include "dbglog_srv.h"
+
 enum {
     TRACKMSG_RESERVE,
     TRACKMSG_RELEASE,
@@ -39,6 +41,7 @@ struct reservation {
 struct tracksrv {
     track_graph_t track;
     struct reservation reservations[TRACK_EDGES_MAX];
+    struct dbglogctx   dbglog;
 };
 
 static void tracksrv_reserve(
@@ -56,6 +59,8 @@ tracksrv_main(void)
     tid_t client;
     int rc, msglen;
     unsigned i;
+
+    dbglogctx_init(&tracksrv.dbglog);
 
     for (i = 0; i < ARRAY_SIZE(tracksrv.reservations); i++) {
         tracksrv.reservations[i].reserved = false;
@@ -113,11 +118,23 @@ tracksrv_reserve(
         reserve_success = true;
     }
 
-    if (reserve_success) {
+    if (!reserve_success) {
+        dbglog(&track->dbglog,
+            "train%d failed to get %s->%s: already owned by %d",
+            train,
+            edge->src->name,
+            edge->dest->name,
+            res->train_id);
+    } else {
 	res->reserved = true;
 	res->train_id = train;
         rres->reserved = true;
         rres->train_id = train;
+        dbglog(&track->dbglog,
+            "train%d got %s->%s",
+            train,
+            edge->src->name,
+            edge->dest->name);
     }
 
     rc = Reply(client, &reserve_success, sizeof(bool));
@@ -147,6 +164,12 @@ tracksrv_release(
     res->train_id  = -1;
     rres->reserved = false;
     rres->train_id = -1;
+
+    dbglog(&track->dbglog,
+        "train%d released %s->%s",
+        train,
+        edge->src->name,
+        edge->dest->name);
 
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);

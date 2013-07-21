@@ -25,6 +25,7 @@
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "tracksel_srv.h"
+#include "track_srv.h"
 #include "calib_srv.h"
 #include "dbglog_srv.h"
 
@@ -43,6 +44,7 @@
 #define TRAIN_SWITCH_AHEAD_TICKS        100
 #define TRAIN_SENSOR_AHEAD_TICKS        100
 #define TRAIN_MERGE_OFFSET_UM           100000 // 10cm
+#define TRAIN_ORIENT_ERR_UM             50000  // 5cm
 
 enum {
     TRAINMSG_SETSPEED,
@@ -88,13 +90,19 @@ struct train_pctrl {
     bool                      updated;
 };
 
+struct respath {
+    track_edge_t edges[32];
+    int          earliest, next, count;
+};
+
 struct train {
     /* Server handles */
     struct clkctx             clock;
     struct tcmuxctx           tcmux;
     struct switchctx          switches;
-    struct dbglogctx          dbglog;
+    struct trackctx           res;
     struct sensorctx          sensors;
+    struct dbglogctx          dbglog;
 
     /* General train state */
     const struct track_graph *track;
@@ -118,6 +126,9 @@ struct train {
     int                       path_swnext;
     int                       path_sensnext;
     bool                      reverse_ok;
+
+    /* Reservation info */
+    struct respath            respath;
 };
 
 static void trainsrv_init(struct train *tr, struct traincfg *cfg);
@@ -231,8 +242,9 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     clkctx_init(&tr->clock);
     tcmuxctx_init(&tr->tcmux);
     switchctx_init(&tr->switches);
-    dbglogctx_init(&tr->dbglog);
+    trackctx_init(&tr->res, tr->train_id);
     sensorctx_init(&tr->sensors);
+    dbglogctx_init(&tr->dbglog);
 
     trainsrv_orient_train(tr);
 }
@@ -412,6 +424,7 @@ trainsrv_orient_train(struct train *tr)
     int ahead_offs_um, i, rc;
     sensors_t all_sensors[SENSOR_MODULES];
     track_node_t sensnode;
+    struct track_pt under_pt;
 
     /* Start the train crawling */
     tcmux_train_speed(&tr->tcmux, tr->train_id, TRAIN_CRAWLSPEED);
@@ -458,6 +471,38 @@ trainsrv_orient_train(struct train *tr)
 
     /* Train is now stopped. */
     tr->pctrl.state = PCTRL_STOPPED;
+
+    /* Reserve current position. */
+    under_pt = tr->pctrl.centre;
+    track_pt_reverse(&under_pt);
+    track_pt_advance(
+        &tr->switches,
+        &under_pt,
+        TRAIN_LENGTH_UM / 2 + TRAIN_ORIENT_ERR_UM);
+    track_pt_reverse(&under_pt);
+
+    track_pt_advance_trace(
+        &tr->switches,
+        &under_pt,
+        TRAIN_LENGTH_UM + 2 * TRAIN_ORIENT_ERR_UM,
+        tr->respath.edges,
+        &tr->respath.count,
+        ARRAY_SIZE(tr->respath.edges));
+
+    tr->respath.earliest = 0;
+    tr->respath.next     = tr->respath.count;
+    for (i = 0; i < tr->respath.count; i++) {
+        bool success = track_reserve(&tr->res, tr->respath.edges[i]);
+        if (success)
+            continue;
+
+        dbglog(&tr->dbglog,
+            "train%d failed to reserve initial position",
+            tr->train_id);
+        while (--i >= 0)
+            track_release(&tr->res, tr->respath.edges[i]);
+        Exit();
+    }
 }
 
 static void
