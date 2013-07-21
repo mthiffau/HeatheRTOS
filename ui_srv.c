@@ -92,14 +92,16 @@
 #define SENSORS_LBL_ROW             11
 #define SENSORS_LBL_COL             1
 #define SENSORS_LBL                 "Recent sensors: "
-#define DBGLOG_TOP_ROW              15
-#define DBGLOG_BTM_ROW              9999
-#define DBGLOG_COL                  1
-#define TRAINPOS_ROW                13
-#define TRAINPOS_COL                17
+#define TRAINPOS_ROW(i)             (13 + (i))
+#define TRAINPOS_TRAIN_COL          17
+#define TRAINPOS_TRAIN_MSG          "Train %3d: "
+#define TRAINPOS_POS_COL            28
 #define TRAINPOS_LBL_ROW            13
 #define TRAINPOS_LBL_COL            1
 #define TRAINPOS_LBL                "Train position: "
+#define DBGLOG_TOP_ROW(ntrains)     TRAINPOS_ROW((ntrains) == 0 ? 2 : (ntrains) + 1)
+#define DBGLOG_BTM_ROW              9999
+#define DBGLOG_COL                  1
 
 enum {
     UIMSG_KEYBOARD,
@@ -112,6 +114,7 @@ enum {
 };
 
 struct train {
+    int             run_ix;
     struct trainctx task;
     bool            running;
 };
@@ -151,6 +154,7 @@ struct uisrv {
     int      nsensors, lastsensor;
 
     struct train traintab[TRAINS_MAX];
+    int          n_trains_running;
 
     struct trainest trainest_last;
     track_graph_t   track;
@@ -286,6 +290,7 @@ uisrv_init(struct uisrv *uisrv)
     tcmuxctx_init(&uisrv->tcmux);
 
     /* Initialize train table */
+    uisrv->n_trains_running = 0;
     for (i = 0; i < TRAINS_MAX; i++)
         uisrv->traintab[i].running = false;
 
@@ -324,8 +329,9 @@ uisrv_init(struct uisrv *uisrv)
         TRAINPOS_LBL);
     Flush(&uisrv->tty);
     Delay(&uisrv->clock, 2);
-    Print(&uisrv->tty,
-        TERM_SETSCROLL(STR(DBGLOG_TOP_ROW), STR(DBGLOG_BTM_ROW)));
+    Printf(&uisrv->tty,
+        TERM_SETSCROLL("%d", STR(DBGLOG_BTM_ROW)),
+        DBGLOG_TOP_ROW(0));
     Flush(&uisrv->tty);
     Delay(&uisrv->clock, 2);
     Print(&uisrv->tty,
@@ -496,6 +502,7 @@ uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
     struct traincfg cfg;
     int rplylen;
     tid_t tid;
+    int row, old_logtop, new_logtop;
 
     if (uisrv->track == NULL) {
         Print(&uisrv->tty, "no track selected");
@@ -528,6 +535,21 @@ uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc)
 
     /* Train servers running. No longer okay to run calibration. */
     uisrv->calib_ok = false;
+
+    /* Allocate space for train position in UI, and change scrolling region. */
+    old_logtop = DBGLOG_TOP_ROW(uisrv->n_trains_running);
+    uisrv->traintab[cfg.train_id].run_ix = uisrv->n_trains_running++;
+    new_logtop = DBGLOG_TOP_ROW(uisrv->n_trains_running);
+    for (row = old_logtop; row < new_logtop; row++)
+        Printf(&uisrv->tty, TERM_FORCE_CURSOR("%d", "1") TERM_ERASE_EOL, row);
+
+    Printf(&uisrv->tty, TERM_SETSCROLL("%d", STR(DBGLOG_BTM_ROW)), new_logtop);
+
+    Printf(&uisrv->tty,
+        TERM_FORCE_CURSOR("%d", STR(TRAINPOS_TRAIN_COL))
+        TRAINPOS_TRAIN_MSG,
+        TRAINPOS_ROW(uisrv->traintab[cfg.train_id].run_ix),
+        cfg.train_id);
 }
 
 static void
@@ -759,7 +781,7 @@ uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc)
     uint8_t which;
     uint8_t speed;
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: tr TRAIN SPEED");
+        Print(&uisrv->tty, "usage: tr! TRAIN SPEED");
         return;
     }
     if (atou8(argv[0], &which) != 0) {
@@ -783,7 +805,7 @@ uisrv_cmd_sw(struct uisrv *uisrv, char *argv[], int argc)
     bool    curved;
     bool    bad_dir;
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: sw SWITCH (C|S)");
+        Print(&uisrv->tty, "usage: sw! SWITCH (C|S)");
         return;
     }
     if (atou8(argv[0], &sw) != 0) {
@@ -817,7 +839,7 @@ uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc)
 
     /* Parse arguments */
     if (argc != 1) {
-        Print(&uisrv->tty, "usage: rv TRAIN");
+        Print(&uisrv->tty, "usage: rv! TRAIN");
         return;
     }
     if (atou8(argv[0], &which) != 0) {
@@ -837,7 +859,7 @@ uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc)
     bool    light;
     int     i;
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: lt TRAIN (on|off)");
+        Print(&uisrv->tty, "usage: lt! TRAIN (on|off)");
         return;
     }
     if (atou8(argv[0], &which) != 0) {
@@ -854,7 +876,7 @@ uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc)
     } else if (strcmp(argv[1], "off") == 0) {
         light = false;
     } else {
-        Print(&uisrv->tty, "usage: lt TRAIN (on|off)");
+        Print(&uisrv->tty, "usage: lt! TRAIN (on|off)");
         return;
     }
 
@@ -909,10 +931,10 @@ uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
 {
     Printf(&uisrv->tty,
         TERM_SAVE_CURSOR
-        TERM_FORCE_CURSOR(STR(TRAINPOS_ROW), STR(TRAINPOS_COL))
-        //TERM_ERASE_EOL
-        "%02d: %5s-%04dmm",
-        est->train_id,
+        TERM_FORCE_CURSOR("%d", STR(TRAINPOS_POS_COL))
+        TERM_ERASE_EOL
+        "%5s-%04dmm",
+        TRAINPOS_ROW(uisrv->traintab[est->train_id].run_ix),
         est->centre.edge->dest->name,
         est->centre.pos_um / 1000);
 
