@@ -1,10 +1,14 @@
-Real work:
+IMPORTANT BUGS
+- Crash after estimate has overshot end of path in multi-path route.
+
+IMPORTANT WORK
+- Integrate track reservation with route finding
+- Higher-level train state - resolving conflicts
+- Make trains robust to broken switches
+
+Work:
 - Track train while it's stopping?
 - Switching turnouts near but beyond end of path
-- Track reservation, integrated with route finding
-
-Bugs:
-- UI status line is gone?
 
 UI improvements:
 - Output freezing for observation or copy-paste
