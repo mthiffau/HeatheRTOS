@@ -19,6 +19,7 @@
 #define PATHFIND_REVERSE_PENALTY_MM     0
 
 static void track_pt_advance_path_rev(
+    struct switchctx *switches,
     const struct track_path *path,
     struct track_pt *pt,
     int distance_um);
@@ -103,12 +104,13 @@ track_pt_advance_trace(
 
 void
 track_pt_advance_path(
+    struct switchctx *switches,
     const struct track_path *path,
     struct track_pt *pt,
     int distance_um)
 {
     if (distance_um < 0) {
-        track_pt_advance_path_rev(path, pt, distance_um);
+        track_pt_advance_path_rev(switches, path, pt, distance_um);
         return;
     }
     pt->pos_um -= distance_um;
@@ -123,9 +125,9 @@ track_pt_advance_path(
         edge_ix = TRACK_EDGE_AHEAD;
         if (next_src->type == TRACK_NODE_BRANCH) {
             bool curved;
-            unsigned j = TRACK_NODE_DATA(path->track, next_src, path->node_ix);
-            if (j >= path->hops)
-                curved = false;
+            int j = TRACK_NODE_DATA(path->track, next_src, path->node_ix);
+            if (j < 0 || (j >= 0 && (unsigned)j >= path->hops))
+                curved = switch_iscurved(switches, next_src->num);
             else
                 curved = path->edges[j] == &next_src->edge[TRACK_EDGE_CURVED];
             edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
@@ -137,18 +139,40 @@ track_pt_advance_path(
 
 static void
 track_pt_advance_path_rev(
+    struct switchctx *switches,
     const struct track_path *path,
     struct track_pt *pt,
     int distance_um)
 {
     pt->pos_um -= distance_um;
     while (pt->pos_um >= 1000 * pt->edge->len_mm) {
-        track_node_t next_dest = pt->edge->src;
+        track_node_t next_dest, next_rdest;
         int edge_ix;
-        edge_ix = TRACK_NODE_DATA(path->track, next_dest, path->node_ix) - 1;
-        assert(edge_ix >= 0);
+        next_dest  = pt->edge->src;
+        next_rdest = next_dest->reverse;
+        if (next_dest->type == TRACK_NODE_ENTER) {
+            pt->pos_um = 1000 * pt->edge->len_mm;
+            return;
+        }
+        edge_ix = TRACK_EDGE_AHEAD;
+        if (next_rdest->type == TRACK_NODE_BRANCH) {
+            bool curved;
+            int sj, cj;
+            track_node_t s_src, c_src;
+            s_src = next_rdest->edge[TRACK_EDGE_STRAIGHT].dest->reverse;
+            c_src = next_rdest->edge[TRACK_EDGE_CURVED].dest->reverse;
+            sj = TRACK_NODE_DATA(path->track, s_src, path->node_ix);
+            cj = TRACK_NODE_DATA(path->track, c_src, path->node_ix);
+            if (sj >= 0 && (unsigned)sj < path->hops)
+                curved = false;
+            else if (cj >= 0 && (unsigned)cj < path->hops)
+                curved = true;
+            else
+                curved = switch_iscurved(switches, next_dest->num);
+            edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
+        }
         pt->pos_um -= 1000 * pt->edge->len_mm;
-        pt->edge    = path->edges[edge_ix];
+        pt->edge    = next_rdest->edge[edge_ix].reverse;
     }
 }
 
@@ -167,7 +191,7 @@ track_pt_distance_path(
     assert(a_ix >= 0);
     assert(b_ix >= 0);
 
-    if (a_ix > b_ix) {
+    if (a_ix > b_ix || (a_ix == b_ix && a.pos_um < b.pos_um)) {
         struct track_pt tmp;
         tmp  = a;
         a    = b;
@@ -191,8 +215,8 @@ track_pt_distance_path(
         a.pos_um = 1000 * a.edge->len_mm;
     }
 
-    dist_um *= sign;
     dist_um += a.pos_um - b.pos_um;
+    dist_um *= sign;
     return dist_um;
 }
 

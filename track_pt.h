@@ -77,6 +77,7 @@ track_pt_advance_trace(
 /* Advance a point along a given path. distance_um may be negative,
  * in which case the point is regressed backward along the path. */
 void track_pt_advance_path(
+    struct switchctx *switches,
     const struct track_path *path,
     struct track_pt *pt,
     int distance_um);
