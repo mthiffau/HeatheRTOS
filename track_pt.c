@@ -15,7 +15,7 @@
 
 #define TRACK_ROUTESPEC_MAGIC           0x146ce017
 #define PATHFIND_DESTS_MAX              2
-#define PATHFIND_REVERSE_SLACK_MM       50
+#define PATHFIND_REVERSE_SLACK_MM       70
 #define PATHFIND_REVERSE_PENALTY_MM     0
 
 static void track_pt_advance_path_rev(

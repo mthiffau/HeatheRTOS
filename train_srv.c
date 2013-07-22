@@ -48,7 +48,7 @@
 #define TRAIN_RES_NEED_TICKS            10
 #define TRAIN_RES_WANT_TICKS            20
 #define TRAIN_RES_GRACE_TICKS           20
-#define TRAIN_RES_GRACE_UM              50000  // 5cm
+#define TRAIN_RES_GRACE_UM              30000  // 3cm
 
 enum {
     TRAINMSG_SETSPEED,
@@ -141,6 +141,8 @@ static void trainsrv_orient_train(struct train *t);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
 static void trainsrv_swnext_init(struct train *tr);
 static void trainsrv_swnext_advance(struct train *tr);
+static void trainsrv_embark(struct train *tr);
+static void trainsrv_aboutface(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
 static void trainsrv_stop(struct train *tr);
 static void trainsrv_sensor_running(struct train *tr, track_node_t sens, int time);
@@ -154,7 +156,10 @@ static void trainsrv_pctrl_advance_ticks(struct train *tr, int now);
 static void trainsrv_pctrl_advance_um(struct train *tr, int dist_um);
 static void trainsrv_timer(struct train *tr, int time);
 static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
+static void trainsrv_pctrl_on_update(struct train *tr);
 static void trainsrv_pctrl_check_update(struct train *tr);
+static void trainsrv_track_release(struct train *tr);
+static bool trainsrv_track_reserve(struct train *tr);
 static void trainsrv_pctrl_expect_sensors(struct train *tr);
 static void trainsrv_pctrl_switch_turnouts(struct train *tr, bool all);
 static void trainsrv_send_estimate(struct train *tr, tid_t client);
@@ -335,6 +340,54 @@ trainsrv_embark(struct train *tr)
 }
 
 static void
+trainsrv_aboutface(struct train *tr)
+{
+    int i, j, tmp;
+
+    /* Check for edges to release before we screw with them.
+     * Otherwise, we may not pick up a position update causing
+     * this reversal before reversing all of this state. */
+    trainsrv_track_release(tr);
+
+    /* Reverse the train. */
+    tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
+    track_pt_reverse(&tr->pctrl.centre);
+    tr->pctrl.reversed = !tr->pctrl.reversed;
+
+    tmp = tr->res_ahead_um;
+    tr->res_ahead_um  = tr->res_behind_um;
+    tr->res_behind_um = tmp;
+
+    /* Reverse order of reserved edge path. */
+    i = tr->respath.earliest;
+    j = tr->respath.next - 1;
+    if (j < 0)
+        j += ARRAY_SIZE(tr->respath.edges);
+
+    while (i != j) {
+        track_edge_t tmp;
+        tmp = tr->respath.edges[i];
+        tr->respath.edges[i] = tr->respath.edges[j];
+        tr->respath.edges[j] = tmp;
+
+        i++;
+        i %= ARRAY_SIZE(tr->respath.edges);
+        if (i == j)
+            break;
+        j--;
+        if (j < 0)
+            j += ARRAY_SIZE(tr->respath.edges);
+    }
+
+    i = tr->respath.earliest;
+    while (i != tr->respath.next) {
+        tr->respath.edges[i] = tr->respath.edges[i]->reverse;
+        i++;
+        i %= ARRAY_SIZE(tr->respath.edges);
+    }
+}
+
+static void
 trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
     struct track_routespec rspec;
@@ -348,8 +401,8 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     rspec.switches     = &tr->switches;
     rspec.src_centre   = tr->pctrl.centre;
     rspec.err_um       = 50000; /* FIXME hardcoded 5cm */
-    rspec.init_rev_ok  = false; /* tr->reverse_ok; FIXME reverse is broken */
-    rspec.rev_ok       = false; /* true; FIXME reverse is broken */
+    rspec.init_rev_ok  = tr->reverse_ok;
+    rspec.rev_ok       = true;
     rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
     rspec.dest         = dest;
 
@@ -389,11 +442,8 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 #endif
 
     /* Initial reverse if necessary */
-    if (tr->path->edges[0] == rspec.src_centre.edge->reverse) {
-        tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
-        track_pt_reverse(&tr->pctrl.centre);
-        tr->pctrl.reversed = !tr->pctrl.reversed;
-    }
+    if (tr->path->edges[0] == rspec.src_centre.edge->reverse)
+        trainsrv_aboutface(tr);
 
     /* Go! */
     trainsrv_embark(tr);
@@ -533,13 +583,16 @@ static void
 trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 {
     struct train_pctrl est_pctrl;
+    int est_res_ahead, est_res_behind;
     int ahead_offs_um;
 
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return;
 
     /* Save original for comparison */
-    est_pctrl = tr->pctrl;
+    est_pctrl      = tr->pctrl;
+    est_res_ahead  = tr->res_ahead_um;
+    est_res_behind = tr->res_behind_um;
 
     ahead_offs_um =
         tr->pctrl.reversed ? TRAIN_BACK_OFFS_UM : TRAIN_FRONT_OFFS_UM;
@@ -572,8 +625,8 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
     }
 
     /* Need to adjust reserved distances */
-    tr->res_ahead_um  += tr->pctrl.err_um;
-    tr->res_behind_um -= tr->pctrl.err_um;
+    tr->res_ahead_um  = est_res_ahead  + tr->pctrl.err_um;
+    tr->res_behind_um = est_res_behind - tr->pctrl.err_um;
 
     /* Print log messages */
     {
@@ -747,16 +800,23 @@ trainsrv_timer(struct train *tr, int time)
         if (tr->pctrl.stop_ticks < 0) {
             struct track_path *last_path;
             tr->pctrl.state = PCTRL_STOPPED;
+            tr->pctrl.vel_umpt = 0;
             dist = tr->pctrl.stop_um;
             assert(dist >= 0);
             trainsrv_pctrl_advance_um(tr, dist);
+            static int hoboCounter = 2;
+            if (--hoboCounter == 0) {
+                dbglog(&tr->dbglog, "ahead:%dmm, behind:%dmm, centre:%s-%dmm",
+                    tr->res_ahead_um / 1000,
+                    tr->res_behind_um / 1000,
+                    tr->pctrl.centre.edge->dest->name,
+                    tr->pctrl.centre.pos_um / 1000);
+            }
             tr->reverse_ok = true;
             last_path = &tr->route.paths[tr->route.n_paths - 1];
             if (tr->path != last_path) {
                 tr->path++;
-                tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
-                track_pt_reverse(&tr->pctrl.centre);
-                tr->pctrl.reversed = !tr->pctrl.reversed;
+                trainsrv_aboutface(tr);
                 trainsrv_embark(tr);
             }
         }
