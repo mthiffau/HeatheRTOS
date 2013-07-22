@@ -48,6 +48,7 @@
 #define TRAIN_RES_NEED_TICKS            10
 #define TRAIN_RES_WANT_TICKS            20
 #define TRAIN_RES_GRACE_TICKS           20
+#define TRAIN_RES_GRACE_UM              50000  // 5cm
 
 enum {
     TRAINMSG_SETSPEED,
@@ -918,6 +919,7 @@ trainsrv_track_release(struct train *tr)
         earliest      = tr->respath.edges[tr->respath.earliest];
         threshold_um  = 1000 * earliest->len_mm;
         threshold_um += TRAIN_RES_GRACE_TICKS * tr->pctrl.vel_umpt;
+        threshold_um += TRAIN_RES_GRACE_UM;
         threshold_um += TRAIN_LENGTH_UM / 2;
         if (tr->res_behind_um < threshold_um)
             break;
