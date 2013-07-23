@@ -1,3 +1,7 @@
+# sensor S @ Srev
+# where S looks  like:
+#   name : number -> AHEAD
+
 sensor A1 : 0 -> MR12  @ A2 : 1 -> EX5
 sensor A3 : 2 -> BR14  @ A4 : 3 -> B16
 sensor A5 : 4 -> MR3   @ A6 : 5 -> B10
@@ -148,6 +152,11 @@ dist MR153 MR154   0mm
 dist MR154 BR156   0mm
 dist BR155 EX2   282mm
 dist MR155 MR156   0mm
+
+# Declare that edges are conflicting (may not be occupied simultaneously)
+#   mutex SRC1 DEST1 : SRC2 DEST2 : ...
+mutex BR156 E2  : BR155 EX2
+mutex BR154 B14 : BR153 EX1
 
 # calibration cycle
 calib  B5
