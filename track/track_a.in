@@ -161,10 +161,10 @@ dist   MR8   BR9   155mm
 dist   BR11  BR12  188mm
 dist   BR11  MR14  495mm
 dist   BR153 EX1   253mm
-dist   MR153 MR154   0mm
-dist   MR154 BR156   0mm
+dist   MR153 MR154   1mm
+dist   MR154 BR156   1mm
 dist   BR155 EX2   282mm
-dist   MR155 MR156   0mm
+dist   MR155 MR156   1mm
 
 # Declare that edges are conflicting (may not be occupied simultaneously)
 #   mutex SRC1 DEST1 : SRC2 DEST2 : ...
