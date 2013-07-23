@@ -109,14 +109,10 @@ tracksrv_reserve(
     res  = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
     rres = &TRACK_EDGE_DATA(track->track, edge->reverse, track->reservations);
 
-    reserve_success = false;
-    if (!res->reserved) {
-        assert(!rres->reserved);
-        reserve_success = true;
-    } else if (res->train_id == train) {
-        assert(rres->reserved && rres->train_id == train);
-        reserve_success = true;
-    }
+    assert(res->reserved == rres->reserved);
+    assert(res->train_id == rres->train_id);
+
+    reserve_success = !res->reserved;
 
     if (!reserve_success) {
         dbglog(&track->dbglog,
@@ -137,7 +133,7 @@ tracksrv_reserve(
             edge->dest->name);
     }
 
-    rc = Reply(client, &reserve_success, sizeof(bool));
+    rc = Reply(client, &reserve_success, sizeof (reserve_success));
     assertv(rc, rc == 0);
 }
 
