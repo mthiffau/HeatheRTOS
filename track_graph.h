@@ -42,9 +42,11 @@ typedef const struct track_edge  *track_edge_t;
 
 /* A (directed) edge in the track graph. */
 struct track_edge {
-    track_node_t src, dest;
-    track_edge_t reverse; /* same stretch of track, other direction */
-    int          len_mm;
+    track_node_t  src, dest;
+    track_edge_t  reverse; /* same stretch of track, other direction */
+    int           len_mm;
+    track_edge_t *mutex;
+    int           mutex_len;
 };
 
 /* A node in the track graph. */

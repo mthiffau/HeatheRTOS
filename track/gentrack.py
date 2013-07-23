@@ -21,7 +21,9 @@ enters         = []
 nodes_by_name  = { }
 dists_by_name  = { }
 dists          = { }
+mutexes        = []
 calib_cycle    = []
+total_edge_count = 0
 
 sensor_re = re.compile(
     r'^sensor\s+' +
@@ -50,6 +52,12 @@ dist_re = re.compile(
     r'(?P<src>\w+)\s+' +
     r'(?P<dest>\w+)\s+' +
     r'(?P<dist>\d+)\s*mm$')
+
+mutex_re = re.compile(
+    r'^mutex\s+' +
+    r'(?P<edges>'+
+    r'\w+\s+\w+(\s*:\s*\w+\s+\w+)*' +
+    r')$')
 
 calib_re = re.compile(r'^calib\s+(?P<name>\w+)$')
 
@@ -98,13 +106,17 @@ class Node(object):
                 &{track_name}_nodes[{src0}],
                 &{track_name}_nodes[{dest0}],
                 &{track_name}_nodes[{rdest0}].edge[{re0}],
-                {dist0}
+                {dist0},
+                &{track_name}_edge_groups[{group_start0}],
+                {group_size0}
             }},
             {{
                 &{track_name}_nodes[{src1}],
                 &{track_name}_nodes[{dest1}],
                 &{track_name}_nodes[{rdest1}].edge[{re1}],
-                {dist1}
+                {dist1},
+                &{track_name}_edge_groups[{group_start1}],
+                {group_size1}
             }}
         }}
     }}'''
@@ -124,7 +136,11 @@ class Node(object):
             re0     = self.edges[0].rev,
             re1     = self.edges[1].rev,
             dist0   = dists[(self.edges[0].src, self.edges[0].dest)],
-            dist1   = dists[(self.edges[1].src, self.edges[1].dest)])
+            dist1   = dists[(self.edges[1].src, self.edges[1].dest)],
+            group_start0 = self.edges[0].group_start,
+            group_size0  = self.edges[0].group_size,
+            group_start1 = self.edges[1].group_start,
+            group_size1  = self.edges[1].group_size)
 
 class Sensor(Node):
     def __init__(self, num, name, ahead, reverse):
@@ -140,6 +156,8 @@ class Sensor(Node):
         self.ahead = nodes_by_name[self.ahead].node_id
 
     def make_edges(self):
+        global total_edge_count
+        total_edge_count += 1
         self.edges = [Edge(src=self.node_id, dest=self.ahead), Edge(0, 0)]
 
 class Branch(Node):
@@ -154,6 +172,8 @@ class Branch(Node):
         self.curved   = nodes_by_name[self.curved].node_id
 
     def make_edges(self):
+        global total_edge_count
+        total_edge_count += 2
         self.edges = [Edge(src=self.node_id, dest=self.straight),
                       Edge(src=self.node_id, dest=self.curved)]
 
@@ -167,6 +187,8 @@ class Merge(Node):
         self.ahead   = nodes_by_name[self.ahead].node_id
 
     def make_edges(self):
+        global total_edge_count
+        total_edge_count += 1
         self.edges = [Edge(src=self.node_id, dest=self.ahead), Edge(0, 0)]
 
 class Enter(Node):
@@ -179,6 +201,8 @@ class Enter(Node):
         self.ahead   = nodes_by_name[self.ahead].node_id
 
     def make_edges(self):
+        global total_edge_count
+        total_edge_count += 1
         self.edges = [Edge(src=self.node_id, dest=self.ahead), Edge(0, 0)]
 
 class Exit(Node):
@@ -255,6 +279,11 @@ for line in sys.stdin:
         dists_by_name[(rev_dest, rev_src)] = dist
         continue
 
+    md = mutex_re.match(line)
+    if md:
+        mutexes.append([s.split() for s in md.group('edges').split(':')])
+        continue
+
     md = calib_re.match(line)
     if md:
         calib_cycle.append(md.group('name'))
@@ -298,18 +327,80 @@ for src, dest in dists.keys():
             file=sys.stderr)
         sys.exit(1)
 
-calib_edges = []
-def add_calib_edge(calib_prev, calib_cur):
-    global calib_edges
-    for edge in calib_prev.edges:
-        if edge.dest == calib_cur.node_id:
-            calib_edges.append(edge)
-            break
+def get_edge_from_names(src_name, dest_name):
+    if src_name not in nodes_by_name:
+        print('error: no node', src_name, file=sys.stderr)
+        sys.exit(1)
+    if dest_name not in nodes_by_name:
+        print('error: no node', dest_name, file=sys.stderr)
+        sys.exit(1)
+    src  = nodes_by_name[src_name]
+    dest = nodes_by_name[dest_name]
+    return get_edge_from_nodes(src, dest)
+
+def get_edge_from_nodeids(src_id, dest_id):
+    return get_edge_from_nodes(nodes[src_id], nodes[dest_id])
+
+def get_reverse_edge(edge):
+    return get_edge_from_nodeids(
+        nodes[edge.dest].reverse,
+        nodes[edge.src].reverse)
+
+def get_edge_from_nodes(src, dest):
+    for edge in src.edges:
+        if edge.dest == dest.node_id:
+            return edge
     else:
         print('error: calibration cycle invalid: no edge from',
             calib_cycle[i - 1], 'to', calib_cycle[i],
             file=sys.stderr)
         sys.exit(1)
+
+mutex_groups = []
+mutex_group_start = 0
+
+def add_mutex_group(mutex):
+    global mutex_groups, mutex_group_start
+    mutex_group = set()
+    for mutex_edge_names in mutex:
+        mutex_group.add(get_edge_from_names(*mutex_edge_names))
+
+    mutex_group_extra = mutex_group
+    while len(mutex_group_extra) > 0:
+        mutex_group_extra = set()
+        for mutex_edge in mutex_group:
+            mutex_edge_reverse = get_reverse_edge(mutex_edge)
+            if mutex_edge_reverse not in mutex_group:
+                mutex_group_extra.add(mutex_edge_reverse)
+            if isinstance(nodes[mutex_edge.src], Branch):
+                for mutex_branch_edge in nodes[mutex_edge.src].edges:
+                    if mutex_branch_edge not in mutex_group:
+                        mutex_group_extra.add(mutex_branch_edge)
+        mutex_group.update(mutex_group_extra)
+
+    for mutex_edge in mutex_group:
+        mutex_edge.group_start = mutex_group_start
+        mutex_edge.group_size  = len(mutex_group)
+
+    mutex_group_start += len(mutex_group)
+    mutex_groups.append(mutex_group)
+
+for mutex in mutexes:
+    add_mutex_group(mutex)
+
+for node in nodes:
+    for edge in node.edges:
+        if edge.src == 0 and edge.dest == 0:
+            edge.group_start = 0
+            edge.group_size  = 0
+            continue # skip garbage edges
+        if not hasattr(edge, 'group_start'):
+            add_mutex_group([[nodes[edge.src].name, nodes[edge.dest].name]])
+
+calib_edges = []
+def add_calib_edge(calib_prev, calib_cur):
+    global calib_edges
+    calib_edges.append(get_edge_from_nodes(calib_prev, calib_cur))
 
 for i in range(len(calib_cycle)):
     calib_cycle[i] = nodes_by_name[calib_cycle[i]]
@@ -343,6 +434,7 @@ print('''/* GENERATED FILE. DO NOT EDIT */
 #include "track_graph.h"
 
 static const struct track_node {track_name}_nodes[{n_nodes}];
+static const struct track_edge *{track_name}_edge_groups[{n_edges}];
 static const struct track_node *{track_name}_calib_sensors[{n_calib_sensors}];
 static const int                {track_name}_calib_mm[{n_calib_sensors}];
 static const struct track_node *{track_name}_calib_switches[{n_calib_switches}];
@@ -365,6 +457,7 @@ static const struct track_node {track_name}_nodes[{n_nodes}] = {{'''.format(
     track_name = track_name,
     track_shortname = track_shortname,
     n_nodes = len(nodes),
+    n_edges = total_edge_count,
     n_sensors = len(sensors),
     n_calib_sensors = len(calib_sensors),
     n_calib_switches = len(calib_switches)))
@@ -373,6 +466,27 @@ for i, node in enumerate(nodes):
     if i != 0:
         print(',')
     print(node.render(), end='')
+
+print('\n};')
+
+# Print edge references grouped into mutex groups
+print('''static const struct track_edge*
+{track_name}_edge_groups[{n_edges}] = {{'''.format(
+    track_name = track_name,
+    n_edges = total_edge_count))
+
+for mutex_group in mutex_groups:
+    for edge in mutex_group:
+        which_edge = 'TRACK_EDGE_AHEAD'
+        if isinstance(nodes[edge.src], Branch):
+            if edge.dest is nodes[edge.src].straight:
+                which_edge = 'TRACK_EDGE_STRAIGHT'
+            else:
+                which_edge = 'TRACK_EDGE_CURVED'
+        print('    &{track_name}_nodes[{src_id}].edge[{which}],'.format(
+            track_name = track_name,
+            src_id     = edge.src,
+            which      = which_edge))
 
 print('\n};')
 

@@ -27,6 +27,12 @@ enum {
     TRACK_RESERVE_FAIL,
 };
 
+enum {
+    TRACK_FREE,     /* Unused */
+    TRACK_RESERVED, /* Reserved by a train. */
+    TRACK_BLOCKED,  /* Conflicts with an edge reserved by a train */
+};
+
 struct trackmsg {
     int          type;
     int          train_id;
@@ -34,7 +40,7 @@ struct trackmsg {
 };
 
 struct reservation {
-    bool reserved;
+    int state;
     int train_id;
 };
 
@@ -63,7 +69,7 @@ tracksrv_main(void)
     dbglogctx_init(&tracksrv.dbglog);
 
     for (i = 0; i < ARRAY_SIZE(tracksrv.reservations); i++) {
-        tracksrv.reservations[i].reserved = false;
+        tracksrv.reservations[i].state    = TRACK_FREE;
 	tracksrv.reservations[i].train_id = -1;
     }
 
@@ -102,19 +108,13 @@ tracksrv_reserve(
     track_edge_t edge,
     int train)
 {
-    struct reservation *res, *rres;
+    struct reservation *res;
     bool reserve_success;
     int  rc;
 
-    res  = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
-    rres = &TRACK_EDGE_DATA(track->track, edge->reverse, track->reservations);
-
-    assert(res->reserved == rres->reserved);
-    assert(res->train_id == rres->train_id);
-
-    reserve_success = !res->reserved;
-
-    if (!reserve_success) {
+    res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    if (res->state != TRACK_FREE) {
+        reserve_success = false;
         dbglog(&track->dbglog,
             "train%d failed to get %s->%s: already owned by %d",
             train,
@@ -122,10 +122,19 @@ tracksrv_reserve(
             edge->dest->name,
             res->train_id);
     } else {
-	res->reserved = true;
-	res->train_id = train;
-        rres->reserved = true;
-        rres->train_id = train;
+        int i;
+        track_edge_t subedge;
+        reserve_success = true;
+        for (i = 0; i < edge->mutex_len; i++) {
+            subedge = edge->mutex[i];
+            res     = &TRACK_EDGE_DATA(track->track, subedge, track->reservations);
+            assert(res->state    == TRACK_FREE);
+            assert(res->train_id == -1);
+            res->state = TRACK_BLOCKED;
+            if (subedge == edge || subedge == edge->reverse)
+                res->state = TRACK_RESERVED;
+            res->train_id = train;
+        }
         dbglog(&track->dbglog,
             "train%d got %s->%s",
             train,
@@ -144,22 +153,22 @@ tracksrv_release(
     track_edge_t edge,
     int train)
 {
-    struct reservation *res, *rres;
-    int rc;
+    struct reservation *res;
+    track_edge_t subedge;
+    int i, rc;
 
-    res  = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
-    rres = &TRACK_EDGE_DATA(track->track, edge->reverse, track->reservations);
-    
-    /* It should be reserved, and it should be us that reserved it */
-    assert(res->reserved);
-    assert(res->train_id == train);
-    assert(rres->reserved);
-    assert(rres->train_id == train);
-
-    res->reserved  = false;
-    res->train_id  = -1;
-    rres->reserved = false;
-    rres->train_id = -1;
+    res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    assert(res->state == TRACK_RESERVED);
+    for (i = 0; i < edge->mutex_len; i++) {
+        subedge = edge->mutex[i];
+        res     = &TRACK_EDGE_DATA(track->track, subedge, track->reservations);
+        assert(subedge == edge
+            || subedge == edge->reverse
+            || res->state == TRACK_BLOCKED);
+        assert(res->train_id == train);
+        res->state    = TRACK_FREE;
+        res->train_id = -1;
+    }
 
     dbglog(&track->dbglog,
         "train%d released %s->%s",
