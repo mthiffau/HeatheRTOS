@@ -61,6 +61,19 @@ enum {
 };
 
 enum {
+    TRAIN_PARKED,
+    TRAIN_ENROUTE,
+    TRAIN_WAITING,
+};
+
+enum {
+    NOT_STOPPING,
+    STOP_AT_DEST,
+    STOP_FOR_REQ,
+    STOP_NO_TRACK,
+};
+
+enum {
     PCTRL_STOPPED,
     PCTRL_ACCEL,
     PCTRL_STOPPING,
@@ -111,10 +124,13 @@ struct train {
     struct dbglogctx          dbglog;
 
     /* General train state */
+    int                       state;
     const struct track_graph *track;
     uint8_t                   train_id;
     uint8_t                   speed;
     uint8_t                   desired_speed;
+    int                       wait_ticks;
+    int                       wait_start;
 
     /* Calibration data */
     struct calib              calib;
@@ -132,6 +148,7 @@ struct train {
     int                       path_swnext;
     int                       path_sensnext;
     bool                      reverse_ok;
+    int                       stop_reason;
 
     /* Reservation info */
     struct respath            respath;
@@ -142,10 +159,11 @@ static void trainsrv_orient_train(struct train *t);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
 static void trainsrv_swnext_init(struct train *tr);
 static void trainsrv_swnext_advance(struct train *tr);
+static void trainsrv_waiting(struct train *tr);
 static void trainsrv_embark(struct train *tr);
 static void trainsrv_aboutface(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
-static void trainsrv_stop(struct train *tr);
+static void trainsrv_stop(struct train *tr, int why);
 static void trainsrv_sensor_running(struct train *tr, track_node_t sens, int time);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
@@ -160,7 +178,9 @@ static void trainsrv_expect_sensor(struct train *tr, track_node_t sens);
 static void trainsrv_pctrl_on_update(struct train *tr);
 static void trainsrv_pctrl_check_update(struct train *tr);
 static void trainsrv_track_release(struct train *tr);
-static bool trainsrv_track_reserve(struct train *tr);
+static bool trainsrv_track_reserve_initial(struct train *tr);
+static bool trainsrv_track_reserve_moving(struct train *tr);
+static bool trainsrv_track_reserve(struct train *tr, int need_um, int want_um);
 static void trainsrv_pctrl_expect_sensors(struct train *tr);
 static void trainsrv_pctrl_switch_turnouts(struct train *tr, bool all);
 static void trainsrv_send_estimate(struct train *tr, tid_t client);
@@ -204,7 +224,7 @@ trainsrv_main(void)
             break;
         case TRAINMSG_STOP:
             trainsrv_empty_reply(client);
-            trainsrv_stop(&tr);
+            trainsrv_stop(&tr, STOP_FOR_REQ);
             break;
         case TRAINMSG_SENSOR:
             trainsrv_empty_reply(client);
@@ -297,9 +317,22 @@ trainsrv_swnext_advance(struct train *tr)
 }
 
 static void
+trainsrv_waiting(struct train *tr)
+{
+    if (tr->state == TRAIN_WAITING)
+        return;
+
+    tr->state      = TRAIN_WAITING;
+    tr->wait_ticks = 200; /* FIXME!!! */
+    tr->wait_start = tr->pctrl.est_time;
+}
+
+static void
 trainsrv_embark(struct train *tr)
 {
     /* Find speed to use. */
+    int path_remaining_um = tr->pctrl.path_ahead_um;
+    path_remaining_um    -= tr->path->end.pos_um;
     for (tr->speed = tr->desired_speed; tr->speed >= TRAIN_MINSPEED; tr->speed--) {
         int accel_time     = tr->calib.accel_cutoff[tr->speed];
         int accel_end_um   = polyeval(&tr->calib.accel, accel_time);
@@ -307,13 +340,18 @@ trainsrv_embark(struct train *tr)
         int stop_um        = polyeval(&tr->calib.stop_um, vel_umpt);
         int min_allowed_um = accel_end_um + stop_um;
         min_allowed_um    += vel_umpt * TRAIN_ACCEL_STABILIZE_TICKS;
-        if ((unsigned)min_allowed_um <= 1000 * tr->path->len_mm)
+        if (min_allowed_um <= path_remaining_um)
             break;
     }
 
     /* FIXME clamping the speed to minimum */
     if (tr->speed < TRAIN_MINSPEED)
         tr->speed = TRAIN_MINSPEED;
+
+    if (!trainsrv_track_reserve_initial(tr)) {
+        trainsrv_waiting(tr);
+        return; /* Don't continue starting! There's no track. */
+    }
 
     /* Set up motion state */
     trainsrv_swnext_init(tr);
@@ -324,9 +362,10 @@ trainsrv_embark(struct train *tr)
     tr->pctrl.updated  = true;
 
     tcmux_train_speed(&tr->tcmux, tr->train_id, tr->speed);
-    /* already TRAIN_RUNNING */
+    tr->state       = TRAIN_ENROUTE;
     tr->pctrl.state = PCTRL_ACCEL;
     tr->pctrl.accel_start = tr->pctrl.est_time + tr->calib.accel_delay;
+    tr->stop_reason = NOT_STOPPING;
 
     dbglog(&tr->dbglog,
         "train%d moving from %s-%dmm to %s-%dmm at speed %d (v=%d um/tick)",
@@ -439,7 +478,7 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
     struct track_routespec rspec;
     int rc;
-    if (tr->pctrl.state != PCTRL_STOPPED)
+    if (tr->state != TRAIN_PARKED)
         return;
 
     /* Get path to follow */
@@ -506,8 +545,9 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 }
 
 static void
-trainsrv_stop(struct train *tr)
+trainsrv_stop(struct train *tr, int why)
 {
+    tr->stop_reason = why;
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return; /* ignore */
 
@@ -580,7 +620,8 @@ trainsrv_orient_train(struct train *tr)
     tr->pctrl.est_time = Time(&tr->clock);
     tr->pctrl.updated  = true;
 
-    /* Train is now stopped. */
+    /* Train is now parked. */
+    tr->state       = TRAIN_PARKED;
     tr->pctrl.state = PCTRL_STOPPED;
 
     /* Reserve current position. */
@@ -842,9 +883,28 @@ trainsrv_timer(struct train *tr, int time)
 {
     int dt, dist;
 
+    if (tr->state == TRAIN_WAITING) {
+        int dt = time - tr->wait_start;
+        if (dt < tr->wait_ticks) {
+            if (dt % 10 == 0)
+                trainsrv_embark(tr);
+        } else {
+            dbglog(&tr->dbglog, "train%d re-routing", tr->train_id);
+            tr->state = TRAIN_PARKED;
+            tr->pctrl.est_time += dt;
+            trainsrv_moveto(tr, tr->route.paths[tr->route.n_paths - 1].end);
+        }
+        return;
+    }
+
     switch (tr->pctrl.state) {
     /* TODO: Estimate position while accelerating/decelerating */
     case PCTRL_STOPPED:
+        break;
+
+    case PCTRL_ACCEL:
+    case PCTRL_CRUISE:
+        trainsrv_pctrl_advance_ticks(tr, time);
         break;
 
     case PCTRL_STOPPING:
@@ -853,6 +913,8 @@ trainsrv_timer(struct train *tr, int time)
         tr->pctrl.stop_ticks -= dt;
         if (tr->pctrl.stop_ticks < 0) {
             struct track_path *last_path;
+            int reason = tr->stop_reason;
+            tr->stop_reason = NOT_STOPPING;
             tr->pctrl.state = PCTRL_STOPPED;
             tr->pctrl.vel_umpt = 0;
             dist = tr->pctrl.stop_um;
@@ -866,18 +928,26 @@ trainsrv_timer(struct train *tr, int time)
                 tr->pctrl.centre.pos_um / 1000,
                 tr->pctrl.path_ahead_um,
                 tr->pctrl.path_behind_um);
-            last_path = &tr->route.paths[tr->route.n_paths - 1];
-            if (tr->path != last_path) {
-                tr->path++;
-                trainsrv_aboutface(tr);
-                trainsrv_embark(tr);
+            assert(reason != NOT_STOPPING);
+            switch (reason) {
+            case STOP_FOR_REQ:
+                tr->state = TRAIN_PARKED;
+                break;
+            case STOP_AT_DEST:
+                last_path = &tr->route.paths[tr->route.n_paths - 1];
+                if (tr->path == last_path)
+                    tr->state = TRAIN_PARKED;
+                else {
+                    tr->path++;
+                    trainsrv_aboutface(tr);
+                    trainsrv_embark(tr);
+                }
+                break;
+            case STOP_NO_TRACK:
+                trainsrv_waiting(tr);
+                break;
             }
         }
-        break;
-
-    case PCTRL_ACCEL:
-    case PCTRL_CRUISE:
-        trainsrv_pctrl_advance_ticks(tr, time);
         break;
 
     default:
@@ -956,24 +1026,39 @@ trainsrv_track_reserve_edge(struct train *tr, track_edge_t edge, int *want_um)
 }
 
 static bool
-trainsrv_track_reserve(struct train *tr)
+trainsrv_track_reserve_initial(struct train *tr)
+{
+    int need_um;
+    need_um  = polyeval(&tr->calib.accel, tr->calib.accel_cutoff[tr->speed]);
+    need_um += polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed]);
+    need_um += TRAIN_RES_GRACE_UM;
+    return trainsrv_track_reserve(tr, need_um, need_um);
+}
+
+static bool
+trainsrv_track_reserve_moving(struct train *tr)
 {
     int base_um, need_um, want_um;
+    base_um  = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+    base_um += TRAIN_LENGTH_UM / 2;
+    need_um  = base_um + TRAIN_RES_NEED_TICKS * tr->pctrl.vel_umpt;
+    want_um  = base_um + TRAIN_RES_WANT_TICKS * tr->pctrl.vel_umpt;
+    return trainsrv_track_reserve(tr, need_um, want_um);
+}
+
+static bool
+trainsrv_track_reserve(struct train *tr, int need_um, int want_um)
+{
     int last_res_ix, path_ix;
     track_edge_t last_res, end_edges[8];
     struct track_pt end;
     int n_end_edges;
     int i;
 
-    base_um  = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
-    base_um += TRAIN_LENGTH_UM / 2;
-
-    need_um  = base_um + TRAIN_RES_NEED_TICKS * tr->pctrl.vel_umpt;
     if (tr->pctrl.res_ahead_um >= need_um)
         return true;
 
     /* Try to reserve an additional want_um ahead. */
-    want_um  = base_um + TRAIN_RES_WANT_TICKS * tr->pctrl.vel_umpt;
     want_um -= tr->pctrl.res_ahead_um;
     assert(want_um >= 0);
 
@@ -1056,9 +1141,9 @@ trainsrv_pctrl_on_update(struct train *tr)
         return;
 
     /* Acquire more track (if necessary) ahead of the train. */
-    if (!trainsrv_track_reserve(tr)) {
+    if (!trainsrv_track_reserve_moving(tr)) {
         /* Failed to get enough track! STOP */
-        trainsrv_stop(tr);
+        trainsrv_stop(tr, STOP_NO_TRACK);
         return;
     }
 
@@ -1068,7 +1153,7 @@ trainsrv_pctrl_on_update(struct train *tr)
         stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
         end_um = trainsrv_distance_path(tr, tr->path->end);
         if (end_um <= stop_um) {
-            trainsrv_stop(tr);
+            trainsrv_stop(tr, STOP_AT_DEST);
             return;
         }
     }
