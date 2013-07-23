@@ -82,7 +82,7 @@ track_pt_advance_trace(
         next_src = pt->edge->dest;
         if (next_src->type == TRACK_NODE_EXIT) {
             pt->pos_um = 0;
-            return;
+            break;
         }
         edge_ix = TRACK_EDGE_AHEAD;
         if (next_src->type == TRACK_NODE_BRANCH) {
