@@ -42,6 +42,7 @@ struct trackmsg {
 struct reservation {
     int state;
     int train_id;
+    int refcount;
 };
 
 struct tracksrv {
@@ -71,6 +72,7 @@ tracksrv_main(void)
     for (i = 0; i < ARRAY_SIZE(tracksrv.reservations); i++) {
         tracksrv.reservations[i].state    = TRACK_FREE;
 	tracksrv.reservations[i].train_id = -1;
+	tracksrv.reservations[i].refcount = 0;
     }
 
     tracksrv.track = tracksel_ask();
@@ -113,7 +115,8 @@ tracksrv_reserve(
     int  rc;
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
-    if (res->state != TRACK_FREE) {
+    if (res->state == TRACK_RESERVED
+        || (res->state == TRACK_BLOCKED && res->train_id != train)) {
         reserve_success = false;
         dbglog(&track->dbglog,
             "train%d failed to get %s->%s: already owned by %d",
@@ -128,12 +131,12 @@ tracksrv_reserve(
         for (i = 0; i < edge->mutex_len; i++) {
             subedge = edge->mutex[i];
             res     = &TRACK_EDGE_DATA(track->track, subedge, track->reservations);
-            assert(res->state    == TRACK_FREE);
-            assert(res->train_id == -1);
-            res->state = TRACK_BLOCKED;
             if (subedge == edge || subedge == edge->reverse)
                 res->state = TRACK_RESERVED;
+            else if (res->state == TRACK_FREE)
+                res->state = TRACK_BLOCKED;
             res->train_id = train;
+            res->refcount++;
         }
         dbglog(&track->dbglog,
             "train%d got %s->%s",
@@ -162,12 +165,13 @@ tracksrv_release(
     for (i = 0; i < edge->mutex_len; i++) {
         subedge = edge->mutex[i];
         res     = &TRACK_EDGE_DATA(track->track, subedge, track->reservations);
-        assert(subedge == edge
-            || subedge == edge->reverse
-            || res->state == TRACK_BLOCKED);
         assert(res->train_id == train);
-        res->state    = TRACK_FREE;
-        res->train_id = -1;
+        if (--res->refcount == 0) {
+            res->state = TRACK_FREE;
+            res->train_id = -1;
+        } else if (subedge == edge || subedge == edge->reverse) {
+            res->state = TRACK_BLOCKED;
+        }
     }
 
     dbglog(&track->dbglog,
