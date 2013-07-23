@@ -112,11 +112,6 @@ struct train_pctrl {
     bool                      updated;
 };
 
-struct respath {
-    track_edge_t edges[32];
-    int          earliest, next, count;
-};
-
 struct train {
     /* Server handles */
     struct clkctx             clock;
@@ -1368,6 +1363,11 @@ trainsrv_send_estimate(struct train *tr, tid_t client)
     est.centre   = tr->pctrl.centre;
     est.lastsens = tr->pctrl.lastsens;
     est.err_mm   = tr->pctrl.err_um / 1000;
+    if (tr->state == TRAIN_PARKED)
+        est.dest.edge = NULL;
+    else
+        est.dest      = tr->final_dest;
+    est.respath  = tr->respath;
 
     rc = Reply(client, &est, sizeof (est));
     assertv(rc, rc == 0);

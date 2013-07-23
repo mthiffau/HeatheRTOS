@@ -19,11 +19,18 @@ struct traincfg {
     uint8_t train_id;
 };
 
+struct respath {
+    track_edge_t edges[32];
+    int          earliest, next, count;
+};
+
 struct trainest {
     uint8_t         train_id;
     struct track_pt centre;
     track_node_t    lastsens;
     int             err_mm; /* position error at last sensor */
+    struct track_pt dest;
+    struct respath  respath;
 };
 
 void trainctx_init(struct trainctx *ctx, uint8_t train_id);

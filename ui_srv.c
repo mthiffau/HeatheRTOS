@@ -95,14 +95,14 @@
 #define SENSORS_LBL_ROW             11
 #define SENSORS_LBL_COL             1
 #define SENSORS_LBL                 "Recent sensors: "
-#define TRAINPOS_ROW(i)             (13 + (i))
+#define TRAINPOS_ROW(i)             (13 + 2 * (i))
 #define TRAINPOS_TRAIN_COL          17
 #define TRAINPOS_TRAIN_MSG          "Train %3d: "
 #define TRAINPOS_POS_COL            28
 #define TRAINPOS_LBL_ROW            13
 #define TRAINPOS_LBL_COL            1
 #define TRAINPOS_LBL                "Train position: "
-#define DBGLOG_TOP_ROW(ntrains)     TRAINPOS_ROW((ntrains) == 0 ? 2 : (ntrains) + 1)
+#define DBGLOG_TOP_ROW(ntrains)     TRAINPOS_ROW((ntrains) == 0 ? 2 : 2 * (ntrains) + 1)
 #define DBGLOG_BTM_ROW              9999
 #define DBGLOG_COL                  1
 
@@ -1058,10 +1058,10 @@ uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
 {
+    int i;
     Printf(&uisrv->tty,
         TERM_SAVE_CURSOR
         TERM_FORCE_CURSOR("%d", STR(TRAINPOS_POS_COL))
-        TERM_ERASE_EOL
         "%5s-%04dmm",
         TRAINPOS_ROW(uisrv->traintab[est->train_id].run_ix),
         est->centre.edge->dest->name,
@@ -1071,6 +1071,31 @@ uisrv_trainpos_update(struct uisrv *uisrv, struct trainest *est)
         Printf(&uisrv->tty, ", err %04dmm @ %5s",
             est->err_mm,
             est->lastsens->name);
+    } else {
+        Print(&uisrv->tty, ", err ????mm @ ?????");
+    }
+
+    if (est->dest.edge != NULL) {
+        Printf(&uisrv->tty, ", --> %5s-%04dmm",
+            est->dest.edge->dest->name,
+            est->dest.pos_um / 1000);
+    } else {
+        Print(&uisrv->tty, ", --> [  PARKED  ]");
+    }
+
+    Printf(&uisrv->tty,
+        TERM_FORCE_CURSOR("%d", STR(TRAINPOS_POS_COL))
+        "res:"
+        TERM_ERASE_EOL,
+        TRAINPOS_ROW(uisrv->traintab[est->train_id].run_ix) + 1);
+    i = est->respath.earliest;
+    while (i != est->respath.next) {
+        track_edge_t edge = est->respath.edges[i];
+        Printf(&uisrv->tty, " %s->%s",
+            edge->src->name,
+            edge->dest->name);
+        i++;
+        i %= ARRAY_SIZE(est->respath.edges);
     }
 
     Print(&uisrv->tty, TERM_RESTORE_CURSOR);
