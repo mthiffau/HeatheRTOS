@@ -7,6 +7,7 @@
 #include "track_graph.h"
 #include "u_tid.h"
 #include "switch_srv.h"
+#include "track_srv.h"
 #include "track_pt.h"
 
 #include "xassert.h"
@@ -336,6 +337,9 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     assert(spec->track                   != NULL);
     assert(spec->switches                != NULL);
     assert(spec->switches->switchsrv_tid >= 0);
+    assert(spec->res                     != NULL);
+    assert(spec->res->tracksrv_tid       >= 0);
+    assert(spec->train_id                >= 0);
     assert(spec->src_centre.edge         != NULL);
     assert(spec->src_centre.pos_um       >= 0);
     assert(spec->train_len_um            >= 0);
@@ -392,6 +396,15 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     }
 }
 
+static bool
+rfind_edge_ok(struct routefind *rf, track_edge_t edge)
+{
+    int owner;
+    /* Reject edges that are owned by other trains. */
+    owner = track_query(rf->spec->res, edge);
+    return owner < 0 || owner == rf->spec->train_id;
+}
+
 static void
 rfind_consider_edge(struct routefind *rf, track_edge_t edge)
 {
@@ -417,6 +430,10 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
                 return; /* reject this edge */
         }
     }
+
+    /* Reject edges that are owned by other trains. */
+    if (!rfind_edge_ok(rf, edge))
+        return;
 
     /* Check for end destinations on the edge. */
     dest_which = *rf_edge_dest(rf, edge);
@@ -489,6 +506,11 @@ rfind_consider_reverse(struct routefind *rf, track_node_t merge)
             overshoot_edges,
             &n_edges,
             ARRAY_SIZE(overshoot_edges));
+
+        for (i = 0; i < n_edges; i++) {
+            if (!rfind_edge_ok(rf, overshoot_edges[i]))
+                return; /* necessary edges unavailable */
+        }
 
         /* Update branch info. */
         size_t br_val           = rf_node2val(rf, branch);
@@ -663,6 +685,8 @@ void track_routespec_init(struct track_routespec *q)
     q->magic                  = TRACK_ROUTESPEC_MAGIC;
     q->track                  = NULL;
     q->switches               = NULL;
+    q->res                    = NULL;
+    q->train_id               = -1;
     q->src_centre.edge        = NULL;
     q->src_centre.pos_um      = -1;
     q->err_um                 = -1;

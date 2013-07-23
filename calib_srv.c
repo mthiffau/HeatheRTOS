@@ -14,6 +14,7 @@
 #include "xmemcpy.h"
 #include "track_graph.h"
 #include "switch_srv.h"
+#include "track_srv.h"
 #include "track_pt.h"
 
 #include "u_syscall.h"

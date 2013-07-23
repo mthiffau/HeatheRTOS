@@ -7,6 +7,7 @@
 XBOOL_H;
 TRACK_GRAPH_H;
 SWITCH_SRV_H;
+TRACK_SRV_H;
 STATIC_ASSERT_H;
 
 #define ROUTE_PATHS_MAX         4
@@ -104,7 +105,9 @@ struct track_routespec {
 
     track_graph_t     track;        /* What track? */
     struct switchctx *switches;     /* Switch state handle */
+    struct trackctx  *res;          /* Reservation handle */
 
+    int               train_id;     /* Which train? */
     struct track_pt   src_centre;   /* Initial position of train. */
     int               train_len_um; /* Length of the train */
     int               err_um;       /* Initial error bound (non-negative). */

@@ -9,6 +9,7 @@
 #include "track_graph.h"
 #include "u_tid.h"
 #include "switch_srv.h"
+#include "track_srv.h"
 #include "track_pt.h"
 #include "train_srv.h"
 
@@ -25,7 +26,6 @@
 #include "tcmux_srv.h"
 #include "sensor_srv.h"
 #include "tracksel_srv.h"
-#include "track_srv.h"
 #include "calib_srv.h"
 #include "dbglog_srv.h"
 
@@ -446,6 +446,8 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     track_routespec_init(&rspec);
     rspec.track        = tr->track;
     rspec.switches     = &tr->switches;
+    rspec.res          = &tr->res;
+    rspec.train_id     = tr->train_id;
     rspec.src_centre   = tr->pctrl.centre;
     rspec.err_um       = 50000; /* FIXME hardcoded 5cm */
     rspec.init_rev_ok  = tr->reverse_ok;
