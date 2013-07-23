@@ -137,6 +137,7 @@ struct train {
     int                       wait_ticks;
     int                       wait_start;
     int                       wait_reroute_retries;
+    int                       sensor_window_ticks;
 
     /* Calibration data */
     struct calib              calib;
@@ -273,6 +274,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->desired_speed = TRAIN_DEFSPEED;
     tr->path          = NULL;
     tr->wander        = false;
+    tr->sensor_window_ticks = TRAIN_SENSOR_AHEAD_TICKS;
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.est_time = -1;
@@ -364,18 +366,13 @@ trainsrv_move_randomly(struct train *tr)
     struct track_pt dest_pt;
     for (;;) {
         dest = &tr->track->nodes[rand(&tr->random) % tr->track->n_nodes];
-        if (dest->type == TRACK_NODE_EXIT)
+        if (dest->type != TRACK_NODE_SENSOR)
             continue;
-        if (dest->type == TRACK_NODE_ENTER)
-            continue;
-        if (dest->type == TRACK_NODE_MERGE)
-            break;
-        if (dest->type == TRACK_NODE_BRANCH)
-            break;
         if (dest->edge[TRACK_EDGE_AHEAD].dest->type == TRACK_NODE_EXIT)
             continue;
-        if (dest->edge[TRACK_EDGE_AHEAD].reverse->dest->type == TRACK_NODE_EXIT)
+        if (dest->reverse->edge[TRACK_EDGE_AHEAD].dest->type == TRACK_NODE_EXIT)
             continue;
+        break;
     }
     track_pt_from_node(dest, &dest_pt);
     trainsrv_moveto(tr, dest_pt);
@@ -464,8 +461,9 @@ trainsrv_distance_path(struct train *tr, struct track_pt whither)
         clkctx_init(&clock);
         Delay(&clock, 100);
         panic(
-            "panic! trainsrv_distance_path: trichotomy doesn't hold: "
+            "panic! train%d: trainsrv_distance_path: trichotomy doesn't hold: "
             "centre=%s->%s,%dum; path_ahead_um=%d; path_behind_um=%d",
+            tr->train_id,
             tr->pctrl.centre.edge->src->name,
             tr->pctrl.centre.edge->dest->name,
             tr->pctrl.centre.pos_um,
@@ -827,8 +825,8 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 static void
 trainsrv_sensor_timeout(struct train *tr, int time)
 {
-    (void)tr;
     (void)time;
+    tr->sensor_window_ticks *= 2;
 }
 
 static void
@@ -836,6 +834,8 @@ trainsrv_sensor(struct train *tr, sensors_t sensors[SENSOR_MODULES], int time)
 {
     const struct track_node *sens;
     sensor1_t hit;
+
+    tr->sensor_window_ticks = TRAIN_SENSOR_AHEAD_TICKS;
 
     hit = sensors_scan(sensors);
     assert(hit != SENSOR1_INVALID);
@@ -1044,6 +1044,7 @@ trainsrv_timer(struct train *tr, int time)
 struct sens_param {
     struct sensorctx ctx;
     track_node_t sens;
+    int window_ticks;
 };
 
 static void
@@ -1063,7 +1064,7 @@ sensor_worker(void)
 
     sensors[sensor1_module(sp.sens->num)] = (1 << sensor1_sensor(sp.sens->num));
 
-    rc = sensor_wait(&sp.ctx, sensors, 2 * TRAIN_SENSOR_AHEAD_TICKS, &time);
+    rc = sensor_wait(&sp.ctx, sensors, 2 * sp.window_ticks, &time);
     msg.time = time;
     if (rc == SENSOR_TRIPPED) {
         msg.type = TRAINMSG_SENSOR;
@@ -1085,6 +1086,7 @@ trainsrv_expect_sensor(struct train *tr, track_node_t sens)
 
     sp.ctx = tr->sensors;
     sp.sens = sens;
+    sp.window_ticks = tr->sensor_window_ticks;
 
     worker = Create(PRIORITY_TRAIN - 1, &sensor_worker);
     assert(worker >= 0);
@@ -1302,7 +1304,7 @@ trainsrv_pctrl_expect_sensors(struct train *tr)
 
         travel_um = trainsrv_predict_dist_um(
             tr,
-            tr->pctrl.est_time + TRAIN_SENSOR_AHEAD_TICKS);
+            tr->pctrl.est_time + tr->sensor_window_ticks);
 
         if (sensdist_um > travel_um) {
             break;
@@ -1330,15 +1332,18 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
             sw_pt.pos_um = TRAIN_MERGE_OFFSET_UM;
         }
 
-        if (!switch_all) {
-            int dist_um;
-            dist_um  = trainsrv_distance_path(tr, sw_pt);
-            dist_um -= TRAIN_LENGTH_UM / 2;
+        int dist_um;
+        dist_um  = trainsrv_distance_path(tr, sw_pt);
+        dist_um -= TRAIN_LENGTH_UM / 2;
+
+        if (switch_all)
+            dist_um -= tr->pctrl.stop_um;
+        else
             dist_um -= trainsrv_predict_dist_um(tr,
-                tr->pctrl.est_time + TRAIN_SWITCH_AHEAD_TICKS);
-            if (dist_um > 0)
-                break;
-        }
+                tr->pctrl.est_time + tr->sensor_window_ticks);
+
+        if (dist_um > 0)
+            break;
 
         if (branch->type == TRACK_NODE_BRANCH) {
             curved = sw_pt.edge == &sw_pt.edge->src->edge[TRACK_EDGE_CURVED];
