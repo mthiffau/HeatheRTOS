@@ -118,12 +118,12 @@ tracksrv_reserve(
     if (res->state == TRACK_RESERVED
         || (res->state == TRACK_BLOCKED && res->train_id != train)) {
         reserve_success = false;
-        dbglog(&track->dbglog,
+        /* dbglog(&track->dbglog,
             "train%d failed to get %s->%s: already owned by %d",
             train,
             edge->src->name,
             edge->dest->name,
-            res->train_id);
+            res->train_id);*/
     } else {
         int i;
         track_edge_t subedge;
