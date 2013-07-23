@@ -39,3 +39,6 @@ void train_stop(struct trainctx *ctx);
 
 /* Wait for and get the next position estimate of the train. */
 void train_estimate(struct trainctx *ctx, struct trainest *est_out);
+
+/* Instruct train to wander about. */
+void train_wander(struct trainctx *ctx);

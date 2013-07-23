@@ -183,6 +183,7 @@ static void uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_wander(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stopcalib(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tr(struct uisrv *uisrv, char *argv[], int argc);
@@ -441,6 +442,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_speed(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "stop")) {
         uisrv_cmd_stop(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "wander")) {
+        uisrv_cmd_wander(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "vcalib")) {
         uisrv_cmd_vcalib(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "stopcalib")) {
@@ -715,6 +718,28 @@ uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     train_stop(&uisrv->traintab[train].task);
+}
+
+static void
+uisrv_cmd_wander(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    if (argc != 1) {
+        Print(&uisrv->tty, "usage: wander TRAIN");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_wander(&uisrv->traintab[train].task);
 }
 
 static void

@@ -2,6 +2,7 @@
 #include "xbool.h"
 #include "xint.h"
 #include "xdef.h"
+#include "xrand.h"
 #include "poly.h"
 #include "bithack.h"
 #include "static_assert.h"
@@ -58,7 +59,8 @@ enum {
     TRAINMSG_SENSOR,
     TRAINMSG_SENSOR_TIMEOUT,
     TRAINMSG_TIMER,
-    TRAINMSG_ESTIMATE
+    TRAINMSG_ESTIMATE,
+    TRAINMSG_WANDER,
 };
 
 enum {
@@ -123,6 +125,7 @@ struct train {
     struct trackctx           res;
     struct sensorctx          sensors;
     struct dbglogctx          dbglog;
+    struct rand               random;
 
     /* General train state */
     int                       state;
@@ -130,6 +133,7 @@ struct train {
     uint8_t                   train_id;
     uint8_t                   speed;
     uint8_t                   desired_speed;
+    bool                      wander;
     int                       wait_ticks;
     int                       wait_start;
     int                       wait_reroute_retries;
@@ -164,6 +168,7 @@ static void trainsrv_swnext_init(struct train *tr);
 static void trainsrv_swnext_advance(struct train *tr);
 static void trainsrv_waiting(struct train *tr);
 static void trainsrv_parked(struct train *tr);
+static void trainsrv_move_randomly(struct train *tr);
 static void trainsrv_embark(struct train *tr);
 static void trainsrv_aboutface(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
@@ -228,6 +233,7 @@ trainsrv_main(void)
             break;
         case TRAINMSG_STOP:
             trainsrv_empty_reply(client);
+            tr.wander = false;
             trainsrv_stop(&tr, STOP_FOR_REQ);
             break;
         case TRAINMSG_SENSOR:
@@ -246,6 +252,12 @@ trainsrv_main(void)
         case TRAINMSG_ESTIMATE:
             trainsrv_send_estimate(&tr, client);
             break;
+        case TRAINMSG_WANDER:
+            trainsrv_empty_reply(client);
+            tr.wander = true;
+            if (tr.state == TRAIN_PARKED)
+                trainsrv_move_randomly(&tr);
+            break;
         default:
             panic("invalid train message type %d", msg.type);
         }
@@ -260,6 +272,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->train_id      = cfg->train_id;
     tr->desired_speed = TRAIN_DEFSPEED;
     tr->path          = NULL;
+    tr->wander        = false;
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.est_time = -1;
@@ -281,6 +294,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     trackctx_init(&tr->res, tr->train_id);
     sensorctx_init(&tr->sensors);
     dbglogctx_init(&tr->dbglog);
+    rand_init_time(&tr->random);
 
     trainsrv_orient_train(tr);
 }
@@ -339,6 +353,32 @@ trainsrv_parked(struct train *tr)
     assert(tr->pctrl.state == PCTRL_STOPPED);
     tr->state = TRAIN_PARKED;
     tr->path  = NULL;
+    if (tr->wander)
+        trainsrv_move_randomly(tr);
+}
+
+static void
+trainsrv_move_randomly(struct train *tr)
+{
+    track_node_t dest;
+    struct track_pt dest_pt;
+    for (;;) {
+        dest = &tr->track->nodes[rand(&tr->random) % tr->track->n_nodes];
+        if (dest->type == TRACK_NODE_EXIT)
+            continue;
+        if (dest->type == TRACK_NODE_ENTER)
+            continue;
+        if (dest->type == TRACK_NODE_MERGE)
+            break;
+        if (dest->type == TRACK_NODE_BRANCH)
+            break;
+        if (dest->edge[TRACK_EDGE_AHEAD].dest->type == TRACK_NODE_EXIT)
+            continue;
+        if (dest->edge[TRACK_EDGE_AHEAD].reverse->dest->type == TRACK_NODE_EXIT)
+            continue;
+    }
+    track_pt_from_node(dest, &dest_pt);
+    trainsrv_moveto(tr, dest_pt);
 }
 
 static void
@@ -487,6 +527,16 @@ trainsrv_aboutface(struct train *tr)
     }
 }
 
+static bool
+trainsrv_route_too_short(struct train *tr)
+{
+    int i, len_mm;
+    len_mm = 0;
+    for (i = 0; i < tr->route.n_paths; i++)
+        len_mm += tr->route.paths[i].len_mm;
+    return len_mm < 500;
+}
+
 static void
 trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
@@ -512,7 +562,11 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     rspec.dest         = dest;
 
     rc = track_routefind(&rspec, &tr->route);
-    if (rc < 0 || tr->route.n_paths == 0 || tr->route.paths[0].hops == 0) {
+    if (rc < 0 || tr->route.n_paths == 0 || tr->route.paths[0].hops == 0
+        || (tr->wander && trainsrv_route_too_short(tr))) {
+        dbglog(&tr->dbglog, "failed to get route to %s-%dmm",
+            dest.edge->dest->name,
+            dest.pos_um / 1000);
         trainsrv_waiting(tr);
         return;
     }
@@ -1392,6 +1446,16 @@ train_estimate(struct trainctx *ctx, struct trainest *est)
     msg.type = TRAINMSG_ESTIMATE;
     rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), est, sizeof (*est));
     assertv(rplylen, rplylen == sizeof (*est));
+}
+
+void
+train_wander(struct trainctx *ctx)
+{
+    struct trainmsg msg;
+    int rplylen;
+    msg.type = TRAINMSG_WANDER;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
 }
 
 static void
