@@ -49,6 +49,7 @@
 #define TRAIN_RES_WANT_TICKS            20
 #define TRAIN_RES_GRACE_TICKS           20
 #define TRAIN_RES_GRACE_UM              30000  // 3cm
+#define TRAIN_REROUTE_RETRIES           4
 
 enum {
     TRAINMSG_SETSPEED,
@@ -131,6 +132,7 @@ struct train {
     uint8_t                   desired_speed;
     int                       wait_ticks;
     int                       wait_start;
+    int                       wait_reroute_retries;
 
     /* Calibration data */
     struct calib              calib;
@@ -142,9 +144,10 @@ struct train {
     struct train_pctrl        pctrl;
     tid_t                     estimate_client;
 
-    /* Path to follow */
+    /* Route to follow */
+    struct track_pt           final_dest; /* invalid while TRAIN_PARKED */
     struct track_route        route;
-    struct track_path        *path;
+    struct track_path        *path;       /* NULL if no route yet */
     int                       path_swnext;
     int                       path_sensnext;
     bool                      reverse_ok;
@@ -160,6 +163,7 @@ static void trainsrv_setspeed(struct train *tr, uint8_t speed);
 static void trainsrv_swnext_init(struct train *tr);
 static void trainsrv_swnext_advance(struct train *tr);
 static void trainsrv_waiting(struct train *tr);
+static void trainsrv_parked(struct train *tr);
 static void trainsrv_embark(struct train *tr);
 static void trainsrv_aboutface(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
@@ -255,6 +259,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->track         = tracksel_ask();
     tr->train_id      = cfg->train_id;
     tr->desired_speed = TRAIN_DEFSPEED;
+    tr->path          = NULL;
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.est_time = -1;
@@ -322,9 +327,18 @@ trainsrv_waiting(struct train *tr)
     if (tr->state == TRAIN_WAITING)
         return;
 
-    tr->state      = TRAIN_WAITING;
-    tr->wait_ticks = 200; /* FIXME!!! */
-    tr->wait_start = tr->pctrl.est_time;
+    tr->state                = TRAIN_WAITING;
+    tr->wait_ticks           = 200; /* FIXME!!! */
+    tr->wait_start           = tr->pctrl.est_time;
+    tr->wait_reroute_retries = TRAIN_REROUTE_RETRIES;
+}
+
+static void
+trainsrv_parked(struct train *tr)
+{
+    assert(tr->pctrl.state == PCTRL_STOPPED);
+    tr->state = TRAIN_PARKED;
+    tr->path  = NULL;
 }
 
 static void
@@ -478,8 +492,11 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 {
     struct track_routespec rspec;
     int rc;
-    if (tr->state != TRAIN_PARKED)
+    if (tr->state != TRAIN_PARKED && tr->state != TRAIN_WAITING)
         return;
+
+    /* Save destination (in case of retry) */
+    tr->final_dest = dest;
 
     /* Get path to follow */
     track_routespec_init(&rspec);
@@ -495,12 +512,12 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     rspec.dest         = dest;
 
     rc = track_routefind(&rspec, &tr->route);
-    if (rc < 0 || tr->route.n_paths == 0)
+    if (rc < 0 || tr->route.n_paths == 0 || tr->route.paths[0].hops == 0) {
+        trainsrv_waiting(tr);
         return;
+    }
 
     tr->path = &tr->route.paths[0];
-    if (tr->path->hops == 0)
-        return;
 
 #if 0
     {
@@ -621,8 +638,8 @@ trainsrv_orient_train(struct train *tr)
     tr->pctrl.updated  = true;
 
     /* Train is now parked. */
-    tr->state       = TRAIN_PARKED;
     tr->pctrl.state = PCTRL_STOPPED;
+    trainsrv_parked(tr);
 
     /* Reserve current position. */
     under_pt = tr->pctrl.centre;
@@ -886,13 +903,28 @@ trainsrv_timer(struct train *tr, int time)
     if (tr->state == TRAIN_WAITING) {
         int dt = time - tr->wait_start;
         if (dt < tr->wait_ticks) {
-            if (dt % 10 == 0)
+            if (tr->path != NULL && dt % 10 == 0)
                 trainsrv_embark(tr);
         } else {
             dbglog(&tr->dbglog, "train%d re-routing", tr->train_id);
-            tr->state = TRAIN_PARKED;
             tr->pctrl.est_time += dt;
-            trainsrv_moveto(tr, tr->route.paths[tr->route.n_paths - 1].end);
+            trainsrv_moveto(tr, tr->final_dest);
+            if (tr->state == TRAIN_WAITING) {
+                /* Re-routing failed */
+                if (tr->wait_reroute_retries <= 0) {
+                    dbglog(&tr->dbglog,
+                        "train%d re-routing failed, giving up",
+                        tr->train_id);
+                    trainsrv_parked(tr);
+                } else {
+                    dbglog(&tr->dbglog,
+                        "train%d re-routing failed, retrying",
+                        tr->train_id);
+                    tr->wait_start = tr->pctrl.est_time;
+                    tr->wait_ticks = 200; /* FIXME */
+                    tr->wait_reroute_retries--;
+                }
+            }
         }
         return;
     }
@@ -931,12 +963,12 @@ trainsrv_timer(struct train *tr, int time)
             assert(reason != NOT_STOPPING);
             switch (reason) {
             case STOP_FOR_REQ:
-                tr->state = TRAIN_PARKED;
+                trainsrv_parked(tr);
                 break;
             case STOP_AT_DEST:
                 last_path = &tr->route.paths[tr->route.n_paths - 1];
                 if (tr->path == last_path)
-                    tr->state = TRAIN_PARKED;
+                    trainsrv_parked(tr);
                 else {
                     tr->path++;
                     trainsrv_aboutface(tr);
@@ -1028,11 +1060,30 @@ trainsrv_track_reserve_edge(struct train *tr, track_edge_t edge, int *want_um)
 static bool
 trainsrv_track_reserve_initial(struct train *tr)
 {
-    int need_um;
+    int need_um, orig_count;
+    bool success;
     need_um  = polyeval(&tr->calib.accel, tr->calib.accel_cutoff[tr->speed]);
     need_um += polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed]);
     need_um += TRAIN_RES_GRACE_UM;
-    return trainsrv_track_reserve(tr, need_um, need_um);
+    orig_count = tr->respath.count;
+    success = trainsrv_track_reserve(tr, need_um, need_um);
+    if (!success) {
+        int inc_count = tr->respath.count - orig_count;
+        int i;
+        i = 0;
+        while (i < inc_count) {
+            track_edge_t edge;
+            tr->respath.next--;
+            if (tr->respath.next < 0)
+                tr->respath.next += ARRAY_SIZE(tr->respath.edges);
+            edge = tr->respath.edges[tr->respath.next];
+            track_release(&tr->res, edge);
+            tr->pctrl.res_ahead_um -= 1000 * edge->len_mm;
+            i++;
+        }
+        tr->respath.count = orig_count;
+    }
+    return success;
 }
 
 static bool
