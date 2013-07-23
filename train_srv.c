@@ -108,7 +108,6 @@ struct train_pctrl {
     int                       state;
     int                       path_state;
     struct track_pt           centre;
-    int                       res_ahead_um, res_behind_um;
     int                       est_time, accel_start;
     int                       vel_umpt;
     int                       stop_ticks, stop_um;
@@ -376,6 +375,10 @@ trainsrv_move_randomly(struct train *tr)
             continue;
         if (dest->reverse->edge[TRACK_EDGE_AHEAD].dest->type == TRACK_NODE_EXIT)
             continue;
+        if (track_query(&tr->res, &dest->edge[TRACK_EDGE_AHEAD]) >= 0)
+            continue;
+        if (track_query(&tr->res, &dest->reverse->edge[TRACK_EDGE_AHEAD]) >= 0)
+            continue;
         break;
     }
     track_pt_from_node(dest, &dest_pt);
@@ -518,7 +521,7 @@ trainsrv_distance_path(
 static void
 trainsrv_aboutface(struct train *tr)
 {
-    int i, j, tmp;
+    int i, j;
 
     /* Check for edges to release before we screw with them.
      * Otherwise, we may not pick up a position update causing
@@ -529,10 +532,6 @@ trainsrv_aboutface(struct train *tr)
     tcmux_train_speed(&tr->tcmux, tr->train_id, 15);
     track_pt_reverse(&tr->pctrl.centre);
     tr->pctrl.reversed = !tr->pctrl.reversed;
-
-    tmp = tr->pctrl.res_ahead_um;
-    tr->pctrl.res_ahead_um  = tr->pctrl.res_behind_um;
-    tr->pctrl.res_behind_um = tmp;
 
     /* Reverse path before/after state. */
     assert(tr->pctrl.path_state != PATH_BEFORE);
@@ -763,25 +762,6 @@ trainsrv_orient_train(struct train *tr)
             track_release(&tr->res, tr->respath.edges[i]);
         Exit();
     }
-
-    /* Initialize reservation distances */
-    tr->pctrl.res_behind_um = 0;
-    tr->pctrl.res_ahead_um  = 0;
-    for (i = 0; i < tr->respath.count; i++) {
-        tr->pctrl.res_behind_um += 1000 * tr->respath.edges[i]->len_mm;
-        if (tr->respath.edges[i] == tr->pctrl.centre.edge)
-            break;
-    }
-    tr->pctrl.res_behind_um -= tr->pctrl.centre.pos_um;
-    tr->pctrl.res_ahead_um  += tr->pctrl.centre.pos_um;
-    for (i++; i < tr->respath.count; i++)
-        tr->pctrl.res_ahead_um += 1000 * tr->respath.edges[i]->len_mm;
-
-    dbglog(&tr->dbglog,
-        "train%d reserved %dmm ahead, %dmm behind",
-        tr->train_id,
-        tr->pctrl.res_ahead_um / 1000,
-        tr->pctrl.res_behind_um / 1000);
 }
 
 static void
@@ -821,12 +801,6 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         tr->path_sensnext = TRACK_NODE_DATA(tr->track, sens, tr->path->node_ix);
         tr->path_sensnext++;
     }
-
-    /* Need to adjust reserved and path distances.
-     * This avoids double-adjusting, since trainsrv_pctrl_advance_ticks
-     * has already adjusted for (maybe a large) part of this. */
-    tr->pctrl.res_ahead_um   = est_pctrl.res_ahead_um   + tr->pctrl.err_um;
-    tr->pctrl.res_behind_um  = est_pctrl.res_behind_um  - tr->pctrl.err_um;
 
     trainsrv_pctrl_update_path_state(tr, -tr->pctrl.err_um);
 
@@ -1010,8 +984,6 @@ trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 {
     tr->pctrl.updated = true;
     track_pt_advance_path(&tr->switches, tr->path, &tr->pctrl.centre, dist_um);
-    tr->pctrl.res_ahead_um   -= dist_um;
-    tr->pctrl.res_behind_um  += dist_um;
     trainsrv_pctrl_update_path_state(tr, dist_um);
 }
 
@@ -1168,7 +1140,6 @@ trainsrv_track_reserve_edge(struct train *tr, track_edge_t edge, int *want_um)
     if (!ok)
         return false;
     edge_um = 1000 * edge->len_mm;
-    tr->pctrl.res_ahead_um += edge_um;
     *want_um -= edge_um;
     assert(tr->respath.count < (int)ARRAY_SIZE(tr->respath.edges));
     tr->respath.edges[tr->respath.next++] = edge;
@@ -1185,6 +1156,7 @@ trainsrv_track_reserve_initial(struct train *tr)
     need_um  = polyeval(&tr->calib.accel, tr->calib.accel_cutoff[tr->speed]);
     need_um += polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[tr->speed]);
     need_um += TRAIN_RES_GRACE_UM;
+    need_um += TRAIN_LENGTH_UM / 2;
     orig_count = tr->respath.count;
     success = trainsrv_track_reserve(tr, need_um, need_um);
     if (!success) {
@@ -1198,7 +1170,6 @@ trainsrv_track_reserve_initial(struct train *tr)
                 tr->respath.next += ARRAY_SIZE(tr->respath.edges);
             edge = tr->respath.edges[tr->respath.next];
             track_release(&tr->res, edge);
-            tr->pctrl.res_ahead_um -= 1000 * edge->len_mm;
             i++;
         }
         tr->respath.count = orig_count;
@@ -1220,17 +1191,32 @@ trainsrv_track_reserve_moving(struct train *tr)
 static bool
 trainsrv_track_reserve(struct train *tr, int need_um, int want_um)
 {
+    int res_ahead_um;
     int last_res_ix, path_ix;
     track_edge_t last_res, end_edges[8];
     struct track_pt end;
     int n_end_edges;
     int i;
 
-    if (tr->pctrl.res_ahead_um >= need_um)
+    res_ahead_um = 0;
+    i = tr->respath.next;
+    do {
+        i--;
+        if (i < 0)
+            i += ARRAY_SIZE(tr->respath.edges);
+        track_edge_t edge = tr->respath.edges[i];
+        if (edge == tr->pctrl.centre.edge) {
+            res_ahead_um += tr->pctrl.centre.pos_um;
+            break;
+        }
+        res_ahead_um += 1000 * edge->len_mm;
+    } while (i != tr->respath.earliest);
+
+    if (res_ahead_um >= need_um)
         return true;
 
     /* Try to reserve an additional want_um ahead. */
-    want_um -= tr->pctrl.res_ahead_um;
+    want_um -= res_ahead_um;
     assert(want_um >= 0);
 
     last_res_ix = tr->respath.next - 1;
@@ -1281,6 +1267,20 @@ trainsrv_track_reserve(struct train *tr, int need_um, int want_um)
 static void
 trainsrv_track_release(struct train *tr)
 {
+    int i, res_behind_um;
+    res_behind_um = 0;
+    i = tr->respath.earliest;
+    while (i != tr->respath.next) {
+        track_edge_t edge = tr->respath.edges[i];
+        res_behind_um += 1000 * edge->len_mm;
+        if (edge == tr->pctrl.centre.edge) {
+            res_behind_um -= tr->pctrl.centre.pos_um;
+            break;
+        }
+        i++;
+        i %= ARRAY_SIZE(tr->respath.edges);
+    }
+
     for (;;) {
         track_edge_t earliest;
         int          threshold_um;
@@ -1290,11 +1290,11 @@ trainsrv_track_release(struct train *tr)
         threshold_um += TRAIN_RES_GRACE_TICKS * tr->pctrl.vel_umpt;
         threshold_um += TRAIN_RES_GRACE_UM;
         threshold_um += TRAIN_LENGTH_UM / 2;
-        if (tr->pctrl.res_behind_um < threshold_um)
+        if (res_behind_um < threshold_um)
             break;
 
         track_release(&tr->res, earliest);
-        tr->pctrl.res_behind_um -= 1000 * earliest->len_mm;
+        res_behind_um -= 1000 * earliest->len_mm;
         tr->respath.earliest++;
         tr->respath.earliest %= ARRAY_SIZE(tr->respath.edges);
         tr->respath.count--;
