@@ -846,7 +846,7 @@ static void
 trainsrv_sensor_timeout(struct train *tr, int time)
 {
     (void)time;
-    tr->sensor_window_ticks *= 2;
+    tr->sensor_window_ticks += tr->sensor_window_ticks / 5;
 }
 
 static void
