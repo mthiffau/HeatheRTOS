@@ -768,9 +768,15 @@ static void
 trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 {
     struct train_pctrl est_pctrl;
-    int ahead_offs_um;
+    int ahead_offs_um, sens_path_ix;
 
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
+        return;
+
+    /* Reject sensors not on our path. These are the result of a too-large
+     * sensor timeout window. */
+    sens_path_ix = TRACK_NODE_DATA(tr->track, sens, tr->path->node_ix);
+    if (sens_path_ix < 0 || (unsigned)sens_path_ix >= tr->path->hops)
         return;
 
     /* Save original for comparison */
