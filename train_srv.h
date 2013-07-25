@@ -36,7 +36,19 @@ struct trainest {
 void trainctx_init(struct trainctx *ctx, uint8_t train_id);
 
 /* Set desired cruising speed for the train */
-void train_setspeed(struct trainctx *ctx, uint8_t speed);
+void train_set_speed(struct trainctx *ctx, uint8_t speed);
+
+/* Set desired cruising speed for the train */
+void train_set_rev_penalty_mm(struct trainctx *ctx, int penalty_mm);
+
+/* Set desired cruising speed for the train */
+void train_set_rev_slack_mm(struct trainctx *ctx, int slack_mm);
+
+/* Set desired cruising speed for the train */
+void train_set_init_rev_ok(struct trainctx *ctx, bool ok);
+
+/* Set desired cruising speed for the train */
+void train_set_rev_ok(struct trainctx *ctx, bool ok);
 
 /* Ask the train to move to a particular node. */
 void train_moveto(struct trainctx *ctx, struct track_pt dest);

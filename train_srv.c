@@ -52,8 +52,18 @@
 #define TRAIN_RES_GRACE_UM              30000  // 3cm
 #define TRAIN_REROUTE_RETRIES           4
 
+#define TRAIN_DEF_REV_SLACK_MM          75   // 7.5cm
+#define TRAIN_DEF_REV_PENALTY_MM        1000 // 1m
+#define TRAIN_DEF_INIT_REV_OK           true
+#define TRAIN_DEF_REV_OK                true
+#define TRAIN_DEF_WANDER                false
+
 enum {
-    TRAINMSG_SETSPEED,
+    TRAINMSG_SET_SPEED,
+    TRAINMSG_SET_REV_PENALTY,
+    TRAINMSG_SET_REV_SLACK,
+    TRAINMSG_SET_INIT_REV_OK,
+    TRAINMSG_SET_REV_OK,
     TRAINMSG_MOVETO,
     TRAINMSG_STOP,
     TRAINMSG_SENSOR,
@@ -94,6 +104,10 @@ struct trainmsg {
     int time; /* sensors, timer only */
     union {
         uint8_t         speed;
+        int             rev_penalty_mm;
+        int             rev_slack_mm;
+        bool            init_rev_ok;
+        bool            rev_ok;
         struct track_pt dest;
         sensors_t       sensors[SENSOR_MODULES];
     };
@@ -132,12 +146,20 @@ struct train {
     const struct track_graph *track;
     uint8_t                   train_id;
     uint8_t                   speed;
-    uint8_t                   desired_speed;
-    bool                      wander;
     int                       wait_ticks;
     int                       wait_start;
     int                       wait_reroute_retries;
     int                       sensor_window_ticks;
+
+    /* Configuration values */
+    struct {
+        uint8_t               desired_speed;
+        int                   rev_penalty_mm;
+        int                   rev_slack_mm;
+        bool                  init_rev_ok;
+        bool                  rev_ok;
+        bool                  wander;
+    } cfg;
 
     /* Calibration data */
     struct calib              calib;
@@ -227,9 +249,42 @@ trainsrv_main(void)
         msglen = Receive(&client, &msg, sizeof (msg));
         assertv(msglen, msglen == sizeof (msg));
         switch (msg.type) {
-        case TRAINMSG_SETSPEED:
+        case TRAINMSG_SET_SPEED:
             trainsrv_empty_reply(client);
             trainsrv_setspeed(&tr, msg.speed);
+            dbglog(&tr.dbglog, "train%d set max speed to %d",
+                tr.train_id,
+                tr.cfg.desired_speed);
+            break;
+        case TRAINMSG_SET_REV_PENALTY:
+            trainsrv_empty_reply(client);
+            tr.cfg.rev_penalty_mm = msg.rev_penalty_mm;
+            dbglog(&tr.dbglog, "train%d set reverse penalty to %dmm",
+                tr.train_id,
+                tr.cfg.rev_penalty_mm);
+            assert(tr.cfg.rev_penalty_mm >= 0);
+            break;
+        case TRAINMSG_SET_REV_SLACK:
+            trainsrv_empty_reply(client);
+            tr.cfg.rev_slack_mm = msg.rev_slack_mm;
+            dbglog(&tr.dbglog, "train%d set reverse slack to %dmm",
+                tr.train_id,
+                tr.cfg.rev_slack_mm);
+            assert(tr.cfg.rev_slack_mm >= 0);
+            break;
+        case TRAINMSG_SET_INIT_REV_OK:
+            trainsrv_empty_reply(client);
+            tr.cfg.init_rev_ok = msg.init_rev_ok;
+            dbglog(&tr.dbglog, "train%d %sabled reverse at start of path",
+                tr.train_id,
+                tr.cfg.init_rev_ok ? "en" : "dis");
+            break;
+        case TRAINMSG_SET_REV_OK:
+            trainsrv_empty_reply(client);
+            tr.cfg.rev_ok = msg.rev_ok;
+            dbglog(&tr.dbglog, "train%d %sabled reverse in path",
+                tr.train_id,
+                tr.cfg.rev_ok ? "en" : "dis");
             break;
         case TRAINMSG_MOVETO:
             trainsrv_empty_reply(client);
@@ -237,7 +292,7 @@ trainsrv_main(void)
             break;
         case TRAINMSG_STOP:
             trainsrv_empty_reply(client);
-            tr.wander = false;
+            tr.cfg.wander = false;
             trainsrv_stop(&tr, STOP_FOR_REQ);
             break;
         case TRAINMSG_SENSOR:
@@ -258,7 +313,7 @@ trainsrv_main(void)
             break;
         case TRAINMSG_WANDER:
             trainsrv_empty_reply(client);
-            tr.wander = true;
+            tr.cfg.wander = true;
             if (tr.state == TRAIN_PARKED)
                 trainsrv_move_randomly(&tr);
             break;
@@ -274,10 +329,15 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
 {
     tr->track         = tracksel_ask();
     tr->train_id      = cfg->train_id;
-    tr->desired_speed = TRAIN_DEFSPEED;
     tr->path          = NULL;
-    tr->wander        = false;
     tr->sensor_window_ticks = TRAIN_SENSOR_AHEAD_TICKS;
+
+    tr->cfg.desired_speed  = TRAIN_DEFSPEED;
+    tr->cfg.rev_penalty_mm = TRAIN_DEF_REV_PENALTY_MM;
+    tr->cfg.rev_slack_mm   = TRAIN_DEF_REV_SLACK_MM;
+    tr->cfg.init_rev_ok    = TRAIN_DEF_INIT_REV_OK;
+    tr->cfg.rev_ok         = TRAIN_DEF_REV_OK;
+    tr->cfg.wander         = TRAIN_DEF_WANDER;
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.est_time = -1;
@@ -312,7 +372,7 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
         speed = TRAIN_MINSPEED;
     if (speed > TRAIN_MAXSPEED)
         speed = TRAIN_MAXSPEED;
-    tr->desired_speed = speed;
+    tr->cfg.desired_speed = speed;
     /* TODO? maybe change while we're moving? MAYBE */
 }
 
@@ -358,7 +418,7 @@ trainsrv_parked(struct train *tr)
     assert(tr->pctrl.state == PCTRL_STOPPED);
     tr->state = TRAIN_PARKED;
     tr->path  = NULL;
-    if (tr->wander)
+    if (tr->cfg.wander)
         trainsrv_move_randomly(tr);
 }
 
@@ -390,7 +450,8 @@ trainsrv_embark(struct train *tr)
 {
     /* Find speed to use. */
     int path_remaining_um = trainsrv_distance_path(tr, &tr->pctrl, tr->path->end);
-    for (tr->speed = tr->desired_speed; tr->speed >= TRAIN_MINSPEED; tr->speed--) {
+    tr->speed = tr->cfg.desired_speed;
+    while (tr->speed >= TRAIN_MINSPEED) {
         int accel_time     = tr->calib.accel_cutoff[tr->speed];
         int accel_end_um   = polyeval(&tr->calib.accel, accel_time);
         int vel_umpt       = tr->calib.vel_umpt[tr->speed];
@@ -399,6 +460,7 @@ trainsrv_embark(struct train *tr)
         min_allowed_um    += vel_umpt * TRAIN_ACCEL_STABILIZE_TICKS;
         if (min_allowed_um <= path_remaining_um)
             break;
+        tr->speed--;
     }
 
     /* FIXME clamping the speed to minimum */
@@ -596,14 +658,16 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     rspec.train_id     = tr->train_id;
     rspec.src_centre   = tr->pctrl.centre;
     rspec.err_um       = 50000; /* FIXME hardcoded 5cm */
-    rspec.init_rev_ok  = tr->reverse_ok;
-    rspec.rev_ok       = true;
+    rspec.init_rev_ok  = tr->cfg.init_rev_ok && tr->reverse_ok;
+    rspec.rev_ok       = tr->cfg.rev_ok;
+    rspec.rev_penalty_mm = tr->cfg.rev_penalty_mm;
+    rspec.rev_slack_mm = tr->cfg.rev_slack_mm;
     rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
     rspec.dest         = dest;
 
     rc = track_routefind(&rspec, &tr->route);
     if (rc < 0 || tr->route.n_paths == 0 || tr->route.paths[0].hops == 0
-        || (tr->wander && trainsrv_route_too_short(tr))) {
+        || (tr->cfg.wander && trainsrv_route_too_short(tr))) {
         dbglog(&tr->dbglog, "failed to get route to %s-%dmm",
             dest.edge->dest->name,
             dest.pos_um / 1000);
@@ -1487,12 +1551,59 @@ trainctx_init(struct trainctx *ctx, uint8_t train_id)
 }
 
 void
-train_setspeed(struct trainctx *ctx, uint8_t speed)
+train_set_speed(struct trainctx *ctx, uint8_t speed)
 {
     struct trainmsg msg;
     int rplylen;
-    msg.type  = TRAINMSG_SETSPEED;
+    msg.type  = TRAINMSG_SET_SPEED;
     msg.speed = speed;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+void
+train_set_rev_penalty_mm(struct trainctx *ctx, int penalty_mm)
+{
+    struct trainmsg msg;
+    int rplylen;
+    msg.type           = TRAINMSG_SET_REV_PENALTY;
+    msg.rev_penalty_mm = penalty_mm;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+/* Set desired cruising speed for the train */
+void
+train_set_rev_slack_mm(struct trainctx *ctx, int slack_mm)
+{
+    struct trainmsg msg;
+    int rplylen;
+    msg.type         = TRAINMSG_SET_REV_SLACK;
+    msg.rev_slack_mm = slack_mm;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+/* Set desired cruising speed for the train */
+void
+train_set_init_rev_ok(struct trainctx *ctx, bool ok)
+{
+    struct trainmsg msg;
+    int rplylen;
+    msg.type        = TRAINMSG_SET_INIT_REV_OK;
+    msg.init_rev_ok = ok;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
+/* Set desired cruising speed for the train */
+void
+train_set_rev_ok(struct trainctx *ctx, bool ok)
+{
+    struct trainmsg msg;
+    int rplylen;
+    msg.type   = TRAINMSG_SET_REV_OK;
+    msg.rev_ok = ok;
     rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }

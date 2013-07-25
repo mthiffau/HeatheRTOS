@@ -48,6 +48,7 @@ struct calsrv {
     struct tcmuxctx  tcmux;
     struct sensorctx sens;
     struct switchctx switches;
+    struct trackctx  res;
     struct dbglogctx dbglog;
     track_graph_t    track;
     struct calib     all[TRAINS_MAX];
@@ -80,6 +81,7 @@ calibsrv_main(void)
     tcmuxctx_init(&cal.tcmux);
     sensorctx_init(&cal.sens);
     switchctx_init(&cal.switches);
+    trackctx_init(&cal.res, 1);
     dbglogctx_init(&cal.dbglog);
     memset(cal.all, '\0', sizeof (cal.all));
     for (i = 0; i < n_initcalib; i++) {
@@ -165,11 +167,15 @@ calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
     track_routespec_init(&rspec);
     rspec.track        = cal->track;
     rspec.switches     = &cal->switches;
+    rspec.res          = &cal->res;
+    rspec.train_id     = train;
     rspec.src_centre   = train_pos;
-    rspec.train_len_um = 215000; /* FIXME hardcoded 21.5cm */
     rspec.err_um       = 200000; /* FIXME hardcoded 20cm */
+    rspec.rev_penalty_mm=0;
+    rspec.rev_slack_mm = 0;
     rspec.init_rev_ok  = false;
     rspec.rev_ok       = false;
+    rspec.train_len_um = 215000; /* FIXME hardcoded 21.5cm */
     rspec.dest         = calib_start;
 
     rc = track_routefind(&rspec, &to_loop_route);

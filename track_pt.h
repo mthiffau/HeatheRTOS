@@ -113,6 +113,8 @@ struct track_routespec {
     int               err_um;       /* Initial error bound (non-negative). */
     bool              init_rev_ok;  /* Is it okay to reverse at start? */
     bool              rev_ok;       /* Is it okay to reverse en route? */
+    int               rev_penalty_mm;/* Distance penalty for reversals. */
+    int               rev_slack_mm; /* Distance by which to overshoot merge. */
 
     struct track_pt   dest;         /* Destination for centre of train */
 };

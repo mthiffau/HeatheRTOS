@@ -171,6 +171,7 @@ struct uisrv {
 };
 
 static int tokenize(char *cmd, char **ts, int max_ts);
+static int uisrv_read_onoff(char *arg, bool *result);
 static int atou8(const char *s, uint8_t *ret);
 static int atou32(const char *s, uint32_t *ret, uint32_t max);
 
@@ -182,6 +183,10 @@ static void uisrv_cmd_track(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_addtrain(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_goto(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_revpenalty(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_revslack(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_initrevok(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_revok(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_stop(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_wander(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_vcalib(struct uisrv *uisrv, char *argv[], int argc);
@@ -440,6 +445,14 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_goto(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "speed")) {
         uisrv_cmd_speed(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "revpenalty")) {
+        uisrv_cmd_revpenalty(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "revslack")) {
+        uisrv_cmd_revslack(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "initrevok")) {
+        uisrv_cmd_initrevok(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "revok")) {
+        uisrv_cmd_revok(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "stop")) {
         uisrv_cmd_stop(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "wander")) {
@@ -695,7 +708,143 @@ uisrv_cmd_speed(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
 
-    train_setspeed(&uisrv->traintab[train].task, speed);
+    train_set_speed(&uisrv->traintab[train].task, speed);
+}
+
+static void
+uisrv_cmd_revpenalty(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    unsigned int penalty_mm;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: revpenalty TRAIN PEN_MM");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (atou32(argv[1], &penalty_mm, (1u << 31) - 1) != 0) {
+        Printf(&uisrv->tty, "bad penalty distance '%s' mm", argv[1]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_set_rev_penalty_mm(&uisrv->traintab[train].task, penalty_mm);
+}
+
+static void
+uisrv_cmd_revslack(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    unsigned int slack_mm;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: revslack TRAIN SLACK_MM");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (atou32(argv[1], &slack_mm, (1u << 31) - 1) != 0) {
+        Printf(&uisrv->tty, "bad slack distance '%s' mm", argv[1]);
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_set_rev_slack_mm(&uisrv->traintab[train].task, slack_mm);
+}
+
+static void
+uisrv_cmd_initrevok(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    bool ok;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: initrevok TRAIN (on|off)");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (uisrv_read_onoff(argv[1], &ok) != 0) {
+        Print(&uisrv->tty, "usage: initrevok TRAIN (on|off)");
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_set_init_rev_ok(&uisrv->traintab[train].task, ok);
+}
+
+static void
+uisrv_cmd_revok(struct uisrv *uisrv, char *argv[], int argc)
+{
+    uint8_t train;
+    bool ok;
+
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: revok TRAIN (on|off)");
+        return;
+    }
+
+    if (atou8(argv[0], &train) != 0) {
+        Printf(&uisrv->tty, "bad train '%s'", argv[0]);
+        return;
+    }
+
+    if (uisrv_read_onoff(argv[1], &ok) != 0) {
+        Print(&uisrv->tty, "usage: revok TRAIN (on|off)");
+        return;
+    }
+
+    if (!uisrv->traintab[train].running) {
+        Printf(&uisrv->tty, "train %d not active", train);
+        return;
+    }
+
+    train_set_rev_ok(&uisrv->traintab[train].task, ok);
 }
 
 static void
@@ -898,7 +1047,6 @@ uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc)
     /* Parse arguments */
     uint8_t which;
     bool    light;
-    int     i;
     if (argc != 2) {
         Print(&uisrv->tty, "usage: lt! TRAIN (on|off)");
         return;
@@ -908,15 +1056,7 @@ uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc)
         return;
     }
     /* convert second argument to lower case */
-    for (i = 0; argv[1][i] != '\0'; i++) {
-        if (argv[1][i] >= 'A' && argv[1][i] <= 'Z')
-            argv[1][i] += 'a' - 'A';
-    }
-    if (strcmp(argv[1], "on") == 0) {
-        light = true;
-    } else if (strcmp(argv[1], "off") == 0) {
-        light = false;
-    } else {
+    if (uisrv_read_onoff(argv[1], &light) != 0) {
         Print(&uisrv->tty, "usage: lt! TRAIN (on|off)");
         return;
     }
@@ -1411,6 +1551,25 @@ tokenize(char *cmd, char **ts, int max_ts)
     }
 
     return n;
+}
+
+static int
+uisrv_read_onoff(char *arg, bool *result)
+{
+    int i;
+    for (i = 0; arg[i] != '\0'; i++) {
+        if (arg[i] >= 'A' && arg[i] <= 'Z')
+            arg[i] += 'a' - 'A';
+    }
+    if (strcmp(arg, "on") == 0) {
+        *result = true;
+        return 0;
+    } else if (strcmp(arg, "off") == 0) {
+        *result = false;
+        return 0;
+    } else {
+        return -1;
+    }
 }
 
 static int

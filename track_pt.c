@@ -16,8 +16,6 @@
 
 #define TRACK_ROUTESPEC_MAGIC           0x146ce017
 #define PATHFIND_DESTS_MAX              2
-#define PATHFIND_REVERSE_SLACK_MM       75
-#define PATHFIND_REVERSE_PENALTY_MM     0
 
 static void track_pt_advance_path_rev(
     struct switchctx *switches,
@@ -345,6 +343,8 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     assert(spec->train_len_um            >= 0);
     assert(spec->err_um                  >= 0);
     /* init_rev_ok and rev_ok can't be invalid */
+    assert(spec->rev_penalty_mm          >= 0);
+    assert(spec->rev_slack_mm            >= 0);
     assert(spec->dest.edge               != NULL);
     assert(spec->dest.pos_um             >= 0);
 
@@ -491,12 +491,12 @@ rfind_consider_reverse(struct routefind *rf, track_node_t merge)
     branch_info = rf_node_info(rf, branch);
 
     overshoot_um  = rf->spec->train_len_um / 2;
-    overshoot_um += 1000 * PATHFIND_REVERSE_SLACK_MM;
+    overshoot_um += 1000 * rf->spec->rev_slack_mm;
 
     old_dist  = branch_info->distance;
     new_dist  = merge_info->distance;
     new_dist += 2 * overshoot_um / 1000;
-    new_dist += PATHFIND_REVERSE_PENALTY_MM;
+    new_dist += rf->spec->rev_penalty_mm;
     if (old_dist == -1 || old_dist > new_dist) {
         track_pt_from_node(merge, &reverse_pt);
         track_pt_advance_trace(
@@ -690,6 +690,9 @@ void track_routespec_init(struct track_routespec *q)
     q->src_centre.edge        = NULL;
     q->src_centre.pos_um      = -1;
     q->err_um                 = -1;
+    /* NB. init_rev_ok, rev_ok can't take an invalid value */
+    q->rev_penalty_mm         = -1;
+    q->rev_slack_mm           = -1;
     q->train_len_um           = -1;
     q->dest.edge              = NULL;
     q->dest.pos_um            = -1;
