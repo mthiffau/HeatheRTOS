@@ -1,14 +1,18 @@
 IMPORTANT BUGS
-- Crash after estimate has overshot end of path in multi-path route.
+- Need more complete track query.
 
 IMPORTANT WORK
-- Integrate track reservation with route finding
-- Higher-level train state - resolving conflicts
-- Make trains robust to broken switches
+- Circuit train mode
+- Special reservation/borrowing 'system'
+- Re-calibrate
+- Track train while it's stopping
 
 Work:
-- Track train while it's stopping?
+- Run less often than every tick?
+- Wait for random time in waiting state?
+- Overshoot stops and send a reverse?
 - Switching turnouts near but beyond end of path
+- Make trains robust to broken switches
 
 UI improvements:
 - Output freezing for observation or copy-paste
