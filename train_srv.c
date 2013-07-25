@@ -125,6 +125,7 @@ struct train_pctrl {
     int                       est_time, accel_start;
     int                       vel_umpt;
     int                       stop_ticks, stop_um;
+    int                       stop_starttime, stop_offstime;
     bool                      reversed;
     const struct track_node  *lastsens;
     int                       err_um;
@@ -718,15 +719,32 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 static void
 trainsrv_stop(struct train *tr, int why)
 {
+    int stop_pos_um;
     tr->stop_reason = why;
     if (tr->pctrl.state == PCTRL_STOPPING || tr->pctrl.state == PCTRL_STOPPED)
         return; /* ignore */
 
     tcmux_train_speed(&tr->tcmux, tr->train_id, 0);
 
+    stop_pos_um =
+        polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[TRAIN_MAXSPEED]);
     tr->pctrl.state      = PCTRL_STOPPING;
-    tr->pctrl.stop_ticks = PCTRL_STOP_TICKS;
     tr->pctrl.stop_um    = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+    tr->pctrl.stop_starttime = tr->pctrl.est_time - 3;
+    tr->pctrl.stop_offstime  = polyinv(&tr->calib.stop,
+        stop_pos_um - tr->pctrl.stop_um,
+        0.f,    /* initial guess is time 0 */
+        1000.f, /* within a millimetre is good enough */
+        5);     /* use no more than 5 iterations */
+    tr->pctrl.stop_ticks = polyinv(&tr->calib.stop,
+        stop_pos_um,
+        0.f,    /* initial guess is time 0 */
+        1000.f, /* within a millimetre is good enough */
+        5);     /* use no more than 5 iterations */
+
+    dbglog(&tr->dbglog, "train%d expecting to take %d ticks to stop",
+        tr->train_id,
+        tr->pctrl.stop_ticks);
 
     dbglog(&tr->dbglog, "train%d stopping from %s-%dum, v=%dum/cs, d=%dum",
         tr->train_id,
@@ -1105,6 +1123,9 @@ trainsrv_timer(struct train *tr, int time)
         dt = time - tr->pctrl.est_time;
         tr->pctrl.est_time = time;
         tr->pctrl.stop_ticks -= dt;
+        trainsrv_pctrl_advance_um(tr,
+            polyeval(&tr->calib.stop, time - tr->pctrl.stop_starttime + tr->pctrl.stop_offstime)
+            - polyeval(&tr->calib.stop, time - dt - tr->pctrl.stop_starttime + tr->pctrl.stop_offstime));
         if (tr->pctrl.stop_ticks < 0) {
             struct track_path *last_path;
             int reason = tr->stop_reason;
@@ -1113,7 +1134,7 @@ trainsrv_timer(struct train *tr, int time)
             tr->pctrl.vel_umpt = 0;
             dist = tr->pctrl.stop_um;
             assert(dist >= 0);
-            trainsrv_pctrl_advance_um(tr, dist);
+            /*trainsrv_pctrl_advance_um(tr, dist);*/
             tr->reverse_ok = true;
             dbglog(&tr->dbglog,
                 "train%d stopped at %s-%dmm",

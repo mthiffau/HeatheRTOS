@@ -20,7 +20,7 @@
 
 #define TRAIN_CRAWLSPEED    2
 #define TRAIN_MINSPEED      2
-#define TRAIN_MAXSPEED      14
+#define TRAIN_MAXSPEED      13
 #define TRAIN_DEFSPEED      11
 
 /* Application task priorities */

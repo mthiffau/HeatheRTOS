@@ -14,6 +14,10 @@
 #   Acceleration curve. One (t, x) sample per line.
 #   t is in ticks, x is in mm.
 #
+# ??-stop.in:
+#   Stopping curve. One (t, x) sample per line.
+#   t is in ticks, x is in mm.
+#
 # ??-delay.in:
 #   A single line with number of ticks before motion starts from a standstill
 #
@@ -30,6 +34,7 @@ SENSOR_DELAY_TICKS = 3
 
 STOPDIST_DEGREE    = 2
 ACCEL_DEGREE       = 4
+STOP_DEGREE        = 4
 
 def die(msg):
     print('error:', msg, file=sys.stderr)
@@ -100,7 +105,7 @@ def fit_accel(train, accel):
     stdout, stderr = p.communicate(input=data_str)
     coeffs = list(map(float, stdout.split()))
     if len(coeffs) != ACCEL_DEGREE + 1:
-        die('stop distance fitting failed for train {:02d}'.format(train))
+        die('acceleration curve fitting failed for train {:02d}'.format(train))
     return coeffs
 
 def read_acutoff(train):
@@ -116,6 +121,27 @@ def read_delay(train):
     with open('{:02d}-delay.in'.format(train)) as f:
         return int(f.read())
 
+def read_stop(train):
+    curve = []
+    with open('{:02d}-stop.in'.format(train)) as f:
+        for line in f:
+            t, x = map(int, line.split())
+            curve.append((t, 1000 * x))
+    return curve
+
+def fit_stop(train, stop):
+    data_str = ''.join('{}, {}\n'.format(t, x) for t, x in stop)
+    p = subprocess.Popen(
+        ['node', '../polysolve.js', str(STOP_DEGREE)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        universal_newlines=True)
+    stdout, stderr = p.communicate(input=data_str)
+    coeffs = list(map(float, stdout.split()))
+    if len(coeffs) != STOP_DEGREE + 1:
+        die('stopping curve fitting failed for train {:02d}'.format(train))
+    return coeffs
+
 def main():
     for train in list_trains():
         vel      = read_vel(train)
@@ -123,6 +149,7 @@ def main():
         accel    = fit_accel(train, read_accel(train))
         delay    = read_delay(train)
         acutoff  = read_acutoff(train)
+        stop     = fit_stop(train, read_stop(train))
 
         # Generate us some C code
         print('{')
@@ -155,6 +182,14 @@ def main():
         print('        .accel_cutoff = {')
         for t in acutoff:
             print('            {},'.format(t))
+        print('        },')
+        # Acceleration position polynomial
+        print('        .stop = {')
+        print('            .deg = {},'.format(len(stop) - 1))
+        print('            .a = {')
+        for coeff in stop:
+            print('                {},'.format(coeff))
+        print('            }')
         print('        },')
         # Done
         print('    },')

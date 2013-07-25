@@ -23,6 +23,8 @@ struct calib {
     int         accel_cutoff[16]; /* cutoff time in ticks for each speed */
     int         accel_ref;        /* reference value for acceleration curve.
                                      = sum of velocities at speeds 8-12. */
+    /* Stopping position data. */
+    struct poly stop;
 };
 
 /* calibration server entry point. */
