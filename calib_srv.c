@@ -177,6 +177,7 @@ calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
     rspec.rev_ok       = false;
     rspec.train_len_um = 215000; /* FIXME hardcoded 21.5cm */
     rspec.dest         = calib_start;
+    rspec.dest_unidir  = true;   /* must arrive in requested direction */
 
     rc = track_routefind(&rspec, &to_loop_route);
     if (rc != 0)

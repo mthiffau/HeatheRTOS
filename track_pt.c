@@ -368,8 +368,13 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     /* Mark the destination in each direction. */
     TRACK_EDGE_DATA(spec->track, spec->dest.edge, rf->edge_dest_sel) =
         ROUTEFIND_DEST_FORWARD;
-    TRACK_EDGE_DATA(spec->track, spec->dest.edge->reverse, rf->edge_dest_sel) =
-        ROUTEFIND_DEST_REVERSE;
+    if (!rf->spec->dest_unidir) {
+        int8_t *rds = &TRACK_EDGE_DATA(
+            spec->track,
+            spec->dest.edge->reverse,
+            rf->edge_dest_sel);
+        *rds = ROUTEFIND_DEST_REVERSE;
+    }
 
     /* Initialize border node priority queue. */
     pqueue_init(&rf->border, ARRAY_SIZE(rf->border_mem), rf->border_mem);
@@ -682,6 +687,8 @@ track_routefind(
 
 void track_routespec_init(struct track_routespec *q)
 {
+    /* Values marked DEFAULT are default values, since no invalid
+     * value can be assigned to them. */
     q->magic                  = TRACK_ROUTESPEC_MAGIC;
     q->track                  = NULL;
     q->switches               = NULL;
@@ -690,10 +697,12 @@ void track_routespec_init(struct track_routespec *q)
     q->src_centre.edge        = NULL;
     q->src_centre.pos_um      = -1;
     q->err_um                 = -1;
-    /* NB. init_rev_ok, rev_ok can't take an invalid value */
+    q->init_rev_ok            = true;  /* DEFAULT */
+    q->rev_ok                 = true;  /* DEFAULT */
     q->rev_penalty_mm         = -1;
     q->rev_slack_mm           = -1;
     q->train_len_um           = -1;
     q->dest.edge              = NULL;
     q->dest.pos_um            = -1;
+    q->dest_unidir            = false; /* DEFAULT */
 }

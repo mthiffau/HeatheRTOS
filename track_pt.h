@@ -117,6 +117,7 @@ struct track_routespec {
     int               rev_slack_mm; /* Distance by which to overshoot merge. */
 
     struct track_pt   dest;         /* Destination for centre of train */
+    bool              dest_unidir;  /* Force direction of arrival. */
 };
 
 void track_routespec_init(struct track_routespec *q);
