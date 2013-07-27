@@ -1,6 +1,4 @@
 IMPORTANT BUGS
-- We double-compensate for reduced speeds in stopping distance.
-- We don't adjust stopping curve coefficients given new calibration.
 - We don't use estimate while stopping to correct position or drive.
 - Need more complete track query.
 
@@ -8,7 +6,7 @@ IMPORTANT WORK
 - Circuit train mode
 - Special reservation/borrowing 'system'
 - Re-calibrate
-- Track train while it's stopping
+- [in progress] Track train while it's stopping
 
 Work:
 - Run less often than every tick?
