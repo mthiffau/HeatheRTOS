@@ -300,11 +300,11 @@ calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
         cal->all[train].vel_umpt[i] = newvel;
     }
 
-    for (i = 0; i <= (unsigned)cal->all[train].stop_um.deg; i++)
-        cal->all[train].stop_um.a[i] *= alpha;
-
     for (i = 0; i <= (unsigned)cal->all[train].accel.deg; i++)
         cal->all[train].accel.a[i] *= alpha;
+
+    for (i = 0; i <= (unsigned)cal->all[train].stop_um.deg; i++)
+        cal->all[train].stop.a[i] *= alpha;
 }
 
 static void
