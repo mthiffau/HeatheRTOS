@@ -429,7 +429,8 @@ trainsrv_move_randomly(struct train *tr)
     track_node_t dest;
     struct track_pt dest_pt;
     for (;;) {
-        dest = &tr->track->nodes[rand(&tr->random) % tr->track->n_nodes];
+        uint32_t node_id = randrange(&tr->random, 0, tr->track->n_nodes);
+        dest = &tr->track->nodes[node_id];
         if (dest->type != TRACK_NODE_SENSOR)
             continue;
         if (dest->edge[TRACK_EDGE_AHEAD].dest->type == TRACK_NODE_EXIT)
