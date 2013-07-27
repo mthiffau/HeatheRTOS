@@ -51,6 +51,7 @@
 #define TRAIN_RES_GRACE_TICKS           20
 #define TRAIN_RES_GRACE_UM              30000  // 3cm
 #define TRAIN_REROUTE_RETRIES           4
+#define TRAIN_STOP_TICKS_EXTRA          100
 
 #define TRAIN_DEF_REV_SLACK_MM          75   // 7.5cm
 #define TRAIN_DEF_REV_PENALTY_MM        1000 // 1m
@@ -124,7 +125,7 @@ struct train_pctrl {
     struct track_pt           centre;
     int                       est_time, accel_start;
     int                       vel_umpt;
-    int                       stop_ticks, stop_um;
+    int                       stop_ticks, stop_um, stop_ticks_extra;
     int                       stop_starttime, stop_offstime;
     bool                      reversed;
     const struct track_node  *lastsens;
@@ -750,6 +751,7 @@ trainsrv_stop(struct train *tr, int why)
         0.f,    /* initial guess is time 0 */
         500.f,  /* within a millimetre is good enough */
         5);     /* use no more than 5 iterations */
+    tr->pctrl.stop_ticks_extra = TRAIN_STOP_TICKS_EXTRA;
 
     dbglog(&tr->dbglog, "train%d expecting to take %d ticks, %d um to stop",
         tr->train_id,
@@ -1089,6 +1091,8 @@ static void
 trainsrv_timer(struct train *tr, int time)
 {
     int dt, dist;
+    float last_pos, cur_pos;
+    int extra_ticks = 0;
 
     if (tr->state == TRAIN_WAITING) {
         int dt = time - tr->wait_start;
@@ -1132,10 +1136,22 @@ trainsrv_timer(struct train *tr, int time)
         dt = time - tr->pctrl.est_time;
         tr->pctrl.est_time = time;
         tr->pctrl.stop_ticks -= dt;
-        trainsrv_pctrl_advance_um(tr,
-            polyeval(&tr->calib.stop, time - tr->pctrl.stop_starttime + tr->pctrl.stop_offstime)
-            - polyeval(&tr->calib.stop, time - dt - tr->pctrl.stop_starttime + tr->pctrl.stop_offstime));
         if (tr->pctrl.stop_ticks < 0) {
+            extra_ticks = -tr->pctrl.stop_ticks;
+            tr->pctrl.stop_ticks = 0;
+            dt -= extra_ticks;
+            tr->pctrl.stop_ticks_extra -= extra_ticks;
+        }
+        if (dt > 0) {
+            cur_pos = polyeval(
+                &tr->calib.stop,
+                time - tr->pctrl.stop_starttime + tr->pctrl.stop_offstime);
+            last_pos = polyeval(
+                &tr->calib.stop,
+                time - dt - tr->pctrl.stop_starttime + tr->pctrl.stop_offstime);
+            trainsrv_pctrl_advance_um(tr, (int)(cur_pos - last_pos));
+        }
+        if (tr->pctrl.stop_ticks_extra < 0) {
             struct track_path *last_path;
             int reason = tr->stop_reason;
             tr->stop_reason = NOT_STOPPING;

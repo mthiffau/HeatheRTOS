@@ -59,9 +59,18 @@ struct initcalib {
     struct calib  calib;
 };
 
+struct initalpha {
+    uint8_t       train_id;
+    track_graph_t track;
+    float         alpha;
+};
+
 static const struct initcalib initcalib[];
 static const unsigned int     n_initcalib;
+static const struct initalpha initalpha[];
+static const unsigned int     n_initalpha;
 
+static void calibsrv_scale(struct calib *calib, float alpha);
 static void calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg);
 static void calibsrv_stopcalib(struct calsrv *cal, struct calmsg *msg);
 static track_node_t calibsrv_await(
@@ -87,6 +96,12 @@ calibsrv_main(void)
     for (i = 0; i < n_initcalib; i++) {
         const struct initcalib *ic = &initcalib[i];
         cal.all[ic->train_id] = ic->calib;
+    }
+
+    for (i = 0; i < n_initalpha; i++) {
+        const struct initalpha *ia = &initalpha[i];
+        if (ia->track == cal.track)
+            calibsrv_scale(&cal.all[ia->train_id], ia->alpha);
     }
 
     /* Register */
@@ -216,7 +231,18 @@ calibsrv_calibsetup(struct calsrv *cal, uint8_t train)
         &cal->tcmux,
         cal->track->calib_switches[i]->num,
         cal->track->calib_curved[i]);
+}
 
+static void
+calibsrv_scale(struct calib *calib, float alpha)
+{
+    unsigned i;
+    for (i = 0; i < ARRAY_SIZE(calib->vel_umpt); i++)
+        calib->vel_umpt[i] = (int)(alpha * (float)calib->vel_umpt[i]);
+    for (i = 0; i <= (unsigned)calib->accel.deg; i++)
+        calib->accel.a[i] *= alpha;
+    for (i = 0; i <= (unsigned)calib->stop_um.deg; i++)
+        calib->stop.a[i] *= alpha;
 }
 
 static void
@@ -292,20 +318,9 @@ calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
     dbglog(&cal->dbglog, "calibration alpha=%d.%04d", ahi, alo);
 
     /* Scale calibration values */
-    for (i = 0; i < ARRAY_SIZE(cal->all[train].vel_umpt); i++) {
-        int newvel;
-        if (i >= minspeed && i <= maxspeed)
-            newvel = vel_umpt[i];
-        else
-            newvel = (int)(alpha * (float)cal->all[train].vel_umpt[i]);
-        cal->all[train].vel_umpt[i] = newvel;
-    }
-
-    for (i = 0; i <= (unsigned)cal->all[train].accel.deg; i++)
-        cal->all[train].accel.a[i] *= alpha;
-
-    for (i = 0; i <= (unsigned)cal->all[train].stop_um.deg; i++)
-        cal->all[train].stop.a[i] *= alpha;
+    calibsrv_scale(&cal->all[train], alpha);
+    for (speed = minspeed; speed <= maxspeed; speed++)
+        cal->all[train].vel_umpt[speed] = vel_umpt[speed];
 }
 
 static void
@@ -371,3 +386,13 @@ static const struct initcalib initcalib[] = {
 };
 
 static const unsigned int n_initcalib = ARRAY_SIZE(initcalib);
+
+static const struct initalpha initalpha[] = {
+    {
+        .train_id = 45,
+        .track    = &track_b,
+        .alpha    = 0.9962f,
+    },
+};
+
+static const unsigned int n_initalpha = ARRAY_SIZE(initalpha);
