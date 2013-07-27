@@ -159,6 +159,8 @@ mutex BR156 E2  : BR155 EX2
 mutex BR154 B14 : BR153 EX1
 
 # calibration cycle
+calib  C11
+calib  BR13
 calib  B5
 calib  D3
 calib  MR10
@@ -177,5 +179,3 @@ calib  MR15
 calib  B15
 calib  A3
 calib  BR14
-calib  C11
-calib  BR13
