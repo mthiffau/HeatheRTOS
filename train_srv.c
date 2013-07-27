@@ -730,21 +730,22 @@ trainsrv_stop(struct train *tr, int why)
         polyeval(&tr->calib.stop_um, tr->calib.vel_umpt[TRAIN_MAXSPEED]);
     tr->pctrl.state      = PCTRL_STOPPING;
     tr->pctrl.stop_um    = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
-    tr->pctrl.stop_starttime = tr->pctrl.est_time - 3;
+    tr->pctrl.stop_starttime = tr->pctrl.est_time;
     tr->pctrl.stop_offstime  = polyinv(&tr->calib.stop,
         stop_pos_um - tr->pctrl.stop_um,
         0.f,    /* initial guess is time 0 */
-        1000.f, /* within a millimetre is good enough */
+        500.f,  /* within a millimetre is good enough */
         5);     /* use no more than 5 iterations */
-    tr->pctrl.stop_ticks = polyinv(&tr->calib.stop,
+    tr->pctrl.stop_ticks = -tr->pctrl.stop_offstime + polyinv(&tr->calib.stop,
         stop_pos_um,
         0.f,    /* initial guess is time 0 */
-        1000.f, /* within a millimetre is good enough */
+        500.f,  /* within a millimetre is good enough */
         5);     /* use no more than 5 iterations */
 
-    dbglog(&tr->dbglog, "train%d expecting to take %d ticks to stop",
+    dbglog(&tr->dbglog, "train%d expecting to take %d ticks, %d um to stop",
         tr->train_id,
-        tr->pctrl.stop_ticks);
+        tr->pctrl.stop_ticks,
+        (int)(stop_pos_um - polyeval(&tr->calib.stop, tr->pctrl.stop_offstime)));
 
     dbglog(&tr->dbglog, "train%d stopping from %s-%dum, v=%dum/cs, d=%dum",
         tr->train_id,
