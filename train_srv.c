@@ -192,6 +192,7 @@ static void trainsrv_orient_train(struct train *t);
 static void trainsrv_setspeed(struct train *tr, uint8_t speed);
 static void trainsrv_swnext_init(struct train *tr);
 static void trainsrv_swnext_advance(struct train *tr);
+static void trainsrv_choose_wait_time(struct train *tr);
 static void trainsrv_waiting(struct train *tr);
 static void trainsrv_parked(struct train *tr);
 static void trainsrv_move_randomly(struct train *tr);
@@ -402,15 +403,22 @@ trainsrv_swnext_advance(struct train *tr)
 }
 
 static void
+trainsrv_choose_wait_time(struct train *tr)
+{
+    assert(tr->state == TRAIN_WAITING);
+    tr->wait_ticks = randrange(&tr->random, 100, 1000);
+    tr->wait_start = tr->pctrl.est_time;
+}
+
+static void
 trainsrv_waiting(struct train *tr)
 {
     if (tr->state == TRAIN_WAITING)
         return;
 
     tr->state                = TRAIN_WAITING;
-    tr->wait_ticks           = 200; /* FIXME!!! */
-    tr->wait_start           = tr->pctrl.est_time;
     tr->wait_reroute_retries = TRAIN_REROUTE_RETRIES;
+    trainsrv_choose_wait_time(tr);
 }
 
 static void
@@ -1102,8 +1110,7 @@ trainsrv_timer(struct train *tr, int time)
                     dbglog(&tr->dbglog,
                         "train%d re-routing failed, retrying",
                         tr->train_id);
-                    tr->wait_start = tr->pctrl.est_time;
-                    tr->wait_ticks = 200; /* FIXME */
+                    trainsrv_choose_wait_time(tr);
                     tr->wait_reroute_retries--;
                 }
             }
