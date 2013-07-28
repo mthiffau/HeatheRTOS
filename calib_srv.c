@@ -249,7 +249,7 @@ static void
 calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
 {
     unsigned          i;
-    int               exclude_um, lap_um;
+    int               exclude_um, lap_um, laps;
     int               vel_umpt[16];
     float             alpha; /* linear adjustment factor */
 
@@ -285,18 +285,20 @@ calibsrv_vcalib(struct calsrv *cal, struct calmsg *msg)
             cal->track->calib_sensors[VCALIB_SENSORS_SKIP],
             &start_time);
 
+        laps = 0;
         travel_um = -exclude_um;
         v = -9999;
         do {
             calibsrv_await(cal, cal->track->calib_sensors[0], &end_time);
+            laps++;
             travel_um += lap_um;
             v_diff = v;
             v = travel_um / (end_time - start_time);
             v_diff -= v;
+            dbglog(&cal->dbglog, "train%d speed %d v_diff=%d", train, speed, v_diff);
             if (v_diff < 0)
                 v_diff = -v_diff;
-            dbglog(&cal->dbglog, "train%d speed %d v_diff=%d", train, speed, v_diff);
-        } while (v_diff > VCALIB_ERR_THRESHOLD);
+        } while (v_diff > VCALIB_ERR_THRESHOLD && laps < 3);
 
         vel_umpt[speed] = v;
         dbglog(&cal->dbglog, "train%d speed %d = %d um/tick", train, speed, v);

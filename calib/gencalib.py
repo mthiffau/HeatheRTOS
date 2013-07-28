@@ -67,7 +67,9 @@ def read_stopdist(train):
         for line in f:
             v, x = map(int, line.split())
             stopdist.append((v, 1000 * x))
-    if len(stopdist) != 14:
+    if len(stopdist) > 11:
+        stopdist = stopdist[:11]
+    if len(stopdist) != 11:
         die('wrong number of stopping distances for train {:02d}'.format(train))
     return stopdist
 
