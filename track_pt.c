@@ -232,6 +232,7 @@ struct rf_node_info {
 struct routefind {
     const struct track_routespec *spec;
     struct rf_node_info node_info[TRACK_NODES_MAX];
+    struct rf_node_info dest_info[2];
     struct pqueue       border;
     struct pqueue_node  border_mem[TRACK_NODES_MAX + PATHFIND_DESTS_MAX];
     int8_t              edge_dest_sel[TRACK_EDGES_MAX]; /* ROUTEFIND_DEST_(*) */
@@ -250,15 +251,16 @@ rf_edge_dest(struct routefind *rf, track_edge_t edge)
 }
 
 static inline bool
-rf_dest_valid(int dest)
+rf_dest_valid(struct routefind *rf, int dest)
 {
-    return dest == ROUTEFIND_DEST_FORWARD || dest == ROUTEFIND_DEST_REVERSE;
+    return dest == ROUTEFIND_DEST_FORWARD
+        || (dest == ROUTEFIND_DEST_REVERSE && !rf->spec->dest_unidir);
 }
 
 static inline void
-rf_checkdest(int dest)
+rf_checkdest(struct routefind *rf, int dest)
 {
-    assert(rf_dest_valid(dest));
+    assert(rf_dest_valid(rf, dest));
 }
 
 static inline size_t
@@ -270,7 +272,7 @@ rf_node2val(struct routefind *rf, track_node_t node)
 static inline size_t
 rf_dest2val(struct routefind *rf, int dest)
 {
-    rf_checkdest(dest);
+    rf_checkdest(rf, dest);
     return rf->spec->track->n_nodes + dest;
 }
 
@@ -298,12 +300,18 @@ static inline struct track_pt
 rf_getdest(struct routefind *rf, int dest)
 {
     struct track_pt p;
-    (void)rf;
-    rf_checkdest(dest);
+    rf_checkdest(rf, dest);
     p = rf->spec->dest;
     if (dest == ROUTEFIND_DEST_REVERSE)
         track_pt_reverse(&p);
     return p;
+}
+
+static inline struct rf_node_info*
+rf_dest_info(struct routefind *rf, int dest)
+{
+    rf_checkdest(rf, dest);
+    return &rf->dest_info[dest];
 }
 
 static int
@@ -357,19 +365,23 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
         inf->pathsrc.pos_um = -1;
     }
 
+    for (i = 0; i < ARRAY_SIZE(rf->dest_info); i++) {
+        struct rf_node_info *inf = &rf->dest_info[i];
+        inf->distance = -1;
+        inf->hops     = 0;
+        inf->parent   = NULL;
+        inf->visited  = false;
+        inf->pathsrc.edge   = NULL;
+        inf->pathsrc.pos_um = -1;
+    }
+
     for (i = 0; i < ARRAY_SIZE(rf->edge_dest_sel); i++)
         rf->edge_dest_sel[i] = ROUTEFIND_DEST_NONE;
 
     /* Mark the destination in each direction. */
-    TRACK_EDGE_DATA(spec->track, spec->dest.edge, rf->edge_dest_sel) =
-        ROUTEFIND_DEST_FORWARD;
-    if (!rf->spec->dest_unidir) {
-        int8_t *rds = &TRACK_EDGE_DATA(
-            spec->track,
-            spec->dest.edge->reverse,
-            rf->edge_dest_sel);
-        *rds = ROUTEFIND_DEST_REVERSE;
-    }
+    *rf_edge_dest(rf, spec->dest.edge) = ROUTEFIND_DEST_FORWARD;
+    if (!rf->spec->dest_unidir)
+        *rf_edge_dest(rf, spec->dest.edge->reverse) = ROUTEFIND_DEST_REVERSE;
 
     /* Initialize border node priority queue. */
     pqueue_init(&rf->border, ARRAY_SIZE(rf->border_mem), rf->border_mem);
@@ -377,8 +389,10 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     /* Start with destinations of source point edges at 1 hop and
      * at distances determined by the points. */
     for (i = 0; i < (spec->init_rev_ok ? 2 : 1); i++) {
-        struct rf_node_info *src_info;
+        struct rf_node_info *src_info, *src_dest_info;
         struct track_pt      src_pt = spec->src_centre;
+        int                  src_dest;
+        struct track_pt      src_dest_pt;
         if (i == 1)
             track_pt_reverse(&src_pt);
         src_info = rf_node_info(rf, src_pt.edge->dest);
@@ -393,6 +407,26 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
             src_pt.edge->dest - spec->track->nodes,
             src_info->distance);
         assertv(rc, rc == 0);
+
+        /* There may be a destination before the end of the edge. */
+        src_dest = *rf_edge_dest(rf, src_pt.edge);
+        if (src_dest == ROUTEFIND_DEST_NONE)
+            continue; /* No destination on this edge */
+        src_dest_pt = rf_getdest(rf, src_dest);
+        assert(src_dest_pt.edge == src_pt.edge);
+        if (src_dest_pt.pos_um > src_pt.pos_um)
+            continue; /* Destination on this edge is behind src_pt. */
+        src_dest_info = rf_dest_info(rf, src_dest);
+        src_dest_info->hops      = 1;
+        src_dest_info->bighops   = 0;
+        src_dest_info->totalhops = 1;
+        src_dest_info->distance  = (src_pt.pos_um - src_dest_pt.pos_um) / 1000;
+        src_dest_info->parent    = src_pt.edge;
+        src_dest_info->pathsrc   = src_pt;
+        rc = pqueue_add(
+            &rf->border,
+            rf_dest2val(rf, src_dest),
+            src_dest_info->distance);
     }
 }
 
@@ -437,15 +471,31 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
 
     /* Check for end destinations on the edge. */
     dest_which = *rf_edge_dest(rf, edge);
-    if (rf_dest_valid(dest_which)) {
-        struct track_pt dest_pt;
-        int             dest_dist;
+    if (rf_dest_valid(rf, dest_which)) {
+        struct track_pt      dest_pt;
+        int                  dest_dist;
+        struct rf_node_info *end_info;
+        size_t               dest_val;
         dest_dist  = src_info->distance;
         dest_dist += edge->len_mm;
         dest_pt    = rf_getdest(rf, dest_which);
         dest_dist -= dest_pt.pos_um / 1000;
-        rc = pqueue_add(&rf->border, rf_dest2val(rf, dest_which), dest_dist);
-        assertv(rc, rc == 0);
+        end_info   = rf_dest_info(rf, dest_which);
+        old_dist = end_info->distance;
+        if (old_dist == -1 || old_dist > dest_dist) {
+            end_info->distance  = dest_dist;
+            end_info->hops      = src_info->hops + 1;
+            end_info->bighops   = src_info->bighops;
+            end_info->totalhops = src_info->totalhops + 1;
+            end_info->parent    = edge;
+            end_info->pathsrc   = src_info->pathsrc;
+            dest_val            = rf_dest2val(rf, dest_which);
+            if (old_dist == -1)
+                rc = pqueue_add(&rf->border, dest_val, dest_dist);
+            else
+                rc = pqueue_decreasekey(&rf->border, dest_val, dest_dist);
+            assertv(rc, rc == 0);
+        }
     }
 
     if (dest_info->visited)
@@ -587,11 +637,17 @@ rfind_reconstruct(
     struct track_route *route_out)
 {
     unsigned i;
+    int dest_which;
     /* Reconstruct path backwards */
     track_node_t dest  = dest_pt.edge->src;
-    int bighops        = rf_node_info(rf, dest)->bighops + 1;
-    int totalhops      = rf_node_info(rf, dest)->totalhops + 1;
-    int path_hops      = rf_node_info(rf, dest)->hops + 1;
+    dest_which         = ROUTEFIND_DEST_FORWARD;
+    if (dest_pt.edge != rf_getdest(rf, dest_which).edge) {
+        dest_which = ROUTEFIND_DEST_REVERSE;
+        assert(dest_pt.edge == rf_getdest(rf, dest_which).edge);
+    }
+    int bighops        = rf_dest_info(rf, dest_which)->bighops + 1;
+    int totalhops      = rf_dest_info(rf, dest_which)->totalhops;
+    int path_hops      = rf_dest_info(rf, dest_which)->hops;
     route_out->n_paths = bighops;
     while (--bighops >= 0) {
         struct track_path *path_out = &route_out->paths[bighops];
@@ -600,7 +656,10 @@ rfind_reconstruct(
             path_out->edge_ix[i] = -1;
 
         path_out->end       = dest_pt;
-        path_out->start     = rf_node_info(rf, dest)->pathsrc;
+        if (bighops == rf_dest_info(rf, dest_which)->bighops)
+            path_out->start = rf_dest_info(rf, dest_which)->pathsrc;
+        else
+            path_out->start = rf_node_info(rf, dest)->pathsrc;
         path_out->track     = rf->spec->track;
         path_out->hops      = path_hops;
         path_out->len_mm    = -dest_pt.pos_um / 1000;
