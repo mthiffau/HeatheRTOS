@@ -567,19 +567,19 @@ trainsrv_distance_path(
     whence = pctrl->centre;
     switch (pctrl->path_state) {
     case PATH_ON:
-        i = TRACK_NODE_DATA(tr->track, whence.edge->src, tr->path->node_ix);
+        i = TRACK_EDGE_DATA(tr->track, whence.edge, tr->path->edge_ix);
         assertv(i, i >= 0);
         extra_um = 0;
         break;
     case PATH_BEFORE:
-        i = TRACK_NODE_DATA(tr->track, whence.edge->src, tr->path->node_ix);
+        i = TRACK_EDGE_DATA(tr->track, whence.edge, tr->path->edge_ix);
         assertv(i, i < 0);
         extra_um      = trainsrv_distance_to_path_start(tr, whence);
         whence.edge   = tr->path->edges[0];
         whence.pos_um = 1000 * whence.edge->len_mm - 1;
         break;
     case PATH_AFTER:
-        i = TRACK_NODE_DATA(tr->track, whence.edge->src, tr->path->node_ix);
+        i = TRACK_EDGE_DATA(tr->track, whence.edge, tr->path->edge_ix);
         assertv(i, i < 0);
         extra_um      = trainsrv_distance_to_rev_path_end(tr, whence);
         whence.edge   = tr->path->edges[tr->path->hops - 1];
@@ -869,7 +869,10 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
 
     /* Reject sensors not on our path. These are the result of a too-large
      * sensor timeout window. */
-    sens_path_ix = TRACK_NODE_DATA(tr->track, sens, tr->path->node_ix);
+    sens_path_ix = TRACK_EDGE_DATA(
+        tr->track,
+        &sens->edge[TRACK_EDGE_AHEAD],
+        tr->path->edge_ix);
     if (sens_path_ix < 0 || (unsigned)sens_path_ix >= tr->path->hops)
         return;
 
@@ -897,10 +900,8 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         -trainsrv_distance_path(tr, &est_pctrl, tr->pctrl.centre);
 
     /* Might have expected later sensors with too early a timeout. */
-    if (tr->pctrl.err_um > 0) {
-        tr->path_sensnext = TRACK_NODE_DATA(tr->track, sens, tr->path->node_ix);
-        tr->path_sensnext++;
-    }
+    if (tr->pctrl.err_um > 0)
+        tr->path_sensnext = sens_path_ix + 1;
 
     trainsrv_pctrl_update_path_state(tr, -tr->pctrl.err_um);
 
@@ -1063,7 +1064,7 @@ trainsrv_pctrl_update_path_state(struct train *tr, int delta_um)
     int orig_state;
     orig_state  = tr->pctrl.path_state;
     centre_edge = tr->pctrl.centre.edge;
-    centre_ix   = TRACK_NODE_DATA(tr->track, centre_edge->src, tr->path->node_ix);
+    centre_ix   = TRACK_EDGE_DATA(tr->track, centre_edge, tr->path->edge_ix);
     if (centre_ix >= 0 && (unsigned)centre_ix < tr->path->hops)
         tr->pctrl.path_state = PATH_ON;
     else if (orig_state == PATH_ON)
@@ -1339,7 +1340,7 @@ trainsrv_track_reserve(struct train *tr, int need_um, int want_um)
     if (last_res_ix < 0)
         last_res_ix += ARRAY_SIZE(tr->respath.edges);
     last_res = tr->respath.edges[last_res_ix];
-    path_ix = TRACK_NODE_DATA(tr->track, last_res->src, tr->path->node_ix);
+    path_ix = TRACK_EDGE_DATA(tr->track, last_res, tr->path->edge_ix);
     if (path_ix >= 0) {
         while (++path_ix < (int)tr->path->hops) {
             track_edge_t newres = tr->path->edges[path_ix];

@@ -121,17 +121,18 @@ track_pt_advance_path(
             pt->pos_um = 0;
             return;
         }
-        edge_ix = TRACK_EDGE_AHEAD;
-        if (next_src->type == TRACK_NODE_BRANCH) {
-            bool curved;
-            int j = TRACK_NODE_DATA(path->track, next_src, path->node_ix);
-            if (j < 0 || (j >= 0 && (unsigned)j >= path->hops))
+        edge_ix = TRACK_EDGE_DATA(path->track, pt->edge, path->edge_ix);
+        if (edge_ix >= 0 && (unsigned)edge_ix < path->hops - 1) {
+            pt->edge = path->edges[edge_ix + 1];
+        } else {
+            edge_ix = TRACK_EDGE_AHEAD;
+            if (next_src->type == TRACK_NODE_BRANCH) {
+                bool curved;
                 curved = switch_iscurved(switches, next_src->num);
-            else
-                curved = path->edges[j] == &next_src->edge[TRACK_EDGE_CURVED];
-            edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
+                edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
+            }
+            pt->edge = &next_src->edge[edge_ix];
         }
-        pt->edge    = &next_src->edge[edge_ix];
         pt->pos_um += 1000 * pt->edge->len_mm;
     }
 }
@@ -153,25 +154,19 @@ track_pt_advance_path_rev(
             pt->pos_um = 1000 * pt->edge->len_mm;
             return;
         }
-        edge_ix = TRACK_EDGE_AHEAD;
-        if (next_rdest->type == TRACK_NODE_BRANCH) {
-            bool curved;
-            int sj, cj;
-            track_node_t s_src, c_src;
-            s_src = next_rdest->edge[TRACK_EDGE_STRAIGHT].dest->reverse;
-            c_src = next_rdest->edge[TRACK_EDGE_CURVED].dest->reverse;
-            sj = TRACK_NODE_DATA(path->track, s_src, path->node_ix);
-            cj = TRACK_NODE_DATA(path->track, c_src, path->node_ix);
-            if (sj >= 0 && (unsigned)sj < path->hops)
-                curved = false;
-            else if (cj >= 0 && (unsigned)cj < path->hops)
-                curved = true;
-            else
-                curved = switch_iscurved(switches, next_dest->num);
-            edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
-        }
         pt->pos_um -= 1000 * pt->edge->len_mm;
-        pt->edge    = next_rdest->edge[edge_ix].reverse;
+        edge_ix = TRACK_EDGE_DATA(path->track, pt->edge, path->edge_ix);
+        if (edge_ix >= 1) {
+            pt->edge = path->edges[edge_ix - 1];
+        } else {
+            edge_ix = TRACK_EDGE_AHEAD;
+            if (next_rdest->type == TRACK_NODE_BRANCH) {
+                bool curved;
+                curved = switch_iscurved(switches, next_dest->num);
+                edge_ix = curved ? TRACK_EDGE_CURVED : TRACK_EDGE_STRAIGHT;
+            }
+            pt->edge = next_rdest->edge[edge_ix].reverse;
+        }
     }
 }
 
@@ -185,8 +180,8 @@ track_pt_distance_path(
     int a_ix, b_ix;
     int sign = 1;
 
-    a_ix = TRACK_NODE_DATA(path->track, a.edge->src, path->node_ix);
-    b_ix = TRACK_NODE_DATA(path->track, b.edge->src, path->node_ix);
+    a_ix = TRACK_EDGE_DATA(path->track, a.edge, path->edge_ix);
+    b_ix = TRACK_EDGE_DATA(path->track, b.edge, path->edge_ix);
     assert(a_ix >= 0);
     assert(b_ix >= 0);
 
@@ -207,10 +202,10 @@ track_pt_distance_path(
             panic("panic! track_pt_distance_path() ran off end of %s",
                 next_src->name);
         }
-        edge_ix  = TRACK_NODE_DATA(path->track, next_src, path->node_ix);
+        edge_ix = TRACK_EDGE_DATA(path->track, a.edge, path->edge_ix);
         assert(edge_ix >= 0);
-        assert((unsigned)edge_ix < path->hops);
-        a.edge   = path->edges[edge_ix];
+        assert((unsigned)edge_ix < path->hops - 1);
+        a.edge   = path->edges[edge_ix + 1];
         a.pos_um = 1000 * a.edge->len_mm;
     }
 
@@ -601,18 +596,16 @@ rfind_reconstruct(
     while (--bighops >= 0) {
         struct track_path *path_out = &route_out->paths[bighops];
 
-        for (i = 0; i < ARRAY_SIZE(path_out->node_ix); i++)
-            path_out->node_ix[i] = -1;
+        for (i = 0; i < ARRAY_SIZE(path_out->edge_ix); i++)
+            path_out->edge_ix[i] = -1;
 
         path_out->end       = dest_pt;
         path_out->start     = rf_node_info(rf, dest)->pathsrc;
         path_out->track     = rf->spec->track;
         path_out->hops      = path_hops;
         path_out->len_mm    = -dest_pt.pos_um / 1000;
-        TRACK_NODE_DATA(rf->spec->track, dest_pt.edge->dest, path_out->node_ix) = path_hops;
         route_out->edges[--totalhops] = dest_pt.edge;
         path_hops--;
-        TRACK_NODE_DATA(rf->spec->track, dest_pt.edge->src, path_out->node_ix) = path_hops;
         if (bighops != route_out->n_paths - 1) {
             track_node_t branch;
             struct rf_node_info *branch_info;
@@ -657,13 +650,8 @@ rfind_reconstruct(
         for (i = 0; i < path_out->hops; i++) {
             track_edge_t edge = path_out->edges[i];
             path_out->len_mm += edge->len_mm;
-            TRACK_NODE_DATA(rf->spec->track, edge->src, path_out->node_ix) = i;
+            TRACK_EDGE_DATA(rf->spec->track, edge, path_out->edge_ix) = i;
         }
-        TRACK_NODE_DATA(
-            rf->spec->track,
-            path_out->edges[path_out->hops-1]->dest,
-            path_out->node_ix) =
-            path_out->hops;
 
         path_out->len_mm -= path_out->start.edge->len_mm;
         path_out->len_mm += path_out->start.pos_um / 1000;

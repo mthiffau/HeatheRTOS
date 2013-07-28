@@ -32,10 +32,9 @@ struct track_path {
     size_t          hops, len_mm;
     track_edge_t   *edges;
 
-    /* Index of each node in this path. Gives the edge OUT from that
-     * node. Last node gets mapped to hops (1 past the end of edges).
-     * Nodes outside of the path are mapped to -1. */
-    int16_t         node_ix[TRACK_NODES_MAX];
+    /* Index of each edge in this path.
+     * Edges outside of the path are mapped to -1. */
+    int16_t         edge_ix[TRACK_EDGES_MAX];
 };
 
 STATIC_ASSERT(track_path_node_ix_size, TRACK_NODES_MAX <= (1 << 15));
