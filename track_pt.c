@@ -433,9 +433,13 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
 static bool
 rfind_edge_ok(struct routefind *rf, track_edge_t edge)
 {
+    struct reservation res;
     int owner;
     /* Reject edges that are owned by other trains. */
-    owner = track_query(rf->spec->res, edge);
+    track_query(rf->spec->res, edge, &res);
+    if (res.disabled)
+        return false;
+    owner = res.train_id;
     return owner < 0 || owner == rf->spec->train_id;
 }
 

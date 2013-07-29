@@ -454,6 +454,7 @@ trainsrv_move_randomly(struct train *tr)
     struct track_pt dest_pt;
     for (;;) {
         uint32_t node_id = randrange(&tr->random, 0, tr->track->n_nodes);
+        struct reservation res;
         dest = &tr->track->nodes[node_id];
         if (dest->type != TRACK_NODE_SENSOR)
             continue;
@@ -461,9 +462,11 @@ trainsrv_move_randomly(struct train *tr)
             continue;
         if (dest->reverse->edge[TRACK_EDGE_AHEAD].dest->type == TRACK_NODE_EXIT)
             continue;
-        if (track_query(&tr->res, &dest->edge[TRACK_EDGE_AHEAD]) >= 0)
+        track_query(&tr->res, &dest->edge[TRACK_EDGE_AHEAD], &res);
+        if (res.train_id >= 0)
             continue;
-        if (track_query(&tr->res, &dest->reverse->edge[TRACK_EDGE_AHEAD]) >= 0)
+        track_query(&tr->res, &dest->reverse->edge[TRACK_EDGE_AHEAD], &res);
+        if (res.train_id >= 0)
             continue;
         break;
     }

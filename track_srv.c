@@ -20,6 +20,7 @@ enum {
     TRACKMSG_RESERVE,
     TRACKMSG_RELEASE,
     TRACKMSG_QUERY,
+    TRACKMSG_DISABLE,
 };
 
 enum {
@@ -27,22 +28,10 @@ enum {
     TRACK_RESERVE_FAIL,
 };
 
-enum {
-    TRACK_FREE,     /* Unused */
-    TRACK_RESERVED, /* Reserved by a train. */
-    TRACK_BLOCKED,  /* Conflicts with an edge reserved by a train */
-};
-
 struct trackmsg {
     int          type;
     int          train_id;
     track_edge_t edge;
-};
-
-struct reservation {
-    int state;
-    int train_id;
-    int refcount;
 };
 
 struct tracksrv {
@@ -56,6 +45,8 @@ static void tracksrv_reserve(
 static void tracksrv_release(
     struct tracksrv *track, tid_t client, track_edge_t edge, int train);
 static void   tracksrv_query(
+    struct tracksrv *track, tid_t client, track_edge_t edge);
+static void   tracksrv_disable(
     struct tracksrv *track, tid_t client, track_edge_t edge);
 
 void
@@ -71,6 +62,7 @@ tracksrv_main(void)
 
     for (i = 0; i < ARRAY_SIZE(tracksrv.reservations); i++) {
         tracksrv.reservations[i].state    = TRACK_FREE;
+        tracksrv.reservations[i].disabled = false;
 	tracksrv.reservations[i].train_id = -1;
 	tracksrv.reservations[i].refcount = 0;
     }
@@ -97,6 +89,9 @@ tracksrv_main(void)
         case TRACKMSG_QUERY:
 	    tracksrv_query(&tracksrv, client, msg.edge);
             break;
+        case TRACKMSG_DISABLE:
+            tracksrv_disable(&tracksrv, client, msg.edge);
+            break;
         default:
             panic("invalid track server message type %d", msg.type);
         }
@@ -116,6 +111,7 @@ tracksrv_reserve(
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
     if (res->state == TRACK_RESERVED
+        || res->disabled
         || (res->state == TRACK_BLOCKED && res->train_id != train)) {
         reserve_success = false;
         /* dbglog(&track->dbglog,
@@ -194,7 +190,22 @@ tracksrv_query(
     int  rc;
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
-    rc = Reply(client, &res->train_id, sizeof (res->train_id));
+    rc = Reply(client, res, sizeof (*res));
+    assertv(rc, rc == 0);
+}
+
+static void
+tracksrv_disable(
+    struct tracksrv *track,
+    tid_t client,
+    track_edge_t edge)
+{
+    struct reservation *res;
+    int  rc;
+
+    res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    res->disabled = true;
+    rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
 }
 
@@ -236,18 +247,38 @@ track_release(struct trackctx *ctx, track_edge_t edge)
     assertv(rplylen, rplylen == 0);
 }
 
-int
-track_query(struct trackctx *ctx, track_edge_t edge)
+void
+track_query(
+    struct trackctx *ctx,
+    track_edge_t edge,
+    struct reservation *res_out)
 {
     struct trackmsg msg;
-    int who, rplylen;
+    int rplylen;
 
     msg.type = TRACKMSG_QUERY;
     msg.train_id = ctx->train_id;
     msg.edge     = edge;
 
-    rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), &who, sizeof (who));
-    assertv(rplylen, rplylen == sizeof (who));
+    rplylen = Send(
+        ctx->tracksrv_tid,
+        &msg,
+        sizeof (msg),
+        res_out,
+        sizeof (*res_out));
+    assertv(rplylen, rplylen == sizeof (*res_out));
+}
 
-    return who;
+void
+track_disable(struct trackctx *ctx, track_edge_t edge)
+{
+    struct trackmsg msg;
+    int rplylen;
+
+    msg.type = TRACKMSG_DISABLE;
+    msg.train_id = ctx->train_id;
+    msg.edge     = edge;
+
+    rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
 }

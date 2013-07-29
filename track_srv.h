@@ -17,6 +17,19 @@ struct trackctx {
     int           train_id;
 };
 
+enum {
+    TRACK_FREE,     /* Unused */
+    TRACK_RESERVED, /* Reserved by a train. */
+    TRACK_BLOCKED,  /* Conflicts with an edge reserved by a train */
+};
+
+struct reservation {
+    int  state;
+    bool disabled;
+    int  train_id;
+    int  refcount;
+};
+
 /* Initialize track server context */
 void trackctx_init(struct trackctx *ctx, int train_id);
 
@@ -27,4 +40,8 @@ bool track_reserve(struct trackctx *ctx, track_edge_t edge);
 void track_release(struct trackctx *ctx, track_edge_t edge);
 
 /* Check the current reservation status of a section of track. */
-int  track_query(struct trackctx *ctx, track_edge_t edge);
+void track_query(
+    struct trackctx *ctx, track_edge_t edge, struct reservation *res_out);
+
+/* Disable an edge. */
+void track_disable(struct trackctx *ctx, track_edge_t edge);

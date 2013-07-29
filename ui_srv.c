@@ -198,6 +198,7 @@ static void uisrv_cmd_rv(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_tdisable(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
@@ -478,6 +479,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_tres(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tfree")) {
         uisrv_cmd_tfree(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tdisable")) {
+        uisrv_cmd_tdisable(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -1177,7 +1180,7 @@ uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: path SRC DEST");
+        Print(&uisrv->tty, "usage: tres SRC DEST");
         return;
     }
 
@@ -1193,6 +1196,7 @@ uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc)
 static void
 uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc)
 {
+    struct reservation res;
     track_edge_t edge;
     const char *msg;
     bool success;
@@ -1202,7 +1206,7 @@ uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc)
     }
 
     if (argc != 2) {
-        Print(&uisrv->tty, "usage: path SRC DEST");
+        Print(&uisrv->tty, "usage: tfree SRC DEST");
         return;
     }
 
@@ -1210,7 +1214,9 @@ uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc)
     if (edge == NULL)
         return; /* Already printed an error message */
 
-    success = track_query(&uisrv->res, edge) == UISRV_FAKE_TRAIN_ID;
+    track_query(&uisrv->res, edge, &res);
+    success = res.state == TRACK_RESERVED
+        && res.train_id == UISRV_FAKE_TRAIN_ID;
     if (success) {
         track_release(&uisrv->res, edge);
         msg = "released";
@@ -1218,6 +1224,28 @@ uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc)
         msg = "don't own";
     }
     Printf(&uisrv->tty, "%s edge %s -> %s", msg, argv[0], argv[1]);
+}
+
+static void
+uisrv_cmd_tdisable(struct uisrv *uisrv, char *argv[], int argc)
+{
+    track_edge_t edge;
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: tdisable SRC DEST");
+        return;
+    }
+
+    edge = uisrv_cmd_read_edge(uisrv, argv[0], argv[1]);
+    if (edge == NULL)
+        return; /* Already printed an error message */
+
+    track_disable(&uisrv->res, edge);
+    Printf(&uisrv->tty, "disabled edge %s -> %s", argv[0], argv[1]);
 }
 
 static void
