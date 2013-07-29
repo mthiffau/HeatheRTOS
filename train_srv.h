@@ -61,3 +61,6 @@ void train_estimate(struct trainctx *ctx, struct trainest *est_out);
 
 /* Instruct train to wander about. */
 void train_wander(struct trainctx *ctx);
+
+/* Instruct train to run the circuit. */
+void train_circuit(struct trainctx *ctx);

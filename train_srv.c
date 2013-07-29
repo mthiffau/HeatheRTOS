@@ -12,6 +12,7 @@
 #include "switch_srv.h"
 #include "track_srv.h"
 #include "track_pt.h"
+#include "circuit.h"
 #include "train_srv.h"
 
 #include "xarg.h"
@@ -72,11 +73,13 @@ enum {
     TRAINMSG_TIMER,
     TRAINMSG_ESTIMATE,
     TRAINMSG_WANDER,
+    TRAINMSG_CIRCUIT,
 };
 
 enum {
     TRAIN_PARKED,
     TRAIN_ENROUTE,
+    TRAIN_CIRCUITING,
     TRAIN_WAITING,
 };
 
@@ -161,6 +164,7 @@ struct train {
         bool                  init_rev_ok;
         bool                  rev_ok;
         bool                  wander;
+        bool                  circuit;
     } cfg;
 
     /* Calibration data */
@@ -201,6 +205,7 @@ static void trainsrv_embark(struct train *tr);
 static void trainsrv_aboutface(struct train *tr);
 static void trainsrv_moveto(struct train *tr, struct track_pt dest);
 static void trainsrv_stop(struct train *tr, int why);
+static void trainsrv_goto_circuit(struct train *tr);
 static void trainsrv_sensor_running(struct train *tr, track_node_t sens, int time);
 static void trainsrv_sensor(
     struct train *tr, sensors_t sensors[SENSOR_MODULES], int time);
@@ -295,7 +300,8 @@ trainsrv_main(void)
             break;
         case TRAINMSG_STOP:
             trainsrv_empty_reply(client);
-            tr.cfg.wander = false;
+            tr.cfg.wander  = false;
+            tr.cfg.circuit = false;
             trainsrv_stop(&tr, STOP_FOR_REQ);
             break;
         case TRAINMSG_SENSOR:
@@ -320,6 +326,12 @@ trainsrv_main(void)
             if (tr.state == TRAIN_PARKED)
                 trainsrv_move_randomly(&tr);
             break;
+        case TRAINMSG_CIRCUIT:
+            trainsrv_empty_reply(client);
+            tr.cfg.circuit = true;
+            if (tr.state == TRAIN_PARKED)
+                trainsrv_goto_circuit(&tr);
+            break;
         default:
             panic("invalid train message type %d", msg.type);
         }
@@ -341,6 +353,7 @@ trainsrv_init(struct train *tr, struct traincfg *cfg)
     tr->cfg.init_rev_ok    = TRAIN_DEF_INIT_REV_OK;
     tr->cfg.rev_ok         = TRAIN_DEF_REV_OK;
     tr->cfg.wander         = TRAIN_DEF_WANDER;
+    tr->cfg.circuit        = false;
 
     tr->pctrl.state = PCTRL_STOPPED;
     tr->pctrl.est_time = -1;
@@ -428,7 +441,9 @@ trainsrv_parked(struct train *tr)
     assert(tr->pctrl.state == PCTRL_STOPPED);
     tr->state = TRAIN_PARKED;
     tr->path  = NULL;
-    if (tr->cfg.wander)
+    if (tr->cfg.circuit)
+        trainsrv_goto_circuit(tr);
+    else if (tr->cfg.wander)
         trainsrv_move_randomly(tr);
 }
 
@@ -687,6 +702,10 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
     rspec.rev_slack_mm = tr->cfg.rev_slack_mm;
     rspec.train_len_um = TRAIN_LENGTH_UM; /* FIXME */
     rspec.dest         = dest;
+    if (tr->cfg.circuit) {
+        rspec.rev_ok      = false;
+        rspec.dest_unidir = true;
+    }
 
     rc = track_routefind(&rspec, &tr->route);
     if (rc < 0 || tr->route.n_paths == 0 || tr->route.paths[0].hops == 0
@@ -780,6 +799,14 @@ trainsrv_stop(struct train *tr, int why)
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
     trainsrv_pctrl_switch_turnouts(tr, true);
+}
+
+static void
+trainsrv_goto_circuit(struct train *tr)
+{
+    struct track_pt start_pt;
+    track_pt_from_node(tr->track->calib_sensors[0], &start_pt);
+    trainsrv_moveto(tr, start_pt);
 }
 
 static void
@@ -1105,7 +1132,7 @@ trainsrv_pctrl_advance_um(struct train *tr, int dist_um)
 static void
 trainsrv_timer(struct train *tr, int time)
 {
-    int dt, dist;
+    int dt;
     float last_pos, cur_pos;
     int extra_ticks = 0;
 
@@ -1172,9 +1199,6 @@ trainsrv_timer(struct train *tr, int time)
             tr->stop_reason = NOT_STOPPING;
             tr->pctrl.state = PCTRL_STOPPED;
             tr->pctrl.vel_umpt = 0;
-            dist = tr->pctrl.stop_um;
-            assert(dist >= 0);
-            /*trainsrv_pctrl_advance_um(tr, dist);*/
             tr->reverse_ok = true;
             dbglog(&tr->dbglog,
                 "train%d stopped at %s-%dmm",
@@ -1433,6 +1457,74 @@ trainsrv_track_release(struct train *tr)
 }
 
 static void
+trainsrv_rotate_path(struct train *tr)
+{
+    /* Rotate circuit path so we never get to the end. */
+    struct track_pt pt = tr->pctrl.centre;
+    track_edge_t edges[TRACK_EDGES_MAX];
+    int k, n;
+    unsigned i;
+
+    track_pt_advance_path(
+        &tr->switches,
+        tr->path,
+        &pt,
+        -1000 * (int)tr->path->len_mm / 4);
+    dbglog(&tr->dbglog,
+        "new path starting edge is %s->%s at %dum ahead of train at %s-%dmm",
+        pt.edge->src->name,
+        pt.edge->dest->name,
+        -1000 * (int)tr->path->len_mm / 4,
+        tr->pctrl.centre.edge->dest->name,
+        tr->pctrl.centre.pos_um / 1000);
+    k = TRACK_EDGE_DATA(tr->track, pt.edge, tr->path->edge_ix);
+    n = tr->path->hops - k;
+    memcpy(edges, tr->path->edges, tr->path->hops * sizeof (edges[0]));
+    memcpy(tr->path->edges, &edges[k], n * sizeof (edges[0]));
+    memcpy(&tr->path->edges[n], &edges[0], k * sizeof (edges[0]));
+
+    tr->path->start.edge   = tr->path->edges[0];
+    tr->path->start.pos_um = 1000 * tr->path->start.edge->len_mm - 1;
+    tr->path->end.edge     = tr->path->edges[tr->path->hops - 1];
+    tr->path->end.pos_um   = 0;
+
+    for (i = 0; i < tr->path->hops; i++)
+        TRACK_EDGE_DATA(tr->track, tr->path->edges[i], tr->path->edge_ix) = i;
+
+    tr->path_swnext   += n;
+    tr->path_swnext   %= tr->path->hops;
+    tr->path_swnext--;
+    trainsrv_swnext_advance(tr);
+    tr->path_sensnext += n;
+    tr->path_sensnext %= tr->path->hops;
+    tr->final_dest     = tr->path->end;
+
+    /* log new (rotated) path */
+    {
+        struct ringbuf rbuf;
+        char mem[512];
+        rbuf_init(&rbuf, mem, sizeof (mem));
+        rbuf_printf(&rbuf, "train%d rotated:", tr->train_id);
+        for (i = 0; i < tr->path->hops; i++) {
+            track_edge_t edge = tr->path->edges[i];
+            rbuf_printf(&rbuf, " %s-%s", edge->src->name, edge->dest->name);
+            if (rbuf.len > 100) {
+                rbuf_putc(&rbuf, '\0');
+                dbglog(&tr->dbglog, "%s", mem);
+                rbuf_init(&rbuf, mem, sizeof (mem));
+                rbuf_printf(&rbuf, "train%d rotated (cont):", tr->train_id);
+            }
+        }
+        rbuf_putc(&rbuf, '\0');
+        dbglog(&tr->dbglog, "%s", mem);
+        dbglog(&tr->dbglog, "train%d path_swnext=%d, path_sensnext=%d",
+            tr->train_id,
+            tr->path_swnext,
+            tr->path_sensnext);
+    }
+}
+
+static void
 trainsrv_pctrl_on_update(struct train *tr)
 {
     /* Release track from behind the train. This runs on the STOPPED update. */
@@ -1459,7 +1551,17 @@ trainsrv_pctrl_on_update(struct train *tr)
                 tr->path->edge_ix) >= 0);
         end_um = trainsrv_distance_path(tr, &tr->pctrl, tr->path->end);
         if (end_um <= stop_um) {
-            trainsrv_stop(tr, STOP_AT_DEST);
+            if (tr->state == TRAIN_CIRCUITING) {
+                trainsrv_rotate_path(tr);
+            } else if (tr->cfg.circuit) {
+                mkcircuit(tr->track, &tr->route);
+                tr->path = &tr->route.paths[0];
+                trainsrv_swnext_init(tr);
+                tr->path_sensnext = 0;
+                tr->state = TRAIN_CIRCUITING;
+            } else {
+                trainsrv_stop(tr, STOP_AT_DEST);
+            }
             return;
         }
     }
@@ -1530,7 +1632,13 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
             sw_pt.edge   = tr->path->edges[tr->path_swnext];
             sw_pt.pos_um = 1000 * sw_pt.edge->len_mm;
         } else {
-            assert(branch->type == TRACK_NODE_MERGE);
+            //assert(branch->type == TRACK_NODE_MERGE);
+            if (branch->type != TRACK_NODE_MERGE) {
+                struct clkctx clock;
+                clkctx_init(&clock);
+                Delay(&clock, 100);
+                panic("%s:%d: failed assertion: branch->Type == TRACK_NODE_MERGE", __FILE__, __LINE__);
+            }
             sw_pt.edge   = tr->path->edges[tr->path_swnext - 1];
             sw_pt.pos_um = TRAIN_MERGE_OFFSET_UM;
         }
@@ -1721,6 +1829,17 @@ train_wander(struct trainctx *ctx)
     rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
 }
+
+void
+train_circuit(struct trainctx *ctx)
+{
+    struct trainmsg msg;
+    int rplylen;
+    msg.type = TRAINMSG_CIRCUIT;
+    rplylen = Send(ctx->trainsrv_tid, &msg, sizeof (msg), NULL, 0);
+    assertv(rplylen, rplylen == 0);
+}
+
 
 static void
 trainsrv_fmt_name(uint8_t train_id, char buf[32])
