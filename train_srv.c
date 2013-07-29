@@ -460,6 +460,10 @@ static void
 trainsrv_embark(struct train *tr)
 {
     /* Find speed to use. */
+    assert(tr->pctrl.path_state != PATH_ON
+        || TRACK_EDGE_DATA(tr->track,
+            tr->pctrl.centre.edge,
+            tr->path->edge_ix) >= 0);
     int path_remaining_um = trainsrv_distance_path(tr, &tr->pctrl, tr->path->end);
     tr->speed = tr->cfg.desired_speed;
     while (tr->speed >= TRAIN_MINSPEED) {
@@ -568,7 +572,15 @@ trainsrv_distance_path(
     switch (pctrl->path_state) {
     case PATH_ON:
         i = TRACK_EDGE_DATA(tr->track, whence.edge, tr->path->edge_ix);
-        assertv(i, i >= 0);
+        if (i < 0)
+            panic(
+                "panic! train_srv.c:572: assertion failed: i >= 0 "
+                "[train%d, whence.edge=%s->%s, i=%d",
+                tr->train_id,
+                whence.edge->src->name,
+                whence.edge->dest->name,
+                i);
+        //assertv(i, i >= 0);
         extra_um = 0;
         break;
     case PATH_BEFORE:
@@ -895,6 +907,8 @@ trainsrv_sensor_running(struct train *tr, track_node_t sens, int time)
         trainsrv_pctrl_advance_ticks(tr, est_pctrl.est_time);
 
     /* Compute delta */
+    assert(est_pctrl.path_state != PATH_ON
+        || TRACK_EDGE_DATA(tr->track, est_pctrl.centre.edge, tr->path->edge_ix) >= 0);
     tr->pctrl.lastsens = sens;
     tr->pctrl.err_um   =
         -trainsrv_distance_path(tr, &est_pctrl, tr->pctrl.centre);
@@ -1439,6 +1453,10 @@ trainsrv_pctrl_on_update(struct train *tr)
     if (tr->pctrl.state == PCTRL_CRUISE || tr->pctrl.state == PCTRL_ACCEL) {
         int stop_um, end_um;
         stop_um = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+        assert(tr->pctrl.path_state != PATH_ON
+            || TRACK_EDGE_DATA(tr->track,
+                tr->pctrl.centre.edge,
+                tr->path->edge_ix) >= 0);
         end_um = trainsrv_distance_path(tr, &tr->pctrl, tr->path->end);
         if (end_um <= stop_um) {
             trainsrv_stop(tr, STOP_AT_DEST);
@@ -1476,6 +1494,10 @@ trainsrv_pctrl_expect_sensors(struct train *tr)
 
         track_pt_from_node(sens, &sens_pt);
 
+        assert(tr->pctrl.path_state != PATH_ON
+            || TRACK_EDGE_DATA(tr->track,
+                tr->pctrl.centre.edge,
+                tr->path->edge_ix) >= 0);
         sensdist_um = trainsrv_distance_path(tr, &tr->pctrl, sens_pt);
         sensdist_um -= TRAIN_LENGTH_UM / 2;
         if (tr->pctrl.reversed)
@@ -1514,6 +1536,10 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
         }
 
         int dist_um;
+        assert(tr->pctrl.path_state != PATH_ON
+            || TRACK_EDGE_DATA(tr->track,
+                tr->pctrl.centre.edge,
+                tr->path->edge_ix) >= 0);
         dist_um  = trainsrv_distance_path(tr, &tr->pctrl, sw_pt);
         dist_um -= TRAIN_LENGTH_UM / 2;
 
