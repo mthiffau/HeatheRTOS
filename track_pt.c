@@ -440,7 +440,9 @@ rfind_edge_ok(struct routefind *rf, track_edge_t edge)
     if (res.disabled)
         return false;
     owner = res.train_id;
-    return owner < 0 || owner == rf->spec->train_id;
+    return owner < 0 || owner == rf->spec->train_id
+        || res.state == TRACK_SOFTRESERVED
+        || res.state == TRACK_SOFTBLOCKED;
 }
 
 static void

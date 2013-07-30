@@ -199,6 +199,7 @@ static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tdisable(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_tdump(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
@@ -481,6 +482,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_tfree(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tdisable")) {
         uisrv_cmd_tdisable(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tdump")) {
+        uisrv_cmd_tdump(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -1188,7 +1191,7 @@ uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc)
     if (edge == NULL)
         return; /* Already printed an error message */
 
-    success = track_reserve(&uisrv->res, edge);
+    success = track_reserve(&uisrv->res, edge) == RESERVE_SUCCESS;
     msg     = success ? "reserved" : "failed to reserve";
     Printf(&uisrv->tty, "%s edge %s -> %s", msg, argv[0], argv[1]);
 }
@@ -1246,6 +1249,23 @@ uisrv_cmd_tdisable(struct uisrv *uisrv, char *argv[], int argc)
 
     track_disable(&uisrv->res, edge);
     Printf(&uisrv->tty, "disabled edge %s -> %s", argv[0], argv[1]);
+}
+
+static void
+uisrv_cmd_tdump(struct uisrv *uisrv, char *argv[], int argc)
+{
+    (void)argv;
+    if (uisrv->track == NULL) {
+        Print(&uisrv->tty, "no track selected");
+        return;
+    }
+
+    if (argc != 0) {
+        Print(&uisrv->tty, "usage: tdump");
+        return;
+    }
+
+    track_dumpstatus(&uisrv->res);
 }
 
 static void

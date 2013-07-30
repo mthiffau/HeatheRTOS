@@ -477,12 +477,13 @@ trainsrv_move_randomly(struct train *tr)
 static void
 trainsrv_embark(struct train *tr)
 {
-    /* Find speed to use. */
     assert(tr->pctrl.path_state != PATH_ON
         || TRACK_EDGE_DATA(tr->track,
             tr->pctrl.centre.edge,
             tr->path->edge_ix) >= 0);
     int path_remaining_um = trainsrv_distance_path(tr, &tr->pctrl, tr->path->end);
+
+    /* Find speed we want to use. */
     tr->speed = tr->cfg.desired_speed;
     while (tr->speed >= TRAIN_MINSPEED) {
         int accel_time     = tr->calib.accel_cutoff[tr->speed];
@@ -500,9 +501,17 @@ trainsrv_embark(struct train *tr)
     if (tr->speed < TRAIN_MINSPEED)
         tr->speed = TRAIN_MINSPEED;
 
-    if (!trainsrv_track_reserve_initial(tr)) {
-        trainsrv_waiting(tr);
-        return; /* Don't continue starting! There's no track. */
+    /* Determine remaining length of path, and further reduce speed as
+     * necessary to obtain an initial reservation. */
+    for (;;) {
+        if (trainsrv_track_reserve_initial(tr))
+            break;
+        if (tr->speed <= TRAIN_MINSPEED) {
+            trainsrv_waiting(tr);
+            return; /* Don't continue starting! There's no track. */
+        } else {
+            tr->speed--;
+        }
     }
 
     /* Set up motion state */
@@ -648,10 +657,15 @@ trainsrv_aboutface(struct train *tr)
         j += ARRAY_SIZE(tr->respath.edges);
 
     while (i != j) {
-        track_edge_t tmp;
-        tmp = tr->respath.edges[i];
+        track_edge_t tmp_edge;
+        bool tmp_is_sub;
+        tmp_edge = tr->respath.edges[i];
         tr->respath.edges[i] = tr->respath.edges[j];
-        tr->respath.edges[j] = tmp;
+        tr->respath.edges[j] = tmp_edge;
+
+        tmp_is_sub = tr->respath.is_sub[i];
+        tr->respath.is_sub[i] = tr->respath.is_sub[j];
+        tr->respath.is_sub[j] = tmp_is_sub;
 
         i++;
         i %= ARRAY_SIZE(tr->respath.edges);
@@ -887,7 +901,7 @@ trainsrv_orient_train(struct train *tr)
     tr->respath.earliest = 0;
     tr->respath.next     = tr->respath.count;
     for (i = 0; i < tr->respath.count; i++) {
-        bool success = track_reserve(&tr->res, tr->respath.edges[i]);
+        bool success = track_reserve(&tr->res, tr->respath.edges[i]) == RESERVE_SUCCESS;
         if (success)
             continue;
 
@@ -898,6 +912,9 @@ trainsrv_orient_train(struct train *tr)
             track_release(&tr->res, tr->respath.edges[i]);
         Exit();
     }
+
+    for (i = 0; i < (int)ARRAY_SIZE(tr->respath.is_sub); i++)
+        tr->respath.is_sub[i] = false;
 }
 
 static void
@@ -1292,14 +1309,30 @@ trainsrv_expect_sensor(struct train *tr, track_node_t sens)
 static bool
 trainsrv_track_reserve_edge(struct train *tr, track_edge_t edge, int *want_um)
 {
-    bool ok;
+    bool ok, is_sub;
     int edge_um;
-    ok = track_reserve(&tr->res, edge);
+    if (tr->state == TRAIN_CIRCUITING) {
+        ok = track_subreserve(&tr->res, edge);
+        is_sub = true;
+    } else {
+        int rc = track_reserve(&tr->res, edge);
+        if (rc == RESERVE_SUCCESS) {
+            ok     = true;
+            is_sub = false;
+        } else if (rc == RESERVE_FAILURE) {
+            ok     = false;
+        } else {
+            assert(rc == RESERVE_SOFTFAIL);
+            ok = track_subreserve(&tr->res, edge);
+            is_sub = true;
+        }
+    }
     if (!ok)
         return false;
     edge_um = 1000 * edge->len_mm;
     *want_um -= edge_um;
     assert(tr->respath.count < (int)ARRAY_SIZE(tr->respath.edges));
+    tr->respath.is_sub[tr->respath.next]  = is_sub;
     tr->respath.edges[tr->respath.next++] = edge;
     tr->respath.next %= ARRAY_SIZE(tr->respath.edges);
     tr->respath.count++;
@@ -1339,10 +1372,15 @@ static bool
 trainsrv_track_reserve_moving(struct train *tr)
 {
     int base_um, need_um, want_um;
-    base_um  = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
-    base_um += TRAIN_LENGTH_UM / 2;
-    need_um  = base_um + TRAIN_RES_NEED_TICKS * tr->pctrl.vel_umpt;
-    want_um  = base_um + TRAIN_RES_WANT_TICKS * tr->pctrl.vel_umpt;
+    if (tr->state == TRAIN_CIRCUITING) {
+        need_um = TRAIN_LENGTH_UM / 2 + TRAIN_RES_NEED_TICKS * tr->pctrl.vel_umpt;
+        want_um = need_um;
+    } else {
+        base_um  = polyeval(&tr->calib.stop_um, tr->pctrl.vel_umpt);
+        base_um += TRAIN_LENGTH_UM / 2;
+        need_um  = base_um + TRAIN_RES_NEED_TICKS * tr->pctrl.vel_umpt;
+        want_um  = base_um + TRAIN_RES_WANT_TICKS * tr->pctrl.vel_umpt;
+    }
     return trainsrv_track_reserve(tr, need_um, want_um);
 }
 
@@ -1451,7 +1489,10 @@ trainsrv_track_release(struct train *tr)
         if (res_behind_um < threshold_um)
             break;
 
-        track_release(&tr->res, earliest);
+        if (tr->respath.is_sub[tr->respath.earliest])
+            track_subrelease(&tr->res, earliest);
+        else
+            track_release(&tr->res, earliest);
         res_behind_um -= 1000 * earliest->len_mm;
         tr->respath.earliest++;
         tr->respath.earliest %= ARRAY_SIZE(tr->respath.edges);
@@ -1557,11 +1598,26 @@ trainsrv_pctrl_on_update(struct train *tr)
             if (tr->state == TRAIN_CIRCUITING) {
                 trainsrv_rotate_path(tr);
             } else if (tr->cfg.circuit) {
+                unsigned i;
+                int j;
                 mkcircuit(tr->track, &tr->route);
                 tr->path = &tr->route.paths[0];
                 trainsrv_swnext_init(tr);
                 tr->path_sensnext = 0;
                 tr->state = TRAIN_CIRCUITING;
+                for (i = 0; i < tr->path->hops; i++) {
+                    track_softreserve(&tr->res, tr->path->edges[i]);
+                    track_disable(&tr->res, tr->path->edges[i]->reverse);
+                    j = tr->respath.earliest;
+                    while (j != tr->respath.next) {
+                        if (tr->respath.edges[j] == tr->path->edges[i]) {
+                            tr->respath.is_sub[j] = true;
+                            break;
+                        }
+                        j++;
+                        j %= ARRAY_SIZE(tr->respath.edges);
+                    }
+                }
             } else {
                 trainsrv_stop(tr, STOP_AT_DEST);
             }

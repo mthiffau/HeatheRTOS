@@ -21,6 +21,7 @@ struct traincfg {
 
 struct respath {
     track_edge_t edges[32];
+    bool         is_sub[32];
     int          earliest, next, count;
 };
 
