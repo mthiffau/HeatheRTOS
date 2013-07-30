@@ -186,11 +186,13 @@ tracksrv_reserve(
             res->train_id = train;
             res->refcount++;
         }
+        /*
         dbglog(&track->dbglog,
             "train%d got %s->%s",
             train,
             edge->src->name,
             edge->dest->name);
+            */
     }
 
     rc = Reply(client, &reserve_code, sizeof (reserve_code));
@@ -229,11 +231,13 @@ tracksrv_release(
         }
     }
 
+    /*
     dbglog(&track->dbglog,
         "train%d released %s->%s",
         train,
         edge->src->name,
         edge->dest->name);
+        */
 
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
@@ -313,11 +317,13 @@ tracksrv_softreserve(
         /* Not clear until owning train takes it and frees it again. */
         res->clear_until   = now - 1; 
     }
+    /*
     dbglog(&track->dbglog,
         "train%d got %s->%s (soft)",
         train,
         edge->src->name,
         edge->dest->name);
+    */
 }
 
 static void
@@ -365,11 +371,13 @@ tracksrv_subreserve(
             res->sub_train_id = train;
             res->sub_refcount++;
         }
+        /*
         dbglog(&track->dbglog,
             "train%d got %s->%s (sub)",
             train,
             edge->src->name,
             edge->dest->name);
+            */
     }
 
     rc = Reply(client, &success, sizeof (success));
@@ -410,11 +418,13 @@ tracksrv_subrelease(
             res->clear_until = now + clearance;
     }
 
+    /*
     dbglog(&track->dbglog,
         "train%d released %s->%s (sub)",
         train,
         edge->src->name,
         edge->dest->name);
+    */
 
     rc = Reply(client, NULL, 0);
     assertv(rc, rc == 0);
