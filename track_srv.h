@@ -34,6 +34,8 @@ struct reservation {
     int  sub_state;
     int  sub_train_id;
     int  sub_refcount;
+    /* How long before owning train needs soft reservation again */
+    int  clear_until;
 };
 
 /* Initialize track server context */
@@ -60,11 +62,17 @@ void track_disable(struct trackctx *ctx, track_edge_t edge);
 /* Soft-reserve an edge. The edge MUST be available. */
 void track_softreserve(struct trackctx *ctx, track_edge_t edge);
 
-/* Sub-reserve a soft-reserved edge. The edge MUST be soft-reserved. */
-bool track_subreserve(struct trackctx *ctx, track_edge_t edge);
+/* Sub-reserve a soft-reserved edge. The edge MUST be soft-reserved.
+ * For trains that don't own the soft reservation, clearance is the
+ * number of ticks required by the train to get through. For the train
+ * that owns the soft-reservation, clearance should be -1. */
+bool track_subreserve(struct trackctx *ctx, track_edge_t edge, int clearance);
 
-/* Sub-release a sub-reserved edge. The edge MUST be sub-reserved. */
-void track_subrelease(struct trackctx *ctx, track_edge_t edge);
+/* Sub-release a sub-reserved edge. The edge MUST be sub-reserved by the
+ * requesting train. For trains that don't own the soft reservation,
+ * clearance should be -1. For the train that owns the soft reservation,
+ * clearance gives the number of ticks for which the edge is unneeded. */
+void track_subrelease(struct trackctx *ctx, track_edge_t edge, int clearance);
 
 /* Dump status to log. */
 void track_dumpstatus(struct trackctx *ctx);

@@ -14,6 +14,7 @@
 #include "u_syscall.h"
 #include "ns.h"
 
+#include "clock_srv.h"
 #include "dbglog_srv.h"
 
 enum {
@@ -36,11 +37,13 @@ struct trackmsg {
     int          type;
     int          train_id;
     track_edge_t edge;
+    int          clearance;
 };
 
 struct tracksrv {
-    track_graph_t track;
+    track_graph_t      track;
     struct reservation reservations[TRACK_EDGES_MAX];
+    struct clkctx      clock;
     struct dbglogctx   dbglog;
 };
 
@@ -55,9 +58,17 @@ static void   tracksrv_disable(
 static void   tracksrv_softreserve(
     struct tracksrv *track, tid_t client, track_edge_t edge, int train);
 static void   tracksrv_subreserve(
-    struct tracksrv *track, tid_t client, track_edge_t edge, int train);
+    struct tracksrv *track,
+    tid_t client,
+    track_edge_t edge,
+    int train,
+    int clearance);
 static void   tracksrv_subrelease(
-    struct tracksrv *track, tid_t client, track_edge_t edge, int train);
+    struct tracksrv *track,
+    tid_t client,
+    track_edge_t edge,
+    int train,
+    int clearance);
 static void   tracksrv_dumpstatus(struct tracksrv *track, tid_t client);
 
 void
@@ -69,6 +80,7 @@ tracksrv_main(void)
     int rc, msglen;
     unsigned i;
 
+    clkctx_init(&tracksrv.clock);
     dbglogctx_init(&tracksrv.dbglog);
 
     for (i = 0; i < ARRAY_SIZE(tracksrv.reservations); i++) {
@@ -111,10 +123,20 @@ tracksrv_main(void)
             tracksrv_softreserve(&tracksrv, client, msg.edge, msg.train_id);
             break;
         case TRACKMSG_SUBRESERVE:
-	    tracksrv_subreserve(&tracksrv, client, msg.edge, msg.train_id);
+	    tracksrv_subreserve(
+                &tracksrv,
+                client,
+                msg.edge,
+                msg.train_id,
+                msg.clearance);
             break;
         case TRACKMSG_SUBRELEASE:
-	    tracksrv_subrelease(&tracksrv, client, msg.edge, msg.train_id);
+	    tracksrv_subrelease(
+                &tracksrv,
+                client,
+                msg.edge,
+                msg.train_id,
+                msg.clearance);
             break;
         case TRACKMSG_DUMPSTATUS:
             tracksrv_dumpstatus(&tracksrv, client);
@@ -187,6 +209,13 @@ tracksrv_release(
     int i, rc;
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
+    if (res->state != TRACK_RESERVED) {
+        Delay(&track->clock, 100);
+        panic("PANIC! can't release edge %s->%s (in state %d)",
+            edge->src->name,
+            edge->dest->name,
+            res->state);
+    }
     assert(res->state == TRACK_RESERVED);
     for (i = 0; i < edge->mutex_len; i++) {
         subedge = edge->mutex[i];
@@ -248,7 +277,7 @@ tracksrv_softreserve(
 {
     struct reservation *res;
     track_edge_t subedge;
-    int i, rc, refinc, subrefinc;
+    int i, rc, refinc, subrefinc, now;
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
     assert(res->state == TRACK_FREE || res->train_id == train);
@@ -263,6 +292,7 @@ tracksrv_softreserve(
 
     subrefinc = 1 - refinc;
 
+    now = Time(&track->clock);
     for (i = 0; i < edge->mutex_len; i++) {
         subedge = edge->mutex[i];
         res     = &TRACK_EDGE_DATA(track->track, subedge, track->reservations);
@@ -280,6 +310,8 @@ tracksrv_softreserve(
         res->train_id = train;
         res->refcount     += refinc;
         res->sub_refcount += subrefinc;
+        /* Not clear until owning train takes it and frees it again. */
+        res->clear_until   = now - 1; 
     }
     dbglog(&track->dbglog,
         "train%d got %s->%s (soft)",
@@ -293,16 +325,19 @@ tracksrv_subreserve(
     struct tracksrv *track,
     tid_t client,
     track_edge_t edge,
-    int train)
+    int train,
+    int clearance)
 {
     struct reservation *res;
     bool success;
-    int rc;
+    int rc, now;
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
     assert(res->state == TRACK_SOFTRESERVED
         || res->state == TRACK_SOFTBLOCKED);
+    assert(res->train_id != train || clearance == -1);
 
+    now = Time(&track->clock);
     if (res->sub_state == TRACK_RESERVED
         || res->disabled
         || (res->sub_state == TRACK_BLOCKED && res->train_id != train)) {
@@ -314,6 +349,8 @@ tracksrv_subreserve(
             edge->src->name,
             edge->dest->name,
             res->train_id);*/
+    } else if (clearance >= 0 && res->clear_until - now < clearance) {
+        success = false; /* Not enough time */
     } else {
         int i;
         track_edge_t subedge;
@@ -344,26 +381,33 @@ tracksrv_subrelease(
     struct tracksrv *track,
     tid_t client,
     track_edge_t edge,
-    int train)
+    int train,
+    int clearance)
 {
     struct reservation *res;
     track_edge_t subedge;
-    int i, rc;
+    int i, rc, now;
+
+    now = Time(&track->clock);
 
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
     assert(res->state == TRACK_SOFTRESERVED
         || res->state == TRACK_SOFTBLOCKED);
     assert(res->sub_state == TRACK_RESERVED);
+    assert(train == res->train_id || clearance == -1);
+
     for (i = 0; i < edge->mutex_len; i++) {
         subedge = edge->mutex[i];
         res     = &TRACK_EDGE_DATA(track->track, subedge, track->reservations);
         assert(res->sub_train_id == train);
         if (--res->sub_refcount == 0) {
-            res->sub_state = TRACK_FREE;
+            res->sub_state    = TRACK_FREE;
             res->sub_train_id = -1;
         } else if (subedge == edge || subedge == edge->reverse) {
             res->sub_state = TRACK_BLOCKED;
         }
+        if (clearance >= 0)
+            res->clear_until = now + clearance;
     }
 
     dbglog(&track->dbglog,
@@ -499,7 +543,7 @@ track_softreserve(struct trackctx *ctx, track_edge_t edge)
 }
 
 bool
-track_subreserve(struct trackctx *ctx, track_edge_t edge)
+track_subreserve(struct trackctx *ctx, track_edge_t edge, int clearance)
 {
     struct trackmsg msg;
     bool ok;
@@ -508,6 +552,7 @@ track_subreserve(struct trackctx *ctx, track_edge_t edge)
     msg.type     = TRACKMSG_SUBRESERVE;
     msg.train_id = ctx->train_id;
     msg.edge     = edge;
+    msg.clearance= clearance;
 
     rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), &ok, sizeof (ok));
     assertv(rplylen, rplylen == sizeof (ok));
@@ -516,7 +561,7 @@ track_subreserve(struct trackctx *ctx, track_edge_t edge)
 }
 
 void
-track_subrelease(struct trackctx *ctx, track_edge_t edge)
+track_subrelease(struct trackctx *ctx, track_edge_t edge, int clearance)
 {
     struct trackmsg msg;
     int rplylen;
@@ -524,6 +569,7 @@ track_subrelease(struct trackctx *ctx, track_edge_t edge)
     msg.type     = TRACKMSG_SUBRELEASE;
     msg.train_id = ctx->train_id;
     msg.edge     = edge;
+    msg.clearance= clearance;
 
     rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
