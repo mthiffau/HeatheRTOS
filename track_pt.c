@@ -17,6 +17,8 @@
 #define TRACK_ROUTESPEC_MAGIC           0x146ce017
 #define PATHFIND_DESTS_MAX              2
 #define PATHFIND_SOFTRES_PENALTY_MM     500
+#define PATHFIND_RES_MIN_MM             500
+#define PATHFIND_RES_PENALTY_SCALE      1000
 
 static void track_pt_advance_path_rev(
     struct switchctx *switches,
@@ -434,7 +436,7 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
 
 /* Returns -1 for an 'infinite' penalty (if the edge can't be used). */
 static int
-rfind_edge_penalty(struct routefind *rf, track_edge_t edge)
+rfind_edge_penalty(struct routefind *rf, track_edge_t edge, int dist_mm)
 {
     struct reservation res;
     int owner;
@@ -447,7 +449,9 @@ rfind_edge_penalty(struct routefind *rf, track_edge_t edge)
         return 0;
     if (res.state == TRACK_SOFTRESERVED || res.state == TRACK_SOFTBLOCKED)
         return PATHFIND_SOFTRES_PENALTY_MM;
-    return -1; /* (hard) owned by another train */
+    if (dist_mm <= PATHFIND_RES_MIN_MM)
+        return -1;
+    return PATHFIND_RES_PENALTY_SCALE / (dist_mm - PATHFIND_RES_MIN_MM);
 }
 
 static void
@@ -478,7 +482,7 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
     }
 
     /* Reject edges that are owned by other trains. */
-    edge_penalty = rfind_edge_penalty(rf, edge);
+    edge_penalty = rfind_edge_penalty(rf, edge, src_info->distance);
     if (edge_penalty < 0)
         return;
 
@@ -572,11 +576,11 @@ rfind_consider_reverse(struct routefind *rf, track_node_t merge)
             ARRAY_SIZE(overshoot_edges));
 
         for (i = 0; i < n_edges; i++) {
-            int edge_penalty = rfind_edge_penalty(rf, overshoot_edges[i]);
+            int edge_penalty = rfind_edge_penalty(rf, overshoot_edges[i], merge_info->distance);
             if (edge_penalty < 0)
                 return; /* necessary edges unavailable */
             new_dist += edge_penalty;
-            edge_penalty = rfind_edge_penalty(rf, overshoot_edges[i]->reverse);
+            edge_penalty = rfind_edge_penalty(rf, overshoot_edges[i]->reverse, merge_info->distance);
             if (edge_penalty < 0)
                 return;
             new_dist += edge_penalty;
