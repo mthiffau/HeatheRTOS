@@ -369,13 +369,21 @@ tcmuxsrv_trcmd_trysend(struct tcmux *tc)
     }
 
     if (tc->switch_ready) {
-        if (q_dequeue(&tc->switch_cmdq, &trcmd)) {
-            tc->solenoid_on = true;
-            tc->last_switchcmd_sw     = trcmd.cmd[1];
-            tc->last_switchcmd_curved = trcmd.cmd[0] == TRCMD_SWITCH_CURVE;
-            tcmuxsrv_trcmd_send(tc, &trcmd);
-            return;
-        } else if (tc->solenoid_on) {
+        while (q_dequeue(&tc->switch_cmdq, &trcmd)) {
+            bool curved = trcmd.cmd[0] == TRCMD_SWITCH_CURVE;
+            if (curved != switch_iscurved(&tc->switches, trcmd.cmd[1])) {
+                tc->solenoid_on = true;
+                tc->last_switchcmd_sw     = trcmd.cmd[1];
+                tc->last_switchcmd_curved = curved;
+                tcmuxsrv_trcmd_send(tc, &trcmd);
+                return;
+            } else if (trcmd.client >= 0) {
+                int rc;
+                rc = Reply(trcmd.client, NULL, 0);
+                assertv(rc, rc == 0);
+            }
+        }
+        if (tc->solenoid_on) {
             trcmd.cmd[0] = TRCMD_SWITCH_OFF;
             trcmd.len       = 1;
             trcmd.client    = -1;

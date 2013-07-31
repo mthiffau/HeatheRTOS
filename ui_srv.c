@@ -102,7 +102,7 @@
 #define TRAINPOS_LBL_ROW            13
 #define TRAINPOS_LBL_COL            1
 #define TRAINPOS_LBL                "Train position: "
-#define DBGLOG_TOP_ROW(ntrains)     TRAINPOS_ROW((ntrains) == 0 ? 2 : 2 * (ntrains) + 1)
+#define DBGLOG_TOP_ROW(ntrains)     TRAINPOS_ROW((ntrains) == 0 ? 2 : (ntrains) + 1)
 #define DBGLOG_BTM_ROW              9999
 #define DBGLOG_COL                  1
 
@@ -484,6 +484,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_tdisable(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tquery")) {
         uisrv_cmd_tquery(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "x")) {
+        panic("panic! user requested a panic");
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
