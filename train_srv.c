@@ -605,7 +605,7 @@ static int
 trainsrv_distance_to_rev_path_end(struct train *tr, struct track_pt whence)
 {
     track_edge_t last;
-    last = tr->path->edges[tr->path->hops - 1];
+    last = tr->path->edges[tr->path->hops - 1]->reverse;
     track_pt_reverse(&whence);
     return -trainsrv_distance_to_edge(tr, last, whence);
 }
