@@ -341,14 +341,13 @@ tracksrv_subreserve(
     res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
     assert(res->state == TRACK_SOFTRESERVED
         || res->state == TRACK_SOFTBLOCKED);
-    assert(res->train_id != train || clearance == -1);
+    assert(train != res->train_id || clearance == -1);
 
     now = Time(&track->clock);
     if (res->sub_state == TRACK_RESERVED
         || res->disabled
-        || (res->sub_state == TRACK_BLOCKED && res->train_id != train)) {
+        || (res->sub_state == TRACK_BLOCKED && res->sub_train_id != train)) {
         success = false;
-        assert(!res->train_id != train);
         /* dbglog(&track->dbglog,
             "train%d failed to get %s->%s: already owned by %d",
             train,
@@ -380,6 +379,7 @@ tracksrv_subreserve(
             */
     }
 
+    assert(res->train_id != train || success);
     rc = Reply(client, &success, sizeof (success));
     assertv(rc, rc == 0);
 }
