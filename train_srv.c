@@ -1585,13 +1585,26 @@ trainsrv_track_release(struct train *tr)
         if (res_behind_um < threshold_um)
             break;
 
-        if (tr->respath.is_sub[tr->respath.earliest])
-            track_subrelease(
-                &tr->res,
-                earliest,
-                tr->state == TRAIN_CIRCUITING ? 1200 : -1); /* FIXME FIXME FIXME */
-        else
+        if (!tr->respath.is_sub[tr->respath.earliest]) {
             track_release(&tr->res, earliest);
+        } else {
+            int clearance = -1;
+            if (tr->state == TRAIN_CIRCUITING) {
+                struct track_pt src_pt;
+                track_pt_from_node(earliest->src, &src_pt);
+                int dist = trainsrv_distance_path(tr, &tr->pctrl, src_pt);
+                if (dist < 0)
+                    dist += 1000 * tr->path->len_mm;
+                clearance = dist / tr->pctrl.vel_umpt;
+                dbglog(&tr->dbglog,
+                    "train%d subrelease %s->%s with clearance %d ticks",
+                    tr->train_id,
+                    earliest->src->name,
+                    earliest->dest->name,
+                    clearance);
+            }
+            track_subrelease(&tr->res, earliest, clearance);
+        }
         res_behind_um -= 1000 * earliest->len_mm;
         tr->respath.earliest++;
         tr->respath.earliest %= ARRAY_SIZE(tr->respath.edges);
