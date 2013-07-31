@@ -199,7 +199,7 @@ static void uisrv_cmd_lt(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tres(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tfree(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_tdisable(struct uisrv *uisrv, char *argv[], int argc);
-static void uisrv_cmd_tdump(struct uisrv *uisrv, char *argv[], int argc);
+static void uisrv_cmd_tquery(struct uisrv *uisrv, char *argv[], int argc);
 static void uisrv_cmd_path(struct uisrv *uisrv, char *argv[], int argc);
 static bool uisrv_update_switch_table(
     struct uisrv *uisrv, uint8_t sw, bool curved);
@@ -482,8 +482,8 @@ uisrv_runcmd(struct uisrv *uisrv)
         uisrv_cmd_tfree(uisrv, &tokens[1], ntokens - 1);
     } else if (!strcmp(tokens[0], "tdisable")) {
         uisrv_cmd_tdisable(uisrv, &tokens[1], ntokens - 1);
-    } else if (!strcmp(tokens[0], "tdump")) {
-        uisrv_cmd_tdump(uisrv, &tokens[1], ntokens - 1);
+    } else if (!strcmp(tokens[0], "tquery")) {
+        uisrv_cmd_tquery(uisrv, &tokens[1], ntokens - 1);
     } else {
         Print(&uisrv->tty, "error: unrecognized command: ");
         Print(&uisrv->tty, tokens[0]);
@@ -1252,20 +1252,42 @@ uisrv_cmd_tdisable(struct uisrv *uisrv, char *argv[], int argc)
 }
 
 static void
-uisrv_cmd_tdump(struct uisrv *uisrv, char *argv[], int argc)
+uisrv_cmd_tquery(struct uisrv *uisrv, char *argv[], int argc)
 {
-    (void)argv;
+    static const char * const status_names[] = {
+        "FREE",
+        "RES",
+        "BLK",
+        "SRES",
+        "SBLK"
+    };
+    struct reservation res;
+    track_edge_t edge;
     if (uisrv->track == NULL) {
         Print(&uisrv->tty, "no track selected");
         return;
     }
 
-    if (argc != 0) {
-        Print(&uisrv->tty, "usage: tdump");
+    if (argc != 2) {
+        Print(&uisrv->tty, "usage: tdisable SRC DEST");
         return;
     }
 
-    track_dumpstatus(&uisrv->res);
+    edge = uisrv_cmd_read_edge(uisrv, argv[0], argv[1]);
+    if (edge == NULL)
+        return; /* Already printed an error message */
+
+    track_query(&uisrv->res, edge, &res);
+    Printf(&uisrv->tty, "%s->%s: T%d:%s",
+        edge->src->name,
+        edge->dest->name,
+        res.train_id,
+        status_names[res.state]);
+    if (res.state == TRACK_SOFTRESERVED || res.state == TRACK_SOFTBLOCKED) {
+        Printf(&uisrv->tty, " [T%d:%s]",
+            res.sub_train_id,
+            status_names[res.sub_state]);
+    }
 }
 
 static void

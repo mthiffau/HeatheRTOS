@@ -25,7 +25,6 @@ enum {
     TRACKMSG_SOFTRESERVE,
     TRACKMSG_SUBRESERVE,
     TRACKMSG_SUBRELEASE,
-    TRACKMSG_DUMPSTATUS,
 };
 
 enum {
@@ -69,7 +68,6 @@ static void   tracksrv_subrelease(
     track_edge_t edge,
     int train,
     int clearance);
-static void   tracksrv_dumpstatus(struct tracksrv *track, tid_t client);
 
 void
 tracksrv_main(void)
@@ -137,9 +135,6 @@ tracksrv_main(void)
                 msg.edge,
                 msg.train_id,
                 msg.clearance);
-            break;
-        case TRACKMSG_DUMPSTATUS:
-            tracksrv_dumpstatus(&tracksrv, client);
             break;
         default:
             panic("invalid track server message type %d", msg.type);
@@ -430,40 +425,6 @@ tracksrv_subrelease(
     assertv(rc, rc == 0);
 }
 
-static void
-tracksrv_dumpstatus(struct tracksrv *track, tid_t client)
-{
-    static const char * const status_names[] = {
-        "FREE",
-        "RES",
-        "BLK",
-        "SRES",
-        "SBLK"
-    };
-    int i, rc;
-    rc = Reply(client, NULL, 0);
-    assertv(rc, rc == 0);
-    for (i = 0; i < track->track->n_nodes; i++) {
-        int j, n_edges;
-        track_node_t src = &track->track->nodes[i];
-        n_edges = track_node_edges[src->type];
-        for (j = 0; j < n_edges; j++) {
-            track_edge_t edge = &src->edge[j];
-            struct reservation *res;
-            res = &TRACK_EDGE_DATA(track->track, edge, track->reservations);
-            if (res->state == TRACK_FREE && !res->disabled)
-                continue;
-            dbglog(&track->dbglog, "%s->%s: T%d:%s [T%d:%s]",
-                edge->src->name,
-                edge->dest->name,
-                res->train_id,
-                status_names[res->state],
-                res->sub_train_id,
-                status_names[res->sub_state]);
-        }
-    }
-}
-
 void
 trackctx_init(struct trackctx *ctx, int train_id)
 {
@@ -580,19 +541,6 @@ track_subrelease(struct trackctx *ctx, track_edge_t edge, int clearance)
     msg.train_id = ctx->train_id;
     msg.edge     = edge;
     msg.clearance= clearance;
-
-    rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), NULL, 0);
-    assertv(rplylen, rplylen == 0);
-}
-
-void
-track_dumpstatus(struct trackctx *ctx)
-{
-    struct trackmsg msg;
-    int rplylen;
-
-    msg.type     = TRACKMSG_DUMPSTATUS;
-    msg.train_id = ctx->train_id;
 
     rplylen = Send(ctx->tracksrv_tid, &msg, sizeof (msg), NULL, 0);
     assertv(rplylen, rplylen == 0);
