@@ -168,8 +168,7 @@ dist MR155 MR156   1mm
 
 # Declare that edges are conflicting (may not be occupied simultaneously)
 #   mutex SRC1 DEST1 : SRC2 DEST2 : ...
-mutex BR156 E2  : BR155 EX2
-mutex BR154 B14 : BR153 EX1
+mutex BR156 E2 : BR154 B14 : MR154 BR156 : BR155 EX2 : BR153 EX1 : B14 D16 : C1 B4 : E2 E15 : D2 E4
 
 # calibration cycle
 calib  C11
