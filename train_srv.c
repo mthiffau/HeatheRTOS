@@ -801,6 +801,34 @@ trainsrv_moveto(struct train *tr, struct track_pt dest)
 }
 
 static void
+trainsrv_release_early_sub(struct train *tr)
+{
+    int i, last_is_sub;
+    last_is_sub = -1;
+    i = tr->respath.earliest;
+    while (i != tr->respath.next) {
+        if (tr->respath.is_sub[i])
+            last_is_sub = i;
+        i++;
+        i %= ARRAY_SIZE(tr->respath.edges);
+    }
+    if (last_is_sub < 0)
+        return;
+    for (;;) {
+        bool last = tr->respath.earliest == last_is_sub;
+        track_edge_t edge = tr->respath.edges[tr->respath.earliest];
+        if (tr->respath.is_sub[tr->respath.earliest])
+            track_subrelease(&tr->res, edge, -1);
+        else
+            track_release(&tr->res, edge);
+        tr->respath.earliest++;
+        tr->respath.earliest %= ARRAY_SIZE(tr->respath.edges);
+        if (last)
+            break;
+    }
+}
+
+static void
 trainsrv_stop(struct train *tr, int why)
 {
     static const char * const reason_names[] = {
@@ -850,6 +878,11 @@ trainsrv_stop(struct train *tr, int why)
     /* Switch all remaining switches on path, since estimation stops.
      * FIXME this goes away with better estimations */
     trainsrv_pctrl_switch_turnouts(tr, true);
+
+    /* Release any subreserved edges at the beginning of respath.
+     * Otherwise, we wouldn't release them until we were done stopping,
+     * which is sometimes a little bit too slow. */
+    trainsrv_release_early_sub(tr);
 }
 
 static void
