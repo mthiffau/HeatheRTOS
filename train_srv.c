@@ -397,21 +397,25 @@ trainsrv_setspeed(struct train *tr, uint8_t speed)
 static void
 trainsrv_swnext_init(struct train *tr)
 {
-    tr->path_swnext = -1;
+    tr->path_swnext = 0;
     trainsrv_swnext_advance(tr);
 }
 
 static void
 trainsrv_swnext_advance(struct train *tr)
 {
-    if (tr->path_swnext >= 0 && (unsigned)tr->path_swnext >= tr->path->hops)
+    if (tr->path_swnext >= 0 && (unsigned)tr->path_swnext >= tr->path->hops + 1)
         return;
     tr->path_swnext++;
     if (tr->path_swnext == 0
         && tr->path->edges[tr->path_swnext]->src->type == TRACK_NODE_MERGE)
         tr->path_swnext++;
-    while ((unsigned)tr->path_swnext < tr->path->hops) {
-        int type = tr->path->edges[tr->path_swnext]->src->type;
+    while ((unsigned)tr->path_swnext <= tr->path->hops) {
+        int type;
+        if ((unsigned)tr->path_swnext < tr->path->hops)
+            type = tr->path->edges[tr->path_swnext]->src->type;
+        else
+            type = tr->path->edges[tr->path->hops - 1]->dest->type;
         if (type == TRACK_NODE_MERGE || type == TRACK_NODE_BRANCH)
             break;
         tr->path_swnext++;
@@ -1826,12 +1830,20 @@ trainsrv_pctrl_expect_sensors(struct train *tr)
 static void
 trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
 {
-    while ((unsigned)tr->path_swnext < tr->path->hops) {
+    while ((unsigned)tr->path_swnext <= tr->path->hops) {
         struct track_pt sw_pt;
         track_node_t branch;
         bool curved;
 
-        branch = tr->path->edges[tr->path_swnext]->src;
+        if ((unsigned)tr->path_swnext < tr->path->hops) {
+            branch = tr->path->edges[tr->path_swnext]->src;
+        } else {
+            branch = tr->path->edges[tr->path->hops - 1]->dest;
+            if (branch->type != TRACK_NODE_MERGE) {
+                trainsrv_swnext_advance(tr);
+                break;
+            }
+        }
         if (branch->type == TRACK_NODE_BRANCH) {
             sw_pt.edge   = tr->path->edges[tr->path_swnext];
             sw_pt.pos_um = 1000 * sw_pt.edge->len_mm;
