@@ -16,6 +16,7 @@ enum {
     TRACK_NODE_MERGE  = 3, /* turn-out in the merging direction */
     TRACK_NODE_ENTER  = 4, /* track end-point, facing in */
     TRACK_NODE_EXIT   = 5, /* track end-point, facing out */
+    TRACK_NODE_SEP    = 6, /* track edge separator (artificial landmark) */
 };
 
 /* Each node has at most two directed edges leaving it.
@@ -99,4 +100,4 @@ track_graph_t track_byname(const char *name);
 track_node_t track_node_byname(track_graph_t track, const char *name);
 
 /* Array specifying the number of edges for a given track node type. */
-extern int track_node_edges[6];
+extern int track_node_edges[7];

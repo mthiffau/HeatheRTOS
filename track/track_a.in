@@ -42,6 +42,12 @@ sensor E11:74 -> D10   @  E12:75 -> BR7
 sensor E13:76 -> BR17  @  E14:77 -> E9
 sensor E15:78 -> MR13  @  E16:79 -> E1
 
+# separators (artificial landmarks):
+# sep S @ Srev
+# where S looks  like:
+#   name -> AHEAD
+sep Z1 -> MR14 @ Z2 -> MR11
+
 # switch B @ M
 # where B looks like:
 #   name : number -> STRAIGHT / (CURVED)
@@ -57,10 +63,10 @@ switch BR7  :7   -> D11  /(MR5)  @  MR7   -> E11
 switch BR8  :8   -> D9   /(E10)  @  MR8   -> BR9
 switch BR9  :9   -> D8   /(D5)   @  MR9   -> BR8
 switch BR10 :10  -> D4   /(E3)   @  MR10  -> E5
-switch BR11 :11  -> BR12 /(MR14) @  MR11  -> C13
+switch BR11 :11  -> BR12 /(Z1)   @  MR11  -> C13
 switch BR12 :12  -> A2   /(BR4)  @  MR12  -> MR11
 switch BR13 :13  -> B5   /(E16)  @  MR13  -> C12
-switch BR14 :14  -> MR11 /(C11)  @  MR14  -> A4
+switch BR14 :14  -> Z2   /(C11)  @  MR14  -> A4
 switch BR15 :15  -> C5   /(C10)  @  MR15  -> B15
 switch BR16 :16  -> B1   /(B3)   @  MR16  -> C9
 switch BR17 :17  -> D13  /(D15)  @  MR17  -> E14
@@ -159,7 +165,8 @@ dist   MR5   BR18  155mm
 dist   BR6   MR18  371mm
 dist   MR8   BR9   155mm
 dist   BR11  BR12  188mm
-dist   BR11  MR14  495mm
+dist   BR11  Z1    220mm
+dist   Z1    MR14  275mm
 dist   BR153 EX1   253mm
 dist   MR153 MR154   1mm
 dist   MR154 BR156   1mm

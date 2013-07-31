@@ -18,6 +18,7 @@ sensors        = []
 sensors_by_num = { }
 switches       = []
 enters         = []
+separators     = []
 nodes_by_name  = { }
 dists_by_name  = { }
 dists          = { }
@@ -30,6 +31,13 @@ sensor_re = re.compile(
     r'(?P<name>\w+)\s*:\s*(?P<num>\d+)\s*->\s*(?P<ahead>\w+)' +
     r'\s*@\s*'
     r'(?P<rev_name>\w+)\s*:\s*(?P<rev_num>\d+)\s*->\s*(?P<rev_ahead>\w+)' +
+    r'$')
+
+sep_re = re.compile(
+    r'^sep\s+' +
+    r'(?P<name>\w+)\s*->\s*(?P<ahead>\w+)' +
+    r'\s*@\s*'
+    r'(?P<rev_name>\w+)\s*->\s*(?P<rev_ahead>\w+)' +
     r'$')
 
 switch_re = re.compile(
@@ -160,6 +168,20 @@ class Sensor(Node):
         total_edge_count += 1
         self.edges = [Edge(src=self.node_id, dest=self.ahead), Edge(0, 0)]
 
+class Separator(Node):
+    def __init__(self, name, ahead, reverse):
+        super(Separator, self).__init__('SEP', 0, name, reverse)
+        self.ahead = ahead
+
+    def resolve_ids(self):
+        super(Separator, self).resolve_ids()
+        self.ahead = nodes_by_name[self.ahead].node_id
+
+    def make_edges(self):
+        global total_edge_count
+        total_edge_count += 1
+        self.edges = [Edge(src=self.node_id, dest=self.ahead), Edge(0, 0)]
+
 class Branch(Node):
     def __init__(self, num, name, straight, curved, reverse):
         super(Branch, self).__init__('BRANCH', num, name, reverse)
@@ -243,6 +265,18 @@ for line in sys.stdin:
             reverse=md.group('name')))
         continue
 
+    md = sep_re.match(line)
+    if md:
+        separators.append(Separator(
+            name=md.group('name'),
+            ahead=md.group('ahead'),
+            reverse=md.group('rev_name')))
+        separators.append(Separator(
+            name=md.group('rev_name'),
+            ahead=md.group('rev_ahead'),
+            reverse=md.group('name')))
+        continue
+
     md = switch_re.match(line)
     if md:
         switches.append(Branch(
@@ -303,6 +337,7 @@ for i in range(max_sensor + 1):
 
 nodes += switches
 nodes += enters
+nodes += separators
 
 for i, node in enumerate(nodes):
     node.node_id = i
@@ -312,6 +347,26 @@ for node in nodes:
 
 for node in nodes:
     node.make_edges()
+
+for node in nodes:
+    for edge in node.edges:
+        if edge.src == 0 and edge.dest == 0:
+            continue
+        if edge.src != node.node_id:
+            print('node {} (id={}) has edge leaving from node id={}'.format(
+                node.name,
+                node.node_id),
+                file=sys.stderr)
+            sys.exit(1)
+        for rev_edge in nodes[nodes[edge.dest].reverse].edges:
+            if rev_edge.dest == node.reverse:
+                break
+        else:
+            print('node {} (id={}) has stranded edge (no reverse)'.format(
+                node.name,
+                node.node_id),
+                file=sys.stderr)
+            sys.exit(1)
 
 dists[(0, 0)] = 0 # for dummy edges
 for src, dest in dists_by_name.keys():

@@ -11,7 +11,7 @@
 #include "array_size.h"
 #include "pqueue.h"
 
-int track_node_edges[6] = { 0, 1, 2, 1, 1, 0 };
+int track_node_edges[7] = { 0, 1, 2, 1, 1, 0, 1 };
 
 track_graph_t
 track_byname(const char *name)

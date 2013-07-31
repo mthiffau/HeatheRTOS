@@ -7,7 +7,7 @@ MAX_NODES=0
 TRACK_FILES=(*.in)
 for TRACK_FILE in "${TRACK_FILES[@]}"; do
     N=$((N + 1))
-    K="$(grep '^ *\(sensor\|switch\|enter\) ' "$TRACK_FILE" | wc -l)"
+    K="$(grep '^ *\(sensor\|switch\|enter\|sep\) ' "$TRACK_FILE" | wc -l)"
     K=$((2 * K)) # each such line specifies two nodes
     if [[ "$K" -gt "$MAX_NODES" ]]; then
         MAX_NODES="$K"

@@ -36,6 +36,7 @@ track_pt_from_node(track_node_t node, struct track_pt *pt)
 {
     switch (node->type) {
     case TRACK_NODE_SENSOR:
+    case TRACK_NODE_SEP:
     case TRACK_NODE_BRANCH:
     case TRACK_NODE_EXIT:
         pt->edge   = node->reverse->edge[TRACK_EDGE_AHEAD].reverse;
