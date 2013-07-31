@@ -16,6 +16,7 @@
 
 #define TRACK_ROUTESPEC_MAGIC           0x146ce017
 #define PATHFIND_DESTS_MAX              2
+#define PATHFIND_SOFTRES_PENALTY_MM     500
 
 static void track_pt_advance_path_rev(
     struct switchctx *switches,
@@ -430,19 +431,22 @@ rfind_init(struct routefind *rf, const struct track_routespec *spec)
     }
 }
 
-static bool
-rfind_edge_ok(struct routefind *rf, track_edge_t edge)
+/* Returns -1 for an 'infinite' penalty (if the edge can't be used). */
+static int
+rfind_edge_penalty(struct routefind *rf, track_edge_t edge)
 {
     struct reservation res;
     int owner;
     /* Reject edges that are owned by other trains. */
     track_query(rf->spec->res, edge, &res);
     if (res.disabled)
-        return false;
+        return -1;
     owner = res.train_id;
-    return owner < 0 || owner == rf->spec->train_id
-        || res.state == TRACK_SOFTRESERVED
-        || res.state == TRACK_SOFTBLOCKED;
+    if (owner < 0 || owner == rf->spec->train_id)
+        return 0;
+    if (res.state == TRACK_SOFTRESERVED || res.state == TRACK_SOFTBLOCKED)
+        return PATHFIND_SOFTRES_PENALTY_MM;
+    return -1; /* (hard) owned by another train */
 }
 
 static void
@@ -450,6 +454,7 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
 {
     track_node_t         src, dest;
     struct rf_node_info *src_info, *dest_info;
+    int                  edge_penalty;
     int                  old_dist, new_dist;
     int                  dest_which;
     int                  rc;
@@ -472,7 +477,8 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
     }
 
     /* Reject edges that are owned by other trains. */
-    if (!rfind_edge_ok(rf, edge))
+    edge_penalty = rfind_edge_penalty(rf, edge);
+    if (edge_penalty < 0)
         return;
 
     /* Check for end destinations on the edge. */
@@ -484,6 +490,7 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
         size_t               dest_val;
         dest_dist  = src_info->distance;
         dest_dist += edge->len_mm;
+        dest_dist += edge_penalty;
         dest_pt    = rf_getdest(rf, dest_which);
         dest_dist -= dest_pt.pos_um / 1000;
         end_info   = rf_dest_info(rf, dest_which);
@@ -508,7 +515,7 @@ rfind_consider_edge(struct routefind *rf, track_edge_t edge)
         return; /* We've already visited the destination of this edge. Ignore */
 
     old_dist = dest_info->distance;
-    new_dist = src_info->distance + edge->len_mm;
+    new_dist = src_info->distance + edge->len_mm + edge_penalty;
     if (old_dist == -1 || old_dist > new_dist) {
         size_t dest_val     = rf_node2val(rf, dest);
         dest_info->distance = new_dist;
@@ -564,9 +571,18 @@ rfind_consider_reverse(struct routefind *rf, track_node_t merge)
             ARRAY_SIZE(overshoot_edges));
 
         for (i = 0; i < n_edges; i++) {
-            if (!rfind_edge_ok(rf, overshoot_edges[i]))
+            int edge_penalty = rfind_edge_penalty(rf, overshoot_edges[i]);
+            if (edge_penalty < 0)
                 return; /* necessary edges unavailable */
+            new_dist += edge_penalty;
+            edge_penalty = rfind_edge_penalty(rf, overshoot_edges[i]->reverse);
+            if (edge_penalty < 0)
+                return;
+            new_dist += edge_penalty;
         }
+
+        if (old_dist != -1 && old_dist <= new_dist)
+            return; /* no longer beneficial after checking penalties */
 
         /* Update branch info. */
         size_t br_val           = rf_node2val(rf, branch);
