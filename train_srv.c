@@ -1871,8 +1871,13 @@ trainsrv_pctrl_switch_turnouts(struct train *tr, bool switch_all)
                 == sw_pt.edge->reverse->src->edge[TRACK_EDGE_CURVED].reverse;
         }
 
-        dbglog(&tr->dbglog, "setting %d to %s", branch->num, curved ? "curved" : "straight");
-        tcmux_switch_curve(&tr->tcmux, branch->num, curved);
+        if (curved != switch_iscurved(&tr->switches, branch->num)) {
+            dbglog(&tr->dbglog, "train%d setting %d to %s",
+                tr->train_id,
+                branch->num,
+                curved ? "curved" : "straight");
+            tcmux_switch_curve(&tr->tcmux, branch->num, curved);
+        }
         trainsrv_swnext_advance(tr);
     }
 }
