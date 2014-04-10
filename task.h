@@ -53,7 +53,7 @@ struct task_queue {
     uint8_t head_ix;
     uint8_t tail_ix;
 };
-STATIC_ASSERT(task_queue_size, sizeof (struct task_queue) == 4);
+STATIC_ASSERT(task_queue_size, sizeof (struct task_queue) == 2);
 
 struct task_desc {
     /* Points into the task's stack. The task's stack pointer is

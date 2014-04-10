@@ -14,7 +14,7 @@
 int
 main(void)
 {
-    l1cache_enable();
-    tmr40_reset();
+    //l1cache_enable();
+    //tmr40_reset();
     return kern_main(&def_kparam);
 }

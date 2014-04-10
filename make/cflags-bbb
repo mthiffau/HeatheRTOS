@@ -1,0 +1,1 @@
+-nostdinc -I. -Wall -Wextra -Werror -mcpu=cortex-a8
