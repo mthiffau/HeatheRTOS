@@ -61,6 +61,7 @@ all: $(MAIN) $(TEST)
 
 $(MAIN): $(LINK) $(KOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(MAP) -o $@ $(KOBJS) $(LIBS)
+	$(OCOPY) $(MAIN) -O binary $(BUILD)/uImage
 
 $(TEST): $(LINK) $(TOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(TMAP) -o $@ $(TOBJS) $(LIBS)

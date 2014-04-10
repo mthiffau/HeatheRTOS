@@ -2,7 +2,7 @@ ENTRY (_asm_entry)
 
 SECTIONS
 {
-    . = 0x402F0400;
+    . = 0x82000000;
 
     .text : /* The actual instructions. */
     {
@@ -33,6 +33,6 @@ SECTIONS
     . = ALIGN(8);
     _ProgramEnd = . ;
 
-    . = 0x402FFFF0;
+    . = 0x9FFFFFF0;
     _MemoryEnd = . ;
 }
