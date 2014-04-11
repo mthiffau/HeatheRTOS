@@ -30,13 +30,13 @@ STATIC_ASSERT(t32_ctrl_offs, offsetof(struct tmr32, ctrl) == TIMER_CRTL_OFFSET);
 
 #define TMR32 ((volatile struct tmr32*)TIMER3_BASE)
 
-void tmr40_reset(void)
+void dbg_tmr_reset(void)
 {
     TMR40->hien = 0;             /* disable and clear the timer */
     TMR40->hien = TMR40_ENABLE;  /* re-enable the timer */
 }
 
-uint32_t tmr40_get(void)
+uint32_t dbg_tmr_get(void)
 {
     return TMR40->low;
 }

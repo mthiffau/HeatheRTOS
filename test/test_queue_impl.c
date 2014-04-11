@@ -40,19 +40,19 @@ test_queue_impl(void)
     for (nodes = 4; nodes <= TEST_NODES; nodes *= 2) {
 
         /* Insertion speed test */
-        tmr40_reset();
+        dbg_tmr_reset();
         for(i = 0; i < nodes; i++) {
             rc += pqueue_add(&test_q, i, i);
         }
-        insrt_time = tmr40_get();
+        insrt_time = dbg_tmr_get();
         assertv(rc, rc == 0);
 
         /* Pop speed test */
-        tmr40_reset();
+        dbg_tmr_reset();
         for(i = 0; i < nodes; i++) {
             pqueue_popmin(&test_q);
         }
-        pop_time = tmr40_get();
+        pop_time = dbg_tmr_get();
 
         bwprintf(COM2, 
                  "%d nodes\nInsert: %d\nPop: %d\n\n",

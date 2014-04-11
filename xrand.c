@@ -21,7 +21,7 @@ rand_init(struct rand *r, uint32_t seed)
 void
 rand_init_time(struct rand *r)
 {
-    rand_init(r, tmr40_get());
+    rand_init(r, dbg_tmr_get());
 }
 
 uint32_t

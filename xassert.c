@@ -5,7 +5,7 @@
 #include "xint.h"
 #include "xarg.h"
 #include "cpumode.h"
-#include "l1cache.h"
+#include "cache.h"
 #include "ringbuf.h"
 
 #include "bwio.h"

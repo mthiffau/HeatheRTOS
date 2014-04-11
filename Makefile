@@ -32,6 +32,12 @@ BUILD   = build
 LINK    = make/link-bbb.ld
 endif
 
+# Architecture specific code
+ARCH    = arch/$(DEVICE)
+
+# Code for application processes
+APPS    = apps/$(DEVICE)
+
 # Files
 MAIN    = $(BUILD)/rt.elf
 BIN     = $(BUILD)/u-boot.bin
@@ -39,8 +45,8 @@ TEST    = $(BUILD)/test.elf
 MAP     = $(BUILD)/rt.map
 TMAP    = $(BUILD)/test.map
 
-SRCS    = $(wildcard *.c)
-ASMS    = $(wildcard *.S)
+SRCS    = $(wildcard *.c) $(wildcard $(ARCH)/*.c) $(wildcard $(APPS)/*.c)
+ASMS    = $(wildcard $(ARCH)/*.S)
 OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o) $(ASMS:.S=.S.o))
 
 # Kernel-specific (non-test) files
@@ -51,13 +57,13 @@ KOBJS   = $(OBJS) $(addprefix $(BUILD)/, $(KSRCS:.c=.c.o))
 TSRCS   = $(wildcard test/*.c)
 TOBJS   = $(OBJS) $(addprefix $(BUILD)/, $(TSRCS:.c=.c.o))
 
-BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern
+BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern $(BUILD)/$(ARCH) $(BUILD)/$(APPS)
 
 .SUFFIXES:
 .SECONDARY:
 .PHONY: all clean install
 
-all: $(MAIN) $(TEST)
+all: $(MAIN)
 
 $(MAIN): $(LINK) $(KOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(MAP) -o $@ $(KOBJS) $(LIBS)
@@ -83,7 +89,7 @@ $(BUILD)/%.S.s: %.S $(CFLAGS_FILE) |$(BUILD_DIRS)
 	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
 
 $(BUILD_DIRS):
-	mkdir $@
+	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)

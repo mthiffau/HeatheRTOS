@@ -12,10 +12,10 @@ XINT_H;
  */
 
 /* Enable and reset the 40-bit timer. */
-void tmr40_reset(void);
+void dbg_tmr_reset(void);
 
 /* Get the current value of the 40-bit timer. */
-uint32_t tmr40_get(void);
+uint32_t dbg_tmr_get(void);
 
 /* Enable or disable the 32-bit timer. */
 void tmr32_enable(bool enable);

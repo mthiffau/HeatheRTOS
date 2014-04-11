@@ -13,7 +13,7 @@
 #include "kern.h"
 
 #include "xassert.h"
-#include "l1cache.h"
+#include "cache.h"
 #include "timer.h"
 #include "u_syscall.h"
 
@@ -49,12 +49,12 @@ measure_send_recv_reply(int msglen, bool send_first)
     };
     g_msglen = msglen;
 
-    tmr40_reset();
+    dbg_tmr_reset();
     kern_main(&kp);
     bwprintf(COM2, "  %d B\t%s\t%d us\n",
         msglen,
         send_first ? "send first" : "recv first",
-        (tmr40_get() / 983) * 1000 / NTRIALS);
+        (dbg_tmr_get() / 983) * 1000 / NTRIALS);
 }
 
 static void

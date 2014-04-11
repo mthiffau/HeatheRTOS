@@ -3,7 +3,7 @@
 #include "xarg.h"
 #include "bwio.h"
 
-#include "l1cache.h"
+#include "cache.h"
 #include "timer.h"
 
 #include "test/test_xmemcpy.h"
@@ -20,7 +20,7 @@ int
 main(void)
 {
     bwsetfifo(COM2, OFF);
-    l1cache_enable();
+    cache_enable();
 
     test_xmemcpy_all();
     test_pqueue_all();

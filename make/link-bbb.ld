@@ -6,7 +6,7 @@ SECTIONS
 
     .text : /* The actual instructions. */
     {
-        build/startup.S.o(.text)
+        build/arch/bbb/startup.S.o(.text)
         *(.text)
         *(.got)
         *(.got.plt)

@@ -8,13 +8,13 @@
 #include "event.h"
 #include "kern.h"
 
-#include "l1cache.h"
+#include "cache.h"
 #include "timer.h"
 
 int
 main(void)
 {
-    //l1cache_enable();
-    //tmr40_reset();
+    //cache_enable();
+    dbg_tmr_reset();
     return kern_main(&def_kparam);
 }
