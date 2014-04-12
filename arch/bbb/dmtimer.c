@@ -1,5 +1,9 @@
-#include "dmtimer.h"
+#include "soc_AM335x.h"
+#include "hw_cm_per.h"
+#include "hw_cm_dpll.h"
 #include "hw_types.h"
+
+#include "dmtimer.h"
 
 /*******************************************************************************
 *                       INTERNAL MACRO DEFINITIONS
@@ -455,13 +459,3 @@ void DMTimerContextRestore(unsigned int baseAdd,  DMTIMERCONTEXT *contextPtr)
     HWREG(baseAdd + DMTIMER_TCRR) = contextPtr->tcrr;
     HWREG(baseAdd + DMTIMER_TCLR) = contextPtr->tclr;
 }
-
-/**************************** END OF DMTIMER DAL ******************************/
-
-
-
-
-
-
-
-

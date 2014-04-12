@@ -11,9 +11,12 @@ XINT_H;
  * Timer control
  */
 
-/* Enable and reset the 40-bit timer. */
+/* Setup the debug timer */
+void dbg_tmr_setup(void);
+
+/* Reset the debug timer. */
 void dbg_tmr_reset(void);
 
-/* Get the current value of the 40-bit timer. */
+/* Get the current value of the debug timer. */
 uint32_t dbg_tmr_get(void);
 

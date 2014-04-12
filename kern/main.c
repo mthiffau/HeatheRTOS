@@ -9,12 +9,14 @@
 #include "kern.h"
 
 #include "cache.h"
+#include "pll.h"
 #include "timer.h"
 
 int
 main(void)
 {
     //cache_enable();
-    dbg_tmr_reset();
+    pll_setup();
+    dbg_tmr_setup();
     return kern_main(&def_kparam);
 }

@@ -30,6 +30,11 @@
 
 #include "exc_vec.h"
 
+#include "soc_AM335x.h"
+#include "gpio_v2.h"
+#define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
+#define GPIO_INSTANCE_PIN_NUMBER (23)
+
 //static void kern_top_pct(uint32_t total, uint32_t amt);
 //static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
@@ -50,6 +55,42 @@ kern_main(struct kparam *kp)
     //struct kern kern;
     //uint32_t start_time, end_time, time;
     (void)kp;
+
+    /* Selecting GPIO1[23] pin for use. */
+    GPIO1Pin23PinMuxSetup();
+
+    /* Enabling the GPIO module. */
+    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
+
+    /* Resetting the GPIO module. */
+    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
+
+    /* Setting the GPIO pin as an output pin. */
+    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
+                   GPIO_INSTANCE_PIN_NUMBER,
+                   GPIO_DIR_OUTPUT);
+
+    unsigned int pin_state = GPIO_PIN_LOW;
+    unsigned int cur_time = dbg_tmr_get();
+    unsigned int new_time = 0;
+    while (1) {
+	new_time = dbg_tmr_get();
+	if(new_time > cur_time + (25000000 * 5)) {
+	    cur_time = new_time;
+
+	    if (pin_state == GPIO_PIN_LOW) {
+		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
+			     GPIO_INSTANCE_PIN_NUMBER,
+			     GPIO_PIN_HIGH);
+		pin_state = GPIO_PIN_HIGH;
+	    } else {
+		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
+			     GPIO_INSTANCE_PIN_NUMBER,
+			     GPIO_PIN_LOW);
+		pin_state = GPIO_PIN_LOW;
+	    }
+	}
+    }
 
     /* Set up kernel state and create initial user task */
     //kern_init(&kern, kp);

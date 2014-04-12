@@ -137,7 +137,7 @@ typedef struct dmtimerContext{
     unsigned int irqenableset;
     unsigned int tcrr;
     unsigned int tclr;
-}DMTIMERCONTEXT;
+} DMTIMERCONTEXT;
 
 /*
 ** Prototype of the APIs
@@ -167,6 +167,8 @@ extern void DMTimerResetConfigure(unsigned int baseAdd, unsigned int rstOption);
 extern void DMTimerReset(unsigned int baseAdd);
 extern void DMTimerContextSave(unsigned int baseAdd, DMTIMERCONTEXT *contextPtr);
 extern void DMTimerContextRestore(unsigned int baseAdd, DMTIMERCONTEXT *contextPtr);
+
+extern void DMTimer2ModuleClkConfig(void);
 
 #ifdef __cplusplus
 }
