@@ -32,6 +32,7 @@
 
 #include "soc_AM335x.h"
 #include "gpio_v2.h"
+
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)
 
@@ -73,9 +74,19 @@ kern_main(struct kparam *kp)
     unsigned int pin_state = GPIO_PIN_LOW;
     unsigned int cur_time = dbg_tmr_get();
     unsigned int new_time = 0;
+
     while (1) {
 	new_time = dbg_tmr_get();
-	if(new_time > cur_time + (25000000 * 5)) {
+
+	// Detect overflow and keep light on
+	if (cur_time > new_time) {
+	    GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
+			 GPIO_INSTANCE_PIN_NUMBER,
+			 GPIO_PIN_HIGH);
+	    break;
+	}
+	
+	if(new_time > cur_time + (1000000)) {
 	    cur_time = new_time;
 
 	    if (pin_state == GPIO_PIN_LOW) {
@@ -91,6 +102,8 @@ kern_main(struct kparam *kp)
 	    }
 	}
     }
+
+    while(1);
 
     /* Set up kernel state and create initial user task */
     //kern_init(&kern, kp);
