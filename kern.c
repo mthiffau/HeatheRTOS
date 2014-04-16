@@ -31,7 +31,7 @@
 #include "exc_vec.h"
 
 #include "soc_AM335x.h"
-#include "gpio_v2.h"
+#include "gpio.h"
 
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)

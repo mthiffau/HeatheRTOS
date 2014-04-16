@@ -1,20 +1,16 @@
 /*
  * bwio.c - busy-wait I/O routines for diagnosis
  *
- * Specific to the TS-7200 ARM evaluation board
+ * Specific to the Beaglebone Black
  *
  */
+
+#include "soc_AM335x.h"
+#include "hw_types.h"
 
 #include "xarg.h"
 #include "bwio.h"
 
-/*
- * The UARTs are initialized by RedBoot to the following state
- * 	115,200 bps
- * 	8 bits
- * 	no parity
- * 	fifos enabled
- */
 int bwsetfifo( int channel, int state ) {
     (void)channel;
     (void)state;

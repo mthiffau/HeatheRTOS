@@ -1,15 +1,7 @@
-/**
- * \file    gpio_v2.h
- *
- * \brief   This file contains the prototypes of the APIs present in the
- *          device abstraction layer file of GPIO belonging to AM335X SoC.
- *          This also contains some related macros.
- */
+#ifndef  _GPIO_H_
+#define  _GPIO_H_
 
-#ifndef  _GPIO_V2_H_
-#define  _GPIO_V2_H_
-
-#include "hw_gpio_v2.h"
+#include "hw_gpio.h"
 
 #ifdef __cplusplus
 extern "C" {

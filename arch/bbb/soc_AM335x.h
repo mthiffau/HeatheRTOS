@@ -1,11 +1,3 @@
-/** ============================================================================
- *   \file  soc_AM33XX.h
- *
- *   \brief This file contains the peripheral information for AM33XX SoC
- *
- *  ============================================================================
- */
-
 #ifndef _SOC_AM33XX_H_
 #define _SOC_AM33XX_H_
 
