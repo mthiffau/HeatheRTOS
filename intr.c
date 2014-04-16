@@ -104,7 +104,7 @@ intr_reset(volatile struct vic *vic)
 void
 vic_dbgprint(volatile struct vic *vic)
 {
-    bwprintf(COM2,
+    bwprintf(
         "\trawstat: 0x%x\n"
         "\tselect:  0x%x\n"
         "\tenable:  0x%x\n"

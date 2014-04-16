@@ -6,85 +6,163 @@
  */
 
 #include "soc_AM335x.h"
+#include "beaglebone.h"
+#include "drv_uart.h"
 #include "hw_types.h"
 
 #include "xarg.h"
+#include "gpio.h"
 #include "bwio.h"
 
-int bwsetfifo( int channel, int state ) {
-    (void)channel;
-    (void)state;
-  
+#define BWIO_UART (SOC_UART_0_REGS)
+#define BAUD_RATE_115200 (115200)
+#define UART_MODULE_INPUT_CLK (48000000)
+
+#define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
+#define GPIO_INSTANCE_PIN_NUMBER (23)
+
+void 
+bwio_uart_setup(void)
+{
+    /* Selecting GPIO1[23] pin for use. */
+    GPIO1Pin23PinMuxSetup();
+
+    /* Enabling the GPIO module. */
+    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
+
+    /* Resetting the GPIO module. */
+    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
+
+    /* Setting the GPIO pin as an output pin. */
+    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
+                   GPIO_INSTANCE_PIN_NUMBER,
+                   GPIO_DIR_OUTPUT);
+    
+    /* Set pin mux */
+    UARTPinMuxSetup(0);
+
+    /* Reset the UART */
+    UARTModuleReset(BWIO_UART);
+
+    //unsigned int fifoConfig = 0;
+
+    /* Setting the TX and RX FIFO Trigger levels as 1. No DMA enabled. */
+    /*
+    fifoConfig = UART_FIFO_CONFIG(UART_TRIG_LVL_GRANULARITY_1,
+                                  UART_TRIG_LVL_GRANULARITY_1,
+                                  1,
+                                  1,
+                                  1,
+                                  1,
+                                  UART_DMA_EN_PATH_SCR,
+                                  UART_DMA_MODE_0_ENABLE);
+    */
+
+    /* Configuring the FIFO settings. */
+    //UARTFIFOConfig(BWIO_UART, fifoConfig);
+
+    /* Set the BAUD rate */
+    unsigned int divisorValue = 0;
+
+    /* Computing the Divisor Value. */
+    /*
+    divisorValue = UARTDivisorValCompute(UART_MODULE_INPUT_CLK,
+                                         BAUD_RATE_115200,
+                                         UART16x_OPER_MODE,
+                                         UART_MIR_OVERSAMPLING_RATE_42);
+    */
+
+    (void)divisorValue;
+    /* Enabling write access to Divisor Latches */
+    //UARTDivisorLatchEnable(BWIO_UART);
+    /* Programming the Divisor Latches. */
+    //UARTDivisorLatchWrite(BWIO_UART, divisorValue);
+
+    /* Switching to Configuration Mode B. */
+    UARTRegConfigModeEnable(BWIO_UART, UART_REG_CONFIG_MODE_B);
+
+    /* Programming the Line Characteristics. */
+    UARTLineCharacConfig(BWIO_UART,
+                         (UART_FRAME_WORD_LENGTH_8 | UART_FRAME_NUM_STB_1),
+                         UART_PARITY_NONE);
+
+    /* Disabling write access to Divisor Latches. */
+    UARTDivisorLatchDisable(BWIO_UART);
+
+    /* Disabling Break Control. */
+    UARTBreakCtl(BWIO_UART, UART_BREAK_COND_DISABLE);
+
+    /* Switching to UART16x operating mode. */
+    UARTOperatingModeSelect(BWIO_UART, UART16x_OPER_MODE);
+
+}
+
+int 
+bwputc( char c ) {
+    UARTCharPut(BWIO_UART, c);
+
     return 0;
 }
 
-int bwsetspeed( int channel, int speed ) {
-    (void)channel;
-    (void)speed;
-
-    return 0;
-}
-
-int bwputc( int channel, char c ) {
-    (void)channel;
-    (void)c;
-  
-    return 0;
-}
-
-char c2x( char ch ) {
+char 
+c2x( char ch ) {
     if ( (ch <= 9) ) return '0' + ch;
     return 'a' + ch - 10;
 }
 
-int bwputx( int channel, char c ) {
+int 
+bwputx( char c ) {
     char chh, chl;
 
     chh = c2x( c / 16 );
     chl = c2x( c % 16 );
-    bwputc( channel, chh );
-    return bwputc( channel, chl );
+    bwputc( chh );
+    return bwputc( chl );
 }
 
-int bwputr( int channel, unsigned int reg ) {
+int 
+bwputr( unsigned int reg ) {
     int byte;
     char *ch = (char *) &reg;
 
-    for( byte = 3; byte >= 0; byte-- ) bwputx( channel, ch[byte] );
-    return bwputc( channel, ' ' );
+    for( byte = 3; byte >= 0; byte-- ) bwputx( ch[byte] );
+    return bwputc( ' ' );
 }
 
-int bwputstr( int channel, char *str ) {
+int 
+bwputstr( char *str ) {
     while( *str ) {
-	if( bwputc( channel, *str ) < 0 ) return -1;
+	if( bwputc( *str ) < 0 ) return -1;
 	str++;
     }
     return 0;
 }
 
-void bwputw( int channel, int n, char fc, char *bf ) {
+void 
+bwputw( int n, char fc, char *bf ) {
     char ch;
     char *p = bf;
 
     while( *p++ && n > 0 ) n--;
-    while( n-- > 0 ) bwputc( channel, fc );
-    while( ( ch = *bf++ ) ) bwputc( channel, ch );
+    while( n-- > 0 ) bwputc( fc );
+    while( ( ch = *bf++ ) ) bwputc( ch );
 }
 
-int bwgetc( int channel ) {
-    (void)channel;
-  
-    return 0;
+int 
+bwgetc() {
+    return (int)UARTCharGet(BWIO_UART);
 }
 
-int bwa2d( char ch ) {
+int 
+bwa2d( char ch ) {
     if( ch >= '0' && ch <= '9' ) return ch - '0';
     if( ch >= 'a' && ch <= 'f' ) return ch - 'a' + 10;
     if( ch >= 'A' && ch <= 'F' ) return ch - 'A' + 10;
     return -1;
 }
 
-char bwa2i( char ch, const char **src, int base, int *nump ) {
+char 
+bwa2i( char ch, const char **src, int base, int *nump ) {
     int num, digit;
     const char *p;
 
@@ -98,7 +176,8 @@ char bwa2i( char ch, const char **src, int base, int *nump ) {
     return ch;
 }
 
-void bwui2a( unsigned int num, unsigned int base, char *bf ) {
+void 
+bwui2a( unsigned int num, unsigned int base, char *bf ) {
     int n = 0;
     int dgt;
     unsigned int d = 1;
@@ -116,7 +195,8 @@ void bwui2a( unsigned int num, unsigned int base, char *bf ) {
     *bf = 0;
 }
 
-void bwi2a( int num, char *bf ) {
+void 
+bwi2a( int num, char *bf ) {
     if( num < 0 ) {
 	num = -num;
 	*bf++ = '-';
@@ -124,7 +204,8 @@ void bwi2a( int num, char *bf ) {
     bwui2a( num, 10, bf );
 }
 
-void bwformat ( int channel, const char *fmt, va_list va ) {
+void 
+bwformat ( const char *fmt, va_list va ) {
     char bf[12];
     char ch, lz;
     int w;
@@ -132,7 +213,7 @@ void bwformat ( int channel, const char *fmt, va_list va ) {
 	
     while ( ( ch = *(fmt++) ) ) {
 	if ( ch != '%' )
-	    bwputc( channel, ch );
+	    bwputc( ch );
 	else {
 	    lz = 0; w = 0;
 	    ch = *(fmt++);
@@ -155,37 +236,38 @@ void bwformat ( int channel, const char *fmt, va_list va ) {
 	    switch( ch ) {
 	    case 0: return;
 	    case 'c':
-		bwputc( channel, va_arg( va, char ) );
+		bwputc( va_arg( va, char ) );
 		break;
 	    case 's':
-		bwputw( channel, w, 0, va_arg( va, char* ) );
+		bwputw( w, 0, va_arg( va, char* ) );
 		break;
 	    case 'u':
 		bwui2a( va_arg( va, unsigned int ), 10, bf );
-		bwputw( channel, w, lz, bf );
+		bwputw( w, lz, bf );
 		break;
 	    case 'd':
 		bwi2a( va_arg( va, int ), bf );
-		bwputw( channel, w, lz, bf );
+		bwputw( w, lz, bf );
 		break;
 	    case 'x':
 	    case 'p':
 		bwui2a( va_arg( va, unsigned int ), 16, bf );
-		bwputw( channel, w, lz, bf );
+		bwputw( w, lz, bf );
 		break;
 	    case '%':
-		bwputc( channel, ch );
+		bwputc( ch );
 		break;
 	    }
 	}
     }
 }
 
-void bwprintf( int channel, const char *fmt, ... ) {
+void 
+bwprintf( const char *fmt, ... ) {
     va_list va;
 
     va_start(va,fmt);
-    bwformat( channel, fmt, va );
+    bwformat( fmt, va );
     va_end(va);
 }
 

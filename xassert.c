@@ -14,8 +14,6 @@
 #include "u_syscall.h"
 #include "clock_srv.h"
 
-static void uart_ctrl_delay(void);
-
 void
 panic(const char *fmt, ...)
 {
@@ -36,15 +34,13 @@ panic(const char *fmt, ...)
         Panic(mem);
     } else {
         /* Kernel mode panic. Use bwio and hang. */
-        uart_ctrl_delay();
-        bwsetspeed(COM2, 115200);
-        uart_ctrl_delay();
-        bwsetfifo(COM2, OFF);
-        uart_ctrl_delay();
+	bwio_uart_setup();
+
         va_start(args, fmt);
-        bwformat(COM2, fmt, args);
+        bwformat(fmt, args);
         va_end(args);
-        bwputc(COM2, '\n');
+
+        bwputc('\n');
         for (;;) { }
     }
 }
@@ -56,64 +52,3 @@ _assert(bool x, const char *file, int line, const char *expr)
         panic("%s:%d: failed assertion: %s", file, line, expr);
 }
 
-static void
-uart_ctrl_delay(void)
-{
-    __asm__ (
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-        "nop\n"
-    );
-}

@@ -16,23 +16,25 @@ XARG_H;
 #define ON	1
 #define	OFF	0
 
-int bwsetfifo( int channel, int state );
+void bwio_uart_setup(void);
 
-int bwsetspeed( int channel, int speed );
+int bwsetfifo( int state );
 
-int bwputc( int channel, char c );
+int bwsetspeed( int speed );
 
-int bwgetc( int channel );
+int bwputc( char c );
 
-int bwputx( int channel, char c );
+int bwgetc();
 
-int bwputstr( int channel, char *str );
+int bwputx( char c );
 
-int bwputr( int channel, unsigned int reg );
+int bwputstr( char *str );
 
-void bwputw( int channel, int n, char fc, char *bf );
+int bwputr( unsigned int reg );
 
-void bwformat( int channel, const char *format, va_list args );
+void bwputw( int n, char fc, char *bf );
 
-void bwprintf( int channel, const char *format, ... )
-    __attribute__((format(printf, 2, 3)));
+void bwformat( const char *format, va_list args );
+
+void bwprintf( const char *format, ... )
+    __attribute__((format(printf, 1, 2)));

@@ -32,6 +32,7 @@
 
 #include "soc_AM335x.h"
 #include "gpio.h"
+#include "beaglebone.h"
 
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)
@@ -57,7 +58,31 @@ kern_main(struct kparam *kp)
     //uint32_t start_time, end_time, time;
     (void)kp;
 
-    
+    unsigned int pin_state = GPIO_PIN_HIGH;
+    unsigned int cur_time = dbg_tmr_get();
+    unsigned int new_time = 0;
+
+    while (1) {
+	new_time = dbg_tmr_get();
+
+	if(new_time > cur_time + (1000)) {
+	    cur_time = new_time;
+
+	    if (pin_state == GPIO_PIN_LOW) {
+		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
+			     GPIO_INSTANCE_PIN_NUMBER,
+			     GPIO_PIN_HIGH);
+		pin_state = GPIO_PIN_HIGH;
+		//bwputc('A');
+
+	    } else {
+		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
+			     GPIO_INSTANCE_PIN_NUMBER,
+			     GPIO_PIN_LOW);
+		pin_state = GPIO_PIN_LOW;
+	    }
+	}
+    }
 
     /* Set up kernel state and create initial user task */
     //kern_init(&kern, kp);
