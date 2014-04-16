@@ -57,53 +57,7 @@ kern_main(struct kparam *kp)
     //uint32_t start_time, end_time, time;
     (void)kp;
 
-    /* Selecting GPIO1[23] pin for use. */
-    GPIO1Pin23PinMuxSetup();
-
-    /* Enabling the GPIO module. */
-    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
-
-    /* Resetting the GPIO module. */
-    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
-
-    /* Setting the GPIO pin as an output pin. */
-    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
-                   GPIO_INSTANCE_PIN_NUMBER,
-                   GPIO_DIR_OUTPUT);
-
-    unsigned int pin_state = GPIO_PIN_LOW;
-    unsigned int cur_time = dbg_tmr_get();
-    unsigned int new_time = 0;
-
-    while (1) {
-	new_time = dbg_tmr_get();
-
-	// Detect overflow and keep light on
-	if (cur_time > new_time) {
-	    GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-			 GPIO_INSTANCE_PIN_NUMBER,
-			 GPIO_PIN_HIGH);
-	    break;
-	}
-	
-	if(new_time > cur_time + (1000000)) {
-	    cur_time = new_time;
-
-	    if (pin_state == GPIO_PIN_LOW) {
-		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-			     GPIO_INSTANCE_PIN_NUMBER,
-			     GPIO_PIN_HIGH);
-		pin_state = GPIO_PIN_HIGH;
-	    } else {
-		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-			     GPIO_INSTANCE_PIN_NUMBER,
-			     GPIO_PIN_LOW);
-		pin_state = GPIO_PIN_LOW;
-	    }
-	}
-    }
-
-    while(1);
+    
 
     /* Set up kernel state and create initial user task */
     //kern_init(&kern, kp);

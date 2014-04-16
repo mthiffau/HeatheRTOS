@@ -38,14 +38,14 @@ void dbg_tmr_reset(void)
     DMTimerModeConfigure(SOC_DMTIMER_2_REGS, DMTIMER_AUTORLD_NOCMP_ENABLE);
 
     /* Make sure pre-scaler clock is disabled */
-    DMTimerPreScalerClkEnable(SOC_DMTIMER_2_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_16);
+    DMTimerPreScalerClkEnable(SOC_DMTIMER_2_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_64);
 
     /* Start the timer */
     DMTimerEnable(SOC_DMTIMER_2_REGS);
 }
 
-/* Get the value of the debug timer (in us) */
+/* Get the value of the debug timer (in ms) */
 uint32_t dbg_tmr_get(void)
 {
-    return (DMTimerCounterGet(SOC_DMTIMER_2_REGS) * 10) / 15;
+    return (DMTimerCounterGet(SOC_DMTIMER_2_REGS) / 375);
 }
