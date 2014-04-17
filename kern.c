@@ -58,6 +58,20 @@ kern_main(struct kparam *kp)
     //uint32_t start_time, end_time, time;
     (void)kp;
 
+    /* Selecting GPIO1[23] pin for use. */
+    GPIO1Pin23PinMuxSetup();
+
+    /* Enabling the GPIO module. */
+    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
+
+    /* Resetting the GPIO module. */
+    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
+
+    /* Setting the GPIO pin as an output pin. */
+    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
+                   GPIO_INSTANCE_PIN_NUMBER,
+                   GPIO_DIR_OUTPUT);
+    
     unsigned int pin_state = GPIO_PIN_HIGH;
     unsigned int cur_time = dbg_tmr_get();
     unsigned int new_time = 0;
@@ -73,7 +87,7 @@ kern_main(struct kparam *kp)
 			     GPIO_INSTANCE_PIN_NUMBER,
 			     GPIO_PIN_HIGH);
 		pin_state = GPIO_PIN_HIGH;
-		//bwputc('A');
+		bwputstr("Hello World!\r");
 
 	    } else {
 		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,

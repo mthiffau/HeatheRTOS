@@ -1,1 +1,1 @@
--nostdinc -I. -Iarch/bbb -Iapps/bbb -Wall -Wextra -Werror -mcpu=cortex-a8
+-nostdinc -I. -Iarch/bbb -Iapps/bbb -Wall -Wextra -Werror -mcpu=cortex-a8 -O0

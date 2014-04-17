@@ -10,6 +10,9 @@
 #include "drv_uart.h"
 #include "hw_types.h"
 
+#include "xbool.h"
+#include "xint.h"
+#include "timer.h"
 #include "xarg.h"
 #include "gpio.h"
 #include "bwio.h"
@@ -24,59 +27,23 @@
 void 
 bwio_uart_setup(void)
 {
-    /* Selecting GPIO1[23] pin for use. */
-    GPIO1Pin23PinMuxSetup();
-
-    /* Enabling the GPIO module. */
-    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
-
-    /* Resetting the GPIO module. */
-    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
-
-    /* Setting the GPIO pin as an output pin. */
-    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
-                   GPIO_INSTANCE_PIN_NUMBER,
-                   GPIO_DIR_OUTPUT);
-    
     /* Set pin mux */
     UARTPinMuxSetup(0);
 
     /* Reset the UART */
     UARTModuleReset(BWIO_UART);
 
-    //unsigned int fifoConfig = 0;
-
-    /* Setting the TX and RX FIFO Trigger levels as 1. No DMA enabled. */
-    /*
-    fifoConfig = UART_FIFO_CONFIG(UART_TRIG_LVL_GRANULARITY_1,
-                                  UART_TRIG_LVL_GRANULARITY_1,
-                                  1,
-                                  1,
-                                  1,
-                                  1,
-                                  UART_DMA_EN_PATH_SCR,
-                                  UART_DMA_MODE_0_ENABLE);
-    */
-
-    /* Configuring the FIFO settings. */
-    //UARTFIFOConfig(BWIO_UART, fifoConfig);
-
     /* Set the BAUD rate */
     unsigned int divisorValue = 0;
 
     /* Computing the Divisor Value. */
-    /*
     divisorValue = UARTDivisorValCompute(UART_MODULE_INPUT_CLK,
                                          BAUD_RATE_115200,
                                          UART16x_OPER_MODE,
                                          UART_MIR_OVERSAMPLING_RATE_42);
-    */
 
-    (void)divisorValue;
-    /* Enabling write access to Divisor Latches */
-    //UARTDivisorLatchEnable(BWIO_UART);
     /* Programming the Divisor Latches. */
-    //UARTDivisorLatchWrite(BWIO_UART, divisorValue);
+    UARTDivisorLatchWrite(BWIO_UART, divisorValue);
 
     /* Switching to Configuration Mode B. */
     UARTRegConfigModeEnable(BWIO_UART, UART_REG_CONFIG_MODE_B);

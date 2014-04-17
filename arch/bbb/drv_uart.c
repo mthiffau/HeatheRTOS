@@ -85,6 +85,7 @@ UARTDivisorValCompute(unsigned int moduleClk,
 		      unsigned int modeFlag,
 		      unsigned int mirOverSampRate)
 {
+    (void)mirOverSampRate;
     unsigned int divisorValue = 0;
 
     modeFlag &= UART_MDR1_MODE_SELECT;
@@ -98,7 +99,7 @@ UARTDivisorValCompute(unsigned int moduleClk,
     case UART13x_OPER_MODE:
 	divisorValue = (moduleClk)/(13 * baudRate);
         break;
-        
+
     case UART_MIR_OPER_MODE:
 	divisorValue = (moduleClk)/(mirOverSampRate * baudRate);
         break;
@@ -110,7 +111,7 @@ UARTDivisorValCompute(unsigned int moduleClk,
     default:
         break;
     }
-    
+
     return divisorValue;
 }
 

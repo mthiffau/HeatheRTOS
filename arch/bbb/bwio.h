@@ -18,10 +18,6 @@ XARG_H;
 
 void bwio_uart_setup(void);
 
-int bwsetfifo( int state );
-
-int bwsetspeed( int speed );
-
 int bwputc( char c );
 
 int bwgetc();

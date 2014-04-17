@@ -2,8 +2,8 @@ ENTRY (_asm_entry)
 
 SECTIONS
 {
-    . = 0x82000000;
-
+    . = 0x80200000;
+    . = ALIGN(4);
     .text : /* The actual instructions. */
     {
         build/arch/bbb/startup.S.o(.text)
@@ -16,6 +16,7 @@ SECTIONS
         *(.glue_7t)
     }
 
+    . = ALIGN(4);
     .data : /* Initialized data. */
     {
         _DataStart = . ;
@@ -23,6 +24,7 @@ SECTIONS
         _DataEnd = . ;
     }
 
+    . = ALIGN(4);
     .bss : /* Uninitialized data. */
     {
         _BssStart = . ;
