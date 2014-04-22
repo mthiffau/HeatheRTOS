@@ -37,8 +37,8 @@
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)
 
-//static void kern_top_pct(uint32_t total, uint32_t amt);
-//static void kern_top(struct kern *kern, uint32_t total_time);
+static void kern_top_pct(uint32_t total, uint32_t amt);
+static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
 static void kern_RegisterEvent(struct kern *kern, struct task_desc *active);
 static void kern_AwaitEvent(struct kern *kern, struct task_desc *active);
@@ -54,8 +54,8 @@ struct kparam def_kparam = {
 int
 kern_main(struct kparam *kp)
 {
-    //struct kern kern;
-    //uint32_t start_time, end_time, time;
+    struct kern kern;
+    uint32_t start_time, end_time, time;
     (void)kp;
 
     /* Selecting GPIO1[23] pin for use. */
@@ -72,55 +72,32 @@ kern_main(struct kparam *kp)
                    GPIO_INSTANCE_PIN_NUMBER,
                    GPIO_DIR_OUTPUT);
     
-    unsigned int pin_state = GPIO_PIN_HIGH;
-    unsigned int cur_time = dbg_tmr_get();
-    unsigned int new_time = 0;
-
-    while (1) {
-	new_time = dbg_tmr_get();
-
-	if(new_time > cur_time + (1000)) {
-	    cur_time = new_time;
-
-	    if (pin_state == GPIO_PIN_LOW) {
-		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-			     GPIO_INSTANCE_PIN_NUMBER,
-			     GPIO_PIN_HIGH);
-		pin_state = GPIO_PIN_HIGH;
-		bwputstr("Hello World!\r");
-
-	    } else {
-		GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-			     GPIO_INSTANCE_PIN_NUMBER,
-			     GPIO_PIN_LOW);
-		pin_state = GPIO_PIN_LOW;
-	    }
-	}
-    }
-
     /* Set up kernel state and create initial user task */
-    //kern_init(&kern, kp);
+    kern_init(&kern, kp);
+
+    GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
+		 GPIO_INSTANCE_PIN_NUMBER,
+		 GPIO_PIN_HIGH);
+    bwputstr("\n\rKernel initialization complete.\n\r");
 
     /* Main loop */
-    /*
-    start_time = tmr40_get();
+    start_time = dbg_tmr_get();
     while (!kern.shutdown && (kern.rdy_count > 1 || kern.evblk_count > 0)) {
         struct task_desc *active;
         uint32_t          intr;
         active = task_schedule(&kern);
-        time   = tmr40_get();
+        time   = dbg_tmr_get();
         intr   = ctx_switch(active);
-        active->time += tmr40_get() - time;
+        active->time += dbg_tmr_get() - time;
         kern_handle_intr(&kern, active, intr);
         assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
     }
 
-    end_time = tmr40_get();
+    end_time = dbg_tmr_get();
     kern_cleanup(&kern);
 
     if (kp->show_top)
         kern_top(&kern, end_time - start_time);
-    */
 
     return 0;
 }
@@ -131,14 +108,11 @@ kern_init(struct kern *kern, struct kparam *kp)
     uint32_t i, mem_avail;
     tid_t tid;
 
-    /* Install SWI and IRQ handlers. */
-    *EXC_VEC_SWI = EXC_VEC_INSTR;
-    *EXC_VEC_IRQ = EXC_VEC_INSTR;
-    EXC_VEC_FP(EXC_VEC_SWI) = &kern_entry_swi;
-    EXC_VEC_FP(EXC_VEC_IRQ) = &kern_entry_irq;
+    /* Load kernel exception vector table */
+    load_vector_table();
 
     /* Initialize event system */
-    evt_init(&kern->eventab);
+    //evt_init(&kern->eventab);
 
     /* 1MB reserved for kernel stack, move down to next 4k boundary */
     kern->stack_mem_top = (void*)(((uint32_t)&i - 0x100000) & 0xfffff000);
@@ -298,7 +272,6 @@ kern_cleanup(struct kern *kern)
     evt_cleanup();
 }
 
-/*
 static void
 kern_top_pct(uint32_t total, uint32_t amt)
 {
@@ -306,18 +279,16 @@ kern_top_pct(uint32_t total, uint32_t amt)
     pct10  = 1000 * amt / total;
     pct    = pct10 / 10;
     pct10 %= 10;
-    bwprintf(COM2, "\t%s%u.%u%%\n", pct >= 10 ? "" : " ", pct, pct10);
+    bwprintf("\t%s%u.%u%%\n", pct >= 10 ? "" : " ", pct, pct10);
 }
-*/
 
-/*
 static void
 kern_top(struct kern *kern, uint32_t total_time)
 {
     unsigned i;
     uint32_t total_ms  = total_time / 983;
     uint32_t user_time = 0;
-    bwprintf(COM2, "--------\nran for %d ms\n", total_ms);
+    bwprintf("--------\nran for %d ms\n", total_ms);
     for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
         struct task_desc *td;
         tid_t tid;
@@ -326,16 +297,15 @@ kern_top(struct kern *kern, uint32_t total_time)
             continue;
         tid = TASK_TID(kern, td);
         if (tid == 0)
-            bwputstr(COM2, "IDLE");
+            bwputstr("IDLE");
         else
-            bwprintf(COM2, "%d", (int)tid);
+            bwprintf("%d", (int)tid);
         kern_top_pct(total_ms, td->time / 983);
         user_time += td->time;
     }
-    bwputstr(COM2, "KERNEL");
+    bwputstr("KERNEL");
     kern_top_pct(total_ms, (total_time - user_time) / 983);
 }
-*/
 
 static void
 kern_RegisterCleanup(struct kern *kern, struct task_desc *active)

@@ -4,8 +4,5 @@
 
 #define _EXC_VEC_H_
 
-#define EXC_VEC_INSTR       0xe59ff018 /* ldr pc, [pc, #+0x18] */
-#define EXC_VEC_SWI         ((unsigned int*)0x08)
-#define EXC_VEC_IRQ         ((unsigned int*)0x18)
-#define EXC_VEC_FP(i)       (*((void**)((void*)(i) + 0x20)))
-
+/* Copies the CPU exception vector table into memory */
+void load_vector_table(void);
