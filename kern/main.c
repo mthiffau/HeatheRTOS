@@ -17,7 +17,7 @@
 int
 main(void)
 {
-    //cache_enable();
+    cache_enable();
     pll_setup();
     dbg_tmr_setup();
     bwio_uart_setup();

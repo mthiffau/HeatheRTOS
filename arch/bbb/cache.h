@@ -1,14 +1,14 @@
-#ifdef L1CACHE_H
-#error "double-included l1cache.h"
+#ifdef CACHE_H
+#error "double-included cache.h"
 #endif
 
-#define L1CACHE_H
+#define CACHE_H
 
-/* Enable the L1 instruction and data caches. */
+/* Enable the caches. */
 void cache_enable(void);
 
-/* Disable the L1 instruction and data caches. */
+/* Disable the caches. */
 void cache_disable(void);
 
-/* Get the value of the cache type register. */
-uint32_t cache_typereg(void);
+/* Flush the caches */
+void cache_flush(void);
