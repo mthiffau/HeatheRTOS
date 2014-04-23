@@ -1,21 +1,5 @@
 DEVICE  = bbb
 
-ifeq ($(DEVICE), ts7200)
-CFLAGS_FILE = make/cflags-ts7200
-HOST    = arm-none-eabi-
-CC      = $(HOST)gcc
-AS      = $(HOST)as
-LD      = $(HOST)gcc
-OCOPY   = $(HOST)objcopy
-CFLAGS  = $(shell cat $(CFLAGS_FILE))
-ASFLAGS = -mcpu=arm920t -mapcs-32 # always use full stack frames
-LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
-LIBS    = -lgcc
-BUILD   = build
-
-LINK    = make/link-ts7200.ld
-endif
-
 ifeq ($(DEVICE), bbb)
 CFLAGS_FILE = make/cflags-bbb
 HOST    = arm-none-eabi-
@@ -46,7 +30,7 @@ MAP     = $(BUILD)/rt.map
 TMAP    = $(BUILD)/test.map
 
 SRCS    = $(wildcard *.c) $(wildcard $(ARCH)/*.c) $(wildcard $(APPS)/*.c)
-ASMS    = $(wildcard $(ARCH)/*.S)
+ASMS    = $(wildcard $(ARCH)/*.S) $(wildcard ./*.S)
 OBJS    = $(addprefix $(BUILD)/, $(SRCS:.c=.c.o) $(ASMS:.S=.S.o))
 
 # Kernel-specific (non-test) files

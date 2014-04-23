@@ -1,1 +1,0 @@
--nostdinc -I. -Iarch/ts7200 -Iapps/ts7200 -Wall -Wextra -Werror -fPIC -mcpu=arm920t -msoft-float -O3

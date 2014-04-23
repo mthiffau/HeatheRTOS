@@ -21,6 +21,7 @@ void
 u_init_main(void)
 {
     tid_t ns_tid, clk_tid; // tty_tid
+    //tid_t hw_tid;
     //struct serialcfg ttycfg, traincfg;
     //int rplylen;
 

@@ -10,7 +10,7 @@ XDEF_H;
 U_TID_H;
 CONFIG_H;
 
-#define IRQ_COUNT       64
+#define IRQ_COUNT       128
 
 /* Error codes. */
 enum {

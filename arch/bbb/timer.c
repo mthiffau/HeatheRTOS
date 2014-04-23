@@ -6,8 +6,6 @@
 #include "static_assert.h"
 
 #include "soc_AM335x.h"
-#include "hw_cm_per.h"
-#include "hw_cm_dpll.h"
 #include "hw_types.h"
 
 #include "dmtimer.h"
@@ -37,7 +35,7 @@ void dbg_tmr_reset(void)
     /* Make timer auto-reload, no compare */
     DMTimerModeConfigure(SOC_DMTIMER_2_REGS, DMTIMER_AUTORLD_NOCMP_ENABLE);
 
-    /* Make sure pre-scaler clock is disabled */
+    /* Set pre-scaler to divide by 64 */
     DMTimerPreScalerClkEnable(SOC_DMTIMER_2_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_64);
 
     /* Start the timer */

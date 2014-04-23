@@ -6,13 +6,18 @@
 #include "xint.h"
 #include "xdef.h"
 #include "pqueue.h"
-#include "timer.h"
 
 #include "xassert.h"
 #include "u_syscall.h"
 #include "u_events.h"
 #include "ns.h"
 #include "array_size.h"
+
+#include "soc_AM335x.h"
+#include "hw_types.h"
+#include "hw_cm_per.h"
+#include "hw_cm_dpll.h"
+#include "dmtimer.h"
 
 enum {
     CLKMSG_TICK,
@@ -27,7 +32,13 @@ struct clkmsg {
 };
 
 struct clksrv {
-    int ticks;
+    /* Clock ticks in micro seconds */
+    int us_ticks;
+    /* Clock ticks in milliseconds */
+    int ms_ticks;
+    /* Number of microsecond ticks since last millisecond tick */
+    int intermediate_us;
+
     tid_t              tids[MAX_TASKS];
     struct pqueue      delays; /* TIDs' low bytes keyed on wakeup time */
     struct pqueue_node delay_nodes[MAX_TASKS];
@@ -40,24 +51,73 @@ static int  clksrv_notify_cb(void*, size_t);
 static void clksrv_delayuntil(struct clksrv *clk, tid_t who, int ticks);
 static void clksrv_undelay(struct clksrv *clk);
 
-int
-clock_init(int freq_Hz)
+static void 
+DMTimer3ModuleClkConfig(void)
 {
-    /* Set up timer to produce interrupts at freq_Hz */
-    uint32_t reload = (HWCLOCK_Hz + freq_Hz / 2) / freq_Hz - 1; /* rounded */
-    (void)reload;
-    
-    /* Set up the timer. */
-    /*
-    tmr32_enable(false);
-    tmr32_load(reload);
-    tmr32_set_periodic(true);
-    if (tmr32_set_kHz(HWCLOCK_Hz / 1000) != 0)
-        return -1;
+    /* Select the clock source for the Timer3 instance. */
+    HWREG(SOC_CM_DPLL_REGS + CM_DPLL_CLKSEL_TIMER3_CLK) &=
+	~(CM_DPLL_CLKSEL_TIMER3_CLK_CLKSEL);
 
-    tmr32_intr_clear();
-    tmr32_enable(true);
-    */
+    HWREG(SOC_CM_DPLL_REGS + CM_DPLL_CLKSEL_TIMER3_CLK) |=
+	CM_DPLL_CLKSEL_TIMER3_CLK_CLKSEL_CLK_M_OSC;
+
+    while((HWREG(SOC_CM_DPLL_REGS + CM_DPLL_CLKSEL_TIMER3_CLK) &
+           CM_DPLL_CLKSEL_TIMER3_CLK_CLKSEL) !=
+	  CM_DPLL_CLKSEL_TIMER3_CLK_CLKSEL_CLK_M_OSC);
+
+    HWREG(SOC_CM_PER_REGS + CM_PER_TIMER3_CLKCTRL) |=
+	CM_PER_TIMER3_CLKCTRL_MODULEMODE_ENABLE;
+
+    while((HWREG(SOC_CM_PER_REGS + CM_PER_TIMER3_CLKCTRL) &
+	   CM_PER_TIMER3_CLKCTRL_MODULEMODE) != CM_PER_TIMER3_CLKCTRL_MODULEMODE_ENABLE);
+
+    while((HWREG(SOC_CM_PER_REGS + CM_PER_TIMER3_CLKCTRL) & 
+	   CM_PER_TIMER3_CLKCTRL_IDLEST) != CM_PER_TIMER3_CLKCTRL_IDLEST_FUNC);
+
+    while(!(HWREG(SOC_CM_PER_REGS + CM_PER_L3S_CLKSTCTRL) &
+            CM_PER_L3S_CLKSTCTRL_CLKACTIVITY_L3S_GCLK));
+
+    while(!(HWREG(SOC_CM_PER_REGS + CM_PER_L3_CLKSTCTRL) &
+            CM_PER_L3_CLKSTCTRL_CLKACTIVITY_L3_GCLK));
+
+    while(!(HWREG(SOC_CM_PER_REGS + CM_PER_OCPWP_L3_CLKSTCTRL) &
+	    (CM_PER_OCPWP_L3_CLKSTCTRL_CLKACTIVITY_OCPWP_L3_GCLK |
+	     CM_PER_OCPWP_L3_CLKSTCTRL_CLKACTIVITY_OCPWP_L4_GCLK)));
+
+    while(!(HWREG(SOC_CM_PER_REGS + CM_PER_L4LS_CLKSTCTRL) &
+	    (CM_PER_L4LS_CLKSTCTRL_CLKACTIVITY_L4LS_GCLK |
+	     CM_PER_L4LS_CLKSTCTRL_CLKACTIVITY_TIMER3_GCLK)));
+}
+
+int
+clock_init()
+{
+    /* Set up timer to produce interrupts every microsecond */
+
+    /* Configure functional clock */
+    DMTimer3ModuleClkConfig();
+
+    /* Disable module */
+    DMTimerDisable(SOC_DMTIMER_3_REGS);
+
+    /* Re-load timer counter to zero */
+    DMTimerCounterSet(SOC_DMTIMER_3_REGS, CLOCK_RELOAD);
+
+    /* Set re-load value for timer */
+    // Period = (0xFFFFFFFF - reload + 1) * clock_rate * divider
+    // clock_rate = 24 MHz
+    // divider = 8
+    DMTimerReloadSet(SOC_DMTIMER_3_REGS, CLOCK_RELOAD);
+
+    /* Make timer auto-reload, compare mode */
+    DMTimerModeConfigure(SOC_DMTIMER_3_REGS, DMTIMER_AUTORLD_CMP_ENABLE);
+
+    /* Set pre-scaler value */
+    DMTimerPreScalerClkEnable(SOC_DMTIMER_3_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_8);
+
+    /* Enable interrupts from this module */
+    DMTimerIntEnable(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_EN_FLAG);
+    
     return 0;
 }
 
@@ -79,16 +139,25 @@ clksrv_main(void)
         case CLKMSG_TICK:
             rc = Reply(client, NULL, 0);
             assertv(rc, rc == 0);
-            clk.ticks++;
+	    /* Increment microsecond ticks */
+	    clk.us_ticks++;
+	    /* Increment intermediate counter */
+	    clk.intermediate_us++;
+	    /* If the intermediate couter hits 1000,
+	     increment the millisecond ticks */
+	    if (clk.intermediate_us == 1000) {
+		clk.ms_ticks++;
+		clk.intermediate_us = 0;
+	    }
             clksrv_undelay(&clk);
             break;
         case CLKMSG_TIME:
-            rply = clk.ticks;
+            rply = clk.ms_ticks;
             rc = Reply(client, &rply, sizeof (rply));
             assertv(rc, rc == 0);
             break;
         case CLKMSG_DELAY:
-            clksrv_delayuntil(&clk, client, clk.ticks + msg.ticks);
+            clksrv_delayuntil(&clk, client, clk.ms_ticks + msg.ticks);
             break;
         case CLKMSG_DELAYUNTIL:
             clksrv_delayuntil(&clk, client, msg.ticks);
@@ -103,7 +172,10 @@ static void
 clksrv_init(struct clksrv *clk)
 {
     int rc;
-    clk->ticks = 0;
+    clk->us_ticks = 0;
+    clk->ms_ticks = 0;
+    clk->intermediate_us = 0;
+
     pqueue_init(&clk->delays, ARRAY_SIZE(clk->delay_nodes), clk->delay_nodes);
     rc = Create(PRIORITY_MAX, &clksrv_notify);
     assertv(rc, rc >= 0);
@@ -119,11 +191,14 @@ clksrv_notify(void)
     clksrv_cleanup();
     RegisterCleanup(&clksrv_cleanup);
 
-    rc = clock_init(100);
+    rc = clock_init();
     assertv(rc, rc == 0);
 
     rc = RegisterEvent(IRQ_CLOCK_TICK, &clksrv_notify_cb);
     assert(rc == 0);
+
+    /* Start timer */
+    DMTimerEnable(SOC_DMTIMER_3_REGS);
 
     clksrv_tid = WhoIs("clock");
     for (;;) {
@@ -138,8 +213,7 @@ clksrv_notify(void)
 static void
 clksrv_cleanup(void)
 {
-    /* TODO? disable 40-bit timer as well */
-    //tmr32_enable(false);
+    DMTimerDisable(SOC_DMTIMER_3_REGS);
 }
 
 static int
@@ -147,14 +221,17 @@ clksrv_notify_cb(void *ptr, size_t n)
 {
     assertv(ptr, ptr == NULL);
     assertv(n,   n   == 0);
-    //tmr32_intr_clear();
+    /* Clear the timer interrupt */
+    DMTimerIntDisable(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_EN_FLAG);
+    DMTimerIntStatusClear(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_IT_FLAG);
+    DMTimerIntEnable(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_EN_FLAG);
     return 0;
 }
 
 static void
 clksrv_delayuntil(struct clksrv *clk, tid_t who, int when_ticks)
 {
-    if (when_ticks > clk->ticks) {
+    if (when_ticks > clk->ms_ticks) {
         /* Add to priority queue */
         int rc;
         clk->tids[who & 0xff] = who;
@@ -163,7 +240,7 @@ clksrv_delayuntil(struct clksrv *clk, tid_t who, int when_ticks)
     } else {
         /* Reply immediately */
         int rc, rply;
-        rply = when_ticks == clk->ticks ? CLOCK_OK : CLOCK_DELAY_PAST;
+        rply = when_ticks == clk->ms_ticks ? CLOCK_OK : CLOCK_DELAY_PAST;
         rc = Reply(who, &rply, sizeof (rply));
         assertv(rc, rc == 0);
     }
@@ -175,7 +252,7 @@ clksrv_undelay(struct clksrv *clk)
     struct pqueue_entry *delay;
     while ((delay = pqueue_peekmin(&clk->delays)) != NULL) {
         int rc, rply;
-        if (delay->key > clk->ticks)
+        if (delay->key > clk->ms_ticks)
             break; /* no more tasks ready to wake up; all times in future */
         rply = CLOCK_OK;
         rc = Reply(clk->tids[delay->val], &rply, sizeof (rply));

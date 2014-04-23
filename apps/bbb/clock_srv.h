@@ -6,7 +6,7 @@
 
 U_TID_H;
 
-#define HWCLOCK_Hz  508469
+#define CLOCK_RELOAD (0xFFFFFFFF - 2)
 
 enum {
     CLOCK_OK         =  0,
@@ -17,7 +17,7 @@ struct clkctx;
 
 /* Initialize the clock so that it ticks at freq_Hz.
  * This invalidates any previously initialized clocks. */
-int clock_init(int freq_Hz);
+int clock_init();
 
 /* Clock server entry point. */
 void clksrv_main(void);
