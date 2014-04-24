@@ -6,7 +6,9 @@
 
 U_TID_H;
 
-#define CLOCK_RELOAD (0xFFFFFFFF - 2)
+#define CLOCK_OVF (0xFFFFFFFF)
+#define CLOCK_1ms (0x5DC0)
+#define CLOCK_1us (0x18)
 
 enum {
     CLOCK_OK         =  0,

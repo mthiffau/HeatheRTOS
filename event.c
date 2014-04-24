@@ -39,7 +39,7 @@ int evt_register(
 
     /* Set priority and ensure that it will be an IRQ,
        not a FIQ. */
-    intr_config(irq, 0, false);
+    intr_config(irq, 1, false);
     return 0;
 }
 
@@ -86,6 +86,12 @@ evt_disable(struct eventab *tab, int irq)
 {
     (void)tab;
     intr_enable(irq, false);
+}
+
+void
+evt_acknowledge(void)
+{
+    intr_acknowledge();
 }
 
 void

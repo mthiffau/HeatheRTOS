@@ -9,6 +9,8 @@
 #include "xarg.h"
 #include "bwio.h"
 
+#include "soc_AM335x.h"
+#include "hw_intc.h"
 #include "interrupt.h"
 
 void
@@ -41,5 +43,15 @@ intr_reset()
     IntMasterIRQDisable();
     IntMasterIRQEnable();
     IntAINTCInit();
-    IntProtectionEnable();
+    //IntProtectionEnable();
+}
+
+void
+intr_acknowledge(void)
+{
+    volatile unsigned int* 
+	intc_control_reg = (unsigned int*)(SOC_AINTC_REGS + INTC_CONTROL);
+    *intc_control_reg = INTC_CONTROL_NEWIRQAGR;
+
+    __asm__ volatile ("dsb":::"memory");
 }

@@ -13,7 +13,6 @@
 
 #include "xassert.h"
 #include "u_syscall.h"
-#include "u_events.h"
 #include "ns.h"
 #include "array_size.h"
 #include "static_assert.h"
@@ -498,7 +497,7 @@ struct snotify_info {
 static void
 serial_notif(void)
 {
-    static const int gen_irqs[2] = { IRQ_UART1_GEN, IRQ_UART2_GEN };
+    static const int gen_irqs[2] = { 0, 0 }; //FIXME
     volatile struct uart *uart;
     struct serialcfg cfg;
     tid_t server;

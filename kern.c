@@ -56,29 +56,11 @@ kern_main(struct kparam *kp)
 {
     struct kern kern;
     uint32_t start_time, end_time, time;
-    (void)kp;
 
-    /* Selecting GPIO1[23] pin for use. */
-    GPIO1Pin23PinMuxSetup();
+    //bwputstr("\n\rKernel initializing...\n\r");
 
-    /* Enabling the GPIO module. */
-    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
-
-    /* Resetting the GPIO module. */
-    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
-
-    /* Setting the GPIO pin as an output pin. */
-    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
-                   GPIO_INSTANCE_PIN_NUMBER,
-                   GPIO_DIR_OUTPUT);
-    
     /* Set up kernel state and create initial user task */
     kern_init(&kern, kp);
-
-    GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-		 GPIO_INSTANCE_PIN_NUMBER,
-		 GPIO_PIN_HIGH);
-    bwputstr("\n\rKernel initialization complete.\n\r");
 
     /* Main loop */
     start_time = dbg_tmr_get();
@@ -255,10 +237,14 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
     /* Ignore this interrupt until we get another AwaitEvent() for it */
     evt_disable(&kern->eventab, irq);
 
+    /* Do any work needed for the interrupt controller,
+     such as clearing the global interrupt state */
+    evt_acknowledge();
+
     /* Return from AwaitEvent() with the result of the callback */
     wake->regs->r0 = cb_rc;
     task_ready(kern, wake);
-}
+ }
 
 void
 kern_cleanup(struct kern *kern)

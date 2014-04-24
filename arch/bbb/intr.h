@@ -21,3 +21,5 @@ int intr_cur();
 /* Reset VIC state to default - all interrupts off, IRQ selected. */
 void intr_reset(void);
 
+/* Acknowledge IRQ and get ready to go again */
+void intr_acknowledge(void);

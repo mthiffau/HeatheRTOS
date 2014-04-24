@@ -9,7 +9,6 @@
 
 #include "xassert.h"
 #include "u_syscall.h"
-#include "u_events.h"
 #include "ns.h"
 #include "array_size.h"
 
@@ -17,7 +16,13 @@
 #include "hw_types.h"
 #include "hw_cm_per.h"
 #include "hw_cm_dpll.h"
+#include "interrupt.h"
 #include "dmtimer.h"
+#include "gpio.h"
+#include "beaglebone.h"
+
+#define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
+#define GPIO_INSTANCE_PIN_NUMBER (23)
 
 enum {
     CLKMSG_TICK,
@@ -32,8 +37,6 @@ struct clkmsg {
 };
 
 struct clksrv {
-    /* Clock ticks in micro seconds */
-    int us_ticks;
     /* Clock ticks in milliseconds */
     int ms_ticks;
     /* Number of microsecond ticks since last millisecond tick */
@@ -101,23 +104,22 @@ clock_init()
     DMTimerDisable(SOC_DMTIMER_3_REGS);
 
     /* Re-load timer counter to zero */
-    DMTimerCounterSet(SOC_DMTIMER_3_REGS, CLOCK_RELOAD);
+    unsigned int reloadValue = CLOCK_OVF - (1 * CLOCK_1ms);
+    DMTimerCounterSet(SOC_DMTIMER_3_REGS, reloadValue);
 
     /* Set re-load value for timer */
-    // Period = (0xFFFFFFFF - reload + 1) * clock_rate * divider
-    // clock_rate = 24 MHz
-    // divider = 8
-    DMTimerReloadSet(SOC_DMTIMER_3_REGS, CLOCK_RELOAD);
+    DMTimerReloadSet(SOC_DMTIMER_3_REGS, reloadValue);
 
     /* Make timer auto-reload, compare mode */
-    DMTimerModeConfigure(SOC_DMTIMER_3_REGS, DMTIMER_AUTORLD_CMP_ENABLE);
+    DMTimerModeConfigure(SOC_DMTIMER_3_REGS, DMTIMER_AUTORLD_NOCMP_ENABLE);
 
     /* Set pre-scaler value */
-    DMTimerPreScalerClkEnable(SOC_DMTIMER_3_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_8);
+    //DMTimerPreScalerClkEnable(SOC_DMTIMER_3_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_8);
+    DMTimerPreScalerClkDisable(SOC_DMTIMER_3_REGS);
 
     /* Enable interrupts from this module */
     DMTimerIntEnable(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_EN_FLAG);
-    
+
     return 0;
 }
 
@@ -130,6 +132,7 @@ clksrv_main(void)
     int rc, rply;
 
     clksrv_init(&clk);
+
     rc = RegisterAs("clock");
     assertv(rc, rc == 0);
     for (;;) {
@@ -139,16 +142,9 @@ clksrv_main(void)
         case CLKMSG_TICK:
             rc = Reply(client, NULL, 0);
             assertv(rc, rc == 0);
-	    /* Increment microsecond ticks */
-	    clk.us_ticks++;
-	    /* Increment intermediate counter */
-	    clk.intermediate_us++;
-	    /* If the intermediate couter hits 1000,
-	     increment the millisecond ticks */
-	    if (clk.intermediate_us == 1000) {
-		clk.ms_ticks++;
-		clk.intermediate_us = 0;
-	    }
+
+	    clk.ms_ticks++;
+
             clksrv_undelay(&clk);
             break;
         case CLKMSG_TIME:
@@ -172,7 +168,6 @@ static void
 clksrv_init(struct clksrv *clk)
 {
     int rc;
-    clk->us_ticks = 0;
     clk->ms_ticks = 0;
     clk->intermediate_us = 0;
 
@@ -188,13 +183,13 @@ clksrv_notify(void)
     struct clkmsg msg;
     int rc;
 
-    clksrv_cleanup();
+    //clksrv_cleanup();
     RegisterCleanup(&clksrv_cleanup);
 
     rc = clock_init();
     assertv(rc, rc == 0);
 
-    rc = RegisterEvent(IRQ_CLOCK_TICK, &clksrv_notify_cb);
+    rc = RegisterEvent(SYS_INT_TINT3, &clksrv_notify_cb);
     assert(rc == 0);
 
     /* Start timer */

@@ -69,5 +69,9 @@ void evt_enable(struct eventab *tab, int event, void*, size_t);
  * This way, it's impossible to swallow an IRQ while no task is waiting. */
 void evt_disable(struct eventab *tab, int event);
 
+/* Do any work needed for the interrupt controller before resuming a user
+ task. This may be clearing the particular interrupt, etc. */
+void evt_acknowledge(void);
+
 /* Clean up interrupt controller state. */
 void evt_cleanup(void);
