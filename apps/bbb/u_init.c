@@ -13,6 +13,7 @@
 #include "cpumode.h"
 #include "clock_srv.h"
 #include "serial_srv.h"
+#include "blnk_srv.h"
 
 #include "xarg.h"
 #include "bwio.h"
@@ -27,25 +28,10 @@
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid; // tty_tid
+    tid_t ns_tid, clk_tid, blnk_tid; // tty_tid
     //tid_t hw_tid;
     //struct serialcfg ttycfg, traincfg;
     //int rplylen;
-
-    /* Set up LED pin */
-    /* Selecting GPIO1[23] pin for use. */
-    GPIO1Pin23PinMuxSetup();
-
-    /* Enabling the GPIO module. */
-    GPIOModuleEnable(GPIO_INSTANCE_ADDRESS);
-
-    /* Resetting the GPIO module. */
-    GPIOModuleReset(GPIO_INSTANCE_ADDRESS);
-
-    /* Setting the GPIO pin as an output pin. */
-    GPIODirModeSet(GPIO_INSTANCE_ADDRESS,
-                   GPIO_INSTANCE_PIN_NUMBER,
-                   GPIO_DIR_OUTPUT);
 
     /* Start the name server. It's important that startup proceeds so that
      * the TID of the name server can be known at compile time (NS_TID).
@@ -58,26 +44,9 @@ u_init_main(void)
     clk_tid = Create(PRIORITY_CLOCK, &clksrv_main);
     assertv(clk_tid, clk_tid >= 0);
 
-    // What is the current pin state?
-    //unsigned int pin_state = GPIO_PIN_HIGH;
-
-    /* Get clock server instance and see if delay works */
-    struct clkctx clk;
-    clkctx_init(&clk);
-    while(1) {
-	Delay(&clk, 1000);
-	/*
-	GPIOPinWrite(GPIO_INSTANCE_ADDRESS,
-		     GPIO_INSTANCE_PIN_NUMBER,
-		     GPIO_PIN_HIGH);
-	*/
-	/*
-	if (pin_state == GPIO_PIN_HIGH)
-	    pin_state = GPIO_PIN_LOW;
-	else
-	    pin_state = GPIO_PIN_HIGH;
-	*/
-    }
+    /* Start Blink Server */
+    blnk_tid = Create(PRIORITY_BLINK, &blnksrv_main);
+    assertv(blnk_tid, blnk_tid >= 0);
 
     /* Start serial server for TTY */
     /*

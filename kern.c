@@ -30,13 +30,6 @@
 
 #include "exc_vec.h"
 
-#include "soc_AM335x.h"
-#include "gpio.h"
-#include "beaglebone.h"
-
-#define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
-#define GPIO_INSTANCE_PIN_NUMBER (23)
-
 static void kern_top_pct(uint32_t total, uint32_t amt);
 static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);

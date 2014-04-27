@@ -18,8 +18,6 @@
 #include "hw_cm_dpll.h"
 #include "interrupt.h"
 #include "dmtimer.h"
-#include "gpio.h"
-#include "beaglebone.h"
 
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)
@@ -103,7 +101,7 @@ clock_init()
     /* Disable module */
     DMTimerDisable(SOC_DMTIMER_3_REGS);
 
-    /* Re-load timer counter to zero */
+    /* Re-load timer counter to 1 ms */
     unsigned int reloadValue = CLOCK_OVF - (1 * CLOCK_1ms);
     DMTimerCounterSet(SOC_DMTIMER_3_REGS, reloadValue);
 

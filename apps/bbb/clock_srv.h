@@ -19,7 +19,7 @@ struct clkctx;
 
 /* Initialize the clock so that it ticks at freq_Hz.
  * This invalidates any previously initialized clocks. */
-int clock_init();
+int clock_init(void);
 
 /* Clock server entry point. */
 void clksrv_main(void);
