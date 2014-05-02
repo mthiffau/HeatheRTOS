@@ -37,8 +37,6 @@ struct clkmsg {
 struct clksrv {
     /* Clock ticks in milliseconds */
     int ms_ticks;
-    /* Number of microsecond ticks since last millisecond tick */
-    int intermediate_us;
 
     tid_t              tids[MAX_TASKS];
     struct pqueue      delays; /* TIDs' low bytes keyed on wakeup time */
@@ -101,6 +99,10 @@ clock_init()
     /* Disable module */
     DMTimerDisable(SOC_DMTIMER_3_REGS);
 
+    /* Set pre-scaler value */
+    //DMTimerPreScalerClkEnable(SOC_DMTIMER_3_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_8);
+    DMTimerPreScalerClkDisable(SOC_DMTIMER_3_REGS);
+
     /* Re-load timer counter to 1 ms */
     unsigned int reloadValue = CLOCK_OVF - (1 * CLOCK_1ms);
     DMTimerCounterSet(SOC_DMTIMER_3_REGS, reloadValue);
@@ -110,10 +112,6 @@ clock_init()
 
     /* Make timer auto-reload, compare mode */
     DMTimerModeConfigure(SOC_DMTIMER_3_REGS, DMTIMER_AUTORLD_NOCMP_ENABLE);
-
-    /* Set pre-scaler value */
-    //DMTimerPreScalerClkEnable(SOC_DMTIMER_3_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_8);
-    DMTimerPreScalerClkDisable(SOC_DMTIMER_3_REGS);
 
     /* Enable interrupts from this module */
     DMTimerIntEnable(SOC_DMTIMER_3_REGS, DMTIMER_INT_OVF_EN_FLAG);
@@ -167,7 +165,6 @@ clksrv_init(struct clksrv *clk)
 {
     int rc;
     clk->ms_ticks = 0;
-    clk->intermediate_us = 0;
 
     pqueue_init(&clk->delays, ARRAY_SIZE(clk->delay_nodes), clk->delay_nodes);
     rc = Create(PRIORITY_MAX, &clksrv_notify);
