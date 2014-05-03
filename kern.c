@@ -50,10 +50,10 @@ kern_main(struct kparam *kp)
     struct kern kern;
     uint32_t start_time, end_time, time;
 
-    //bwputstr("\n\rKernel initializing...\n\r");
-
     /* Set up kernel state and create initial user task */
     kern_init(&kern, kp);
+
+    bwprintf("\n\rKernel initialized.\n\r");
 
     /* Main loop */
     start_time = dbg_tmr_get();
@@ -258,7 +258,7 @@ kern_top_pct(uint32_t total, uint32_t amt)
     pct10  = 1000 * amt / total;
     pct    = pct10 / 10;
     pct10 %= 10;
-    bwprintf("\t%s%u.%u%%\n", pct >= 10 ? "" : " ", pct, pct10);
+    bwprintf("\t%s%u.%u%%\n\r", pct >= 10 ? "" : " ", pct, pct10);
 }
 
 static void
@@ -267,7 +267,7 @@ kern_top(struct kern *kern, uint32_t total_time)
     unsigned i;
     uint32_t total_ms  = total_time / 983;
     uint32_t user_time = 0;
-    bwprintf("--------\nran for %d ms\n", total_ms);
+    bwprintf("--------\n\rran for %d ms\n\r", total_ms);
     for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
         struct task_desc *td;
         tid_t tid;
