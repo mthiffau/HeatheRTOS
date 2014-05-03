@@ -7,7 +7,7 @@
 U_TID_H;
 
 #define CLOCK_OVF (0xFFFFFFFF)
-#define CLOCK_1ms (0x5DC0)
+#define CLOCK_1ms (0x5DBF)
 #define CLOCK_1us (0x18)
 
 enum {

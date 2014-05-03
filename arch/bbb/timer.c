@@ -35,15 +35,15 @@ void dbg_tmr_reset(void)
     /* Make timer auto-reload, no compare */
     DMTimerModeConfigure(SOC_DMTIMER_2_REGS, DMTIMER_AUTORLD_NOCMP_ENABLE);
 
-    /* Set pre-scaler to divide by 64 */
-    DMTimerPreScalerClkEnable(SOC_DMTIMER_2_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_64);
+    /* Set pre-scaler to divide by 8 */
+    DMTimerPreScalerClkEnable(SOC_DMTIMER_2_REGS, DMTIMER_PRESCALER_CLK_DIV_BY_8);
 
     /* Start the timer */
     DMTimerEnable(SOC_DMTIMER_2_REGS);
 }
 
-/* Get the value of the debug timer (in ms) */
+/* Get the value of the debug timer (in us) */
 uint32_t dbg_tmr_get(void)
 {
-    return (DMTimerCounterGet(SOC_DMTIMER_2_REGS) / 375);
+    return (DMTimerCounterGet(SOC_DMTIMER_2_REGS) / 3);
 }
