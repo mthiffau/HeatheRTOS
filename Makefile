@@ -2,13 +2,14 @@ DEVICE  = bbb
 
 ifeq ($(DEVICE), bbb)
 CFLAGS_FILE = make/cflags-bbb
+ASFLAGS_FILE = make/asflags-bbb
 HOST    = arm-none-eabi-
 CC      = $(HOST)gcc
 AS      = $(HOST)as
 LD      = $(HOST)gcc
 OCOPY   = $(HOST)objcopy
 CFLAGS  = $(shell cat $(CFLAGS_FILE))
-ASFLAGS = -mcpu=cortex-a8
+ASFLAGS = $(shell cat $(ASFLAGS_FILE))
 LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc
 BUILD   = build

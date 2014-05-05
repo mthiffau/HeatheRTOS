@@ -20,24 +20,26 @@ const unsigned int AM335X_VECTOR_BASE = 0x4030FC00;
 /* Place holders for things we don't handle yet... */
 static void entry(void);
 static void undef_inst_handler(void);
-static void abort_handler(void);
+static void prefetch_abort_handler(void);
+static void data_abort_handler(void);
 static void FIQ_handler(void);
 
 /* These are the things going into the exception vector table */
-static unsigned int const vecTbl[14] = 
+static unsigned int const vecTbl[15] = 
 {
-    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18]
-    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18]
-    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18]
-    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18]
-    0xE59FF014, // Opcode for loading PC with the contents of [PC + 0x14]
-    0xE24FF008, // Opcode for loading PC with (PC - 8) (eq. to while(1))
-    0xE59FF010, // Opcode for loading PC with the contents of [PC + 0x10]
-    0xE59FF010, // Opcode for loading PC with the contents of [PC + 0x10]
+    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18] reset
+    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18] undef instr
+    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18] supervisor call
+    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18] pref abort
+    0xE59FF018, // Opcode for loading PC with the contents of [PC + 0x18] data abort
+    0xE24FF008, // Opcode for loading PC with (PC - 8) (eq. to while(1))  not used
+    0xE59FF014, // Opcode for loading PC with the contents of [PC + 0x10] IRQ
+    0xE59FF014, // Opcode for loading PC with the contents of [PC + 0x10] FIQ
     (unsigned int)entry,
     (unsigned int)undef_inst_handler,
     (unsigned int)kern_entry_swi,
-    (unsigned int)abort_handler,
+    (unsigned int)prefetch_abort_handler,
+    (unsigned int)data_abort_handler,
     (unsigned int)kern_entry_irq,
     (unsigned int)FIQ_handler
 };
@@ -68,14 +70,33 @@ entry(void)
 static void
 undef_inst_handler(void)
 {
-    bwputstr("Undefined instruction! Luck you...\n\r");
+    int lr = 0;
+    asm volatile("mov %[out],lr" : [out] "=r" (lr) ::);
+    //bwputstr("Undefined instruction! Luck you...\n\r");
+    bwprintf("Problem instruction at: %x\n\r", lr);
+    //bwputstr("Go fix it.\n\r");
     while(1);
 }
 
 static void
-abort_handler(void)
+prefetch_abort_handler(void)
 {
+    int lr = 0;
+    asm volatile("mov %[out],lr" : [out] "=r" (lr) ::);
+    bwputstr("Something you did caused a prefetch abort...\n\r");
+    bwprintf("Problem instruction at: %x\n\r", lr);
+    bwputstr("Go fix it.\n\r");
+    while(1);
+}
+
+static void
+data_abort_handler(void)
+{
+    int lr = 0;
+    asm volatile("mov %[out],lr" : [out] "=r" (lr) ::);
     bwputstr("Something you did caused a data abort...\n\r");
+    bwprintf("Problem instruction at: %x\n\r", lr);
+    bwputstr("Go fix it.\n\r");
     while(1);
 }
 

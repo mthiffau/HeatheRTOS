@@ -1,1 +1,1 @@
--nostdinc -I. -Iarch/bbb -Iapps/bbb -Wall -Wextra -Werror -mcpu=cortex-a8 -O3
+-nostdinc -I. -Iarch/bbb -Iapps/bbb -Wall -Wextra -Werror -march=armv7-a -mcpu=cortex-a8 -mfloat-abi=hard -mfpu=neon -ffast-math -O3
