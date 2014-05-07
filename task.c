@@ -57,7 +57,7 @@ task_create(
     td->parent_ix  = parent_ix;
     TASK_SET_PRIO(td, priority); /* task_ready() will set state */
 
-    stack          = kern->stack_mem_top - ix * kern->stack_size;
+    stack          = kern->user_stacks_bottom - ix * kern->user_stack_size;
     td->regs       = (struct task_regs*)stack - 1; /* leave room for regs */
     td->regs->spsr = cpumode_bits(MODE_USR);       /* interrupts enabled */
     td->regs->sp   = (uint32_t)stack;

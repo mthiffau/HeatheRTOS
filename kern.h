@@ -11,8 +11,8 @@ TASK_H;
 EVENT_H;
 
 struct kern {
-    void             *stack_mem_top;
-    size_t            stack_size;
+    void             *user_stacks_bottom;
+    size_t            user_stack_size;
     struct task_desc  tasks[MAX_TASKS];
     uint16_t          rdy_queue_ne; /* bit i set if queue i nonempty */
     struct task_queue rdy_queues[N_PRIORITIES];

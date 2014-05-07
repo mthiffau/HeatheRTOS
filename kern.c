@@ -30,6 +30,10 @@
 
 #include "exc_vec.h"
 
+#ifdef HARD_FLOAT
+#include "vfp_enable.h"
+#endif
+
 static void kern_top_pct(uint32_t total, uint32_t amt);
 static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
@@ -53,7 +57,15 @@ kern_main(struct kparam *kp)
     /* Set up kernel state and create initial user task */
     kern_init(&kern, kp);
 
-    bwprintf("\n\rKernel initialized.\n\r");
+    bwprintf("\n\rKernel initialized:\n\r");
+    bwprintf("Kernel Stack -- Bottom: %x Top: %x Size: %d bytes\n\r", 
+	     (unsigned int)KernStackBottom, 
+	     (unsigned int)KernStackTop, 
+	     (unsigned int)(KernStackBottom - KernStackTop));
+    bwprintf("User Stacks -- Bottom: %x Top: %x Size: %d bytes\n\r",
+	     (unsigned int)UserStacksEnd,
+	     (unsigned int)UserStacksStart,
+	     (unsigned int)(UserStacksEnd - UserStacksStart));
 
     /* Main loop */
     start_time = dbg_tmr_get();
@@ -89,12 +101,12 @@ kern_init(struct kern *kern, struct kparam *kp)
     /* Initialize event system */
     evt_init(&kern->eventab);
 
-    /* 1MB reserved for kernel stack, move down to next 4k boundary */
-    kern->stack_mem_top = (void*)(((uint32_t)&i - 0x100000) & 0xfffff000);
+    /* Bottom of the user stacks */
+    kern->user_stacks_bottom = UserStacksEnd;
 
     /* Find largest number of 4k pages it is safe to allocate per task */
-    mem_avail = kern->stack_mem_top - ProgramEnd;
-    kern->stack_size = mem_avail / 0x1000 / MAX_TASKS * 0x1000;
+    mem_avail = UserStacksEnd - UserStacksStart;
+    kern->user_stack_size = mem_avail / PAGE_SIZE / MAX_TASKS * PAGE_SIZE;
 
     /* All tasks are free to begin with */
     taskq_init(&kern->free_tasks);
