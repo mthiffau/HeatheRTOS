@@ -72,9 +72,9 @@ undef_inst_handler(void)
 {
     int lr = 0;
     asm volatile("mov %[out],lr" : [out] "=r" (lr) ::);
-    //bwputstr("Undefined instruction! Luck you...\n\r");
-    bwprintf("Problem instruction at: %x\n\r", lr);
-    //bwputstr("Go fix it.\n\r");
+    bwputstr("Undefined instruction! Lucky you...\n\r");
+    bwprintf("Problem instruction at: %x\n\r", (lr - 4));
+    bwputstr("Go fix it.\n\r");
     while(1);
 }
 
