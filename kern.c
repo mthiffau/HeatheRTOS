@@ -65,7 +65,7 @@ kern_main(struct kparam *kp)
     bwprintf("User Stacks -- Bottom: %x Top: %x Size: %d bytes\n\r",
 	     (unsigned int)UserStacksEnd,
 	     (unsigned int)UserStacksStart,
-	     (unsigned int)(UserStacksEnd - UserStacksStart));
+	     (unsigned int)kern.user_stack_size);
 
     /* Main loop */
     start_time = dbg_tmr_get();
@@ -97,6 +97,10 @@ kern_init(struct kern *kern, struct kparam *kp)
 
     /* Load kernel exception vector table */
     load_vector_table();
+
+#ifdef HARD_FLOAT
+    kern->fp_ctx_holder = NULL;
+#endif
 
     /* Initialize event system */
     evt_init(&kern->eventab);
@@ -146,6 +150,9 @@ kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
     case INTR_IRQ:
         kern_handle_irq(kern, active);
         break;
+    case INTR_UNDEF:
+        kern_handle_undef(kern, active);
+	break;
     default:
         panic("received unknown interrupt 0x%x\n", intr);
     }
@@ -250,6 +257,15 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
     wake->regs->r0 = cb_rc;
     task_ready(kern, wake);
  }
+
+void
+kern_handle_undef(struct kern *k, struct task_desc *active)
+{
+  (void)k;
+  (void)active;
+  bwprintf("Undefined instruction at %x\n\r", active->regs->pc);
+  while(1);
+}
 
 void
 kern_cleanup(struct kern *kern)

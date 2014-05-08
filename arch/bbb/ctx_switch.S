@@ -50,35 +50,6 @@ kern_entry_swi:
     @ restore other kernel registers and return
     ldmfd sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}
 
-kern_entry_undef:
-    sub lr, lr, #4
-
-    @ save user-mode registers on user stack
-    msr cpsr_c, #0xdf    @ SYS mode, interrupts off, no thumb
-    stmfd sp, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, sp, lr}
-    sub ip, sp, #60      @ take note of task stack pointer
-
-    @ return to initial mode to read LR, SPSR (interrupts off, no thumb)
-    msr cpsr_c, #0xdb  @ UNDEF mode
-
-    @ save spsr and return address to user stack
-    mrs r3, spsr
-    stmfd ip!, {r3, lr}
-
-    @ return to SVC mode to prepare for return to kernel -
-    @ this is only really necessary in the IRQ case
-    msr cpsr_c, #0xd3  @ SVC mode
-
-    @ restore ctx_switch function arguments,
-    @ and write task state pointer into task descriptor
-    ldr r0, [sp], #+4
-    str ip, [r0]
-
-    @ return value is stored in cpsr flags
-    mov r0, #INTR_UNDEF
-    @ restore other kernel registers and return
-    ldmfd sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}
-
 kern_entry_irq:
     sub lr, lr, #4
 
@@ -106,5 +77,34 @@ kern_entry_irq:
 
     @ return value is stored in cpsr flags
     mov r0, #INTR_IRQ
+    @ restore other kernel registers and return
+    ldmfd sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}
+
+kern_entry_undef:
+    sub lr, lr, #4
+
+    @ save user-mode registers on user stack
+    msr cpsr_c, #0xdf    @ SYS mode, interrupts off, no thumb
+    stmfd sp, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12, sp, lr}
+    sub ip, sp, #60      @ take note of task stack pointer
+
+    @ return to initial mode to read LR, SPSR (interrupts off, no thumb)
+    msr cpsr_c, #0xdb  @ UNDEF mode
+
+    @ save spsr and return address to user stack
+    mrs r3, spsr
+    stmfd ip!, {r3, lr}
+
+    @ return to SVC mode to prepare for return to kernel -
+    @ this is only really necessary in the IRQ case
+    msr cpsr_c, #0xd3  @ SVC mode
+
+    @ restore ctx_switch function arguments,
+    @ and write task state pointer into task descriptor
+    ldr r0, [sp], #+4
+    str ip, [r0]
+
+    @ return value is stored in cpsr flags
+    mov r0, #INTR_UNDEF
     @ restore other kernel registers and return
     ldmfd sp!, {r4, r5, r6, r7, r8, r9, r10, r11, pc}

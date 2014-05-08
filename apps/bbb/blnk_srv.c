@@ -39,6 +39,10 @@ blnksrv_main(void)
 
     /* Get the initial time */
     wakeup_time = Time(&clock);
+    float a = 0.5;
+    float b = (float)wakeup_time;
+    if (a < b)
+      while(1);
 
     /* Blink Indefinately */
     while(1){

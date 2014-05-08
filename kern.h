@@ -11,6 +11,10 @@ TASK_H;
 EVENT_H;
 
 struct kern {
+#ifdef HARD_FLOAT
+    struct task_desc* fp_ctx_holder;
+#endif
+
     void             *user_stacks_bottom;
     size_t            user_stack_size;
     struct task_desc  tasks[MAX_TASKS];
@@ -49,6 +53,9 @@ void kern_handle_swi(struct kern *k, struct task_desc *active);
 
 /* Handle a hardware interrupt. */
 void kern_handle_irq(struct kern *k, struct task_desc *active);
+
+/* Handle an undefined instruction */
+void kern_handle_undef(struct kern *k, struct task_desc *active);
 
 /* Reset hardware state before returning to RedBoot. */
 void kern_cleanup(struct kern *kern);
