@@ -8,6 +8,9 @@
     .type kern_entry_swi, %function
     .global kern_entry_irq
     .type kern_entry_irq, %function
+    .global kern_entry_undef
+    .type kern_entry_undef, %function
+
 ctx_switch:
     @ save kernel registers
     stmfd sp!, {r0, r4, r5, r6, r7, r8, r9, r10, r11, lr}

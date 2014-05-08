@@ -19,7 +19,7 @@ const unsigned int AM335X_VECTOR_BASE = 0x4030FC00;
 
 /* Place holders for things we don't handle yet... */
 static void entry(void);
-static void undef_inst_handler(void);
+//static void undef_inst_handler(void);
 static void prefetch_abort_handler(void);
 static void data_abort_handler(void);
 static void FIQ_handler(void);
@@ -36,7 +36,7 @@ static unsigned int const vecTbl[15] =
     0xE59FF014, // Opcode for loading PC with the contents of [PC + 0x10] IRQ
     0xE59FF014, // Opcode for loading PC with the contents of [PC + 0x10] FIQ
     (unsigned int)entry,
-    (unsigned int)undef_inst_handler,
+    (unsigned int)kern_entry_undef,
     (unsigned int)kern_entry_swi,
     (unsigned int)prefetch_abort_handler,
     (unsigned int)data_abort_handler,
@@ -67,6 +67,7 @@ entry(void)
     while(1);
 }
 
+/*
 static void
 undef_inst_handler(void)
 {
@@ -77,6 +78,7 @@ undef_inst_handler(void)
     bwputstr("Go fix it.\n\r");
     while(1);
 }
+*/
 
 static void
 prefetch_abort_handler(void)
