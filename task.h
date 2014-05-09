@@ -80,8 +80,12 @@ struct task_desc {
 
     /* Time spent in task. */
     uint32_t time;
+
+    /* Flag which is set to true if the task has a floating
+     point context saved on it's stack. */
+    uint8_t fpu_ctx_on_stack;
 };
-STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 24);
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 28);
 
 /* Context switch assumes this memory layout */
 struct task_regs {

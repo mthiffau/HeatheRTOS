@@ -8,6 +8,12 @@
 .type vfp_enable, %function
 .global vfp_disable
 .type vfp_disable, %function
+.global vfp_save_state
+.type vfp_save_state, %function
+.global vfp_load_state
+.type vfp_load_state, %function
+.global vfp_load_fresh
+.type vfp_load_fresh, %function
 
 vfp_cp_enable_mask:
 	.word 0x00F00000
@@ -72,4 +78,19 @@ vfp_disable:
 	/* Memory/Data barrier just in case */
 	dsb
 	isb
+	bx lr
+
+vfp_save_state:
+        /* Save the VFP context to the given pointer */
+	
+	bx lr
+
+vfp_load_state:
+	/* Restore the VFP context from the given pointer */
+	
+	bx lr
+
+vfp_load_fresh:
+	/* Load a fresh state into the fpu context */
+	
 	bx lr
