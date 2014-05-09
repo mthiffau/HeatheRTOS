@@ -46,7 +46,7 @@ int kern_main(struct kparam*);
 void kern_init(struct kern *k, struct kparam *kp);
 
 /* Handle an interrupt. */
-void kern_handle_intr(struct kern *k, struct task_desc *active, uint32_t intr);
+int kern_handle_intr(struct kern *k, struct task_desc *active, uint32_t intr);
 
 /* Handle a system call. */
 void kern_handle_swi(struct kern *k, struct task_desc *active);
@@ -55,7 +55,7 @@ void kern_handle_swi(struct kern *k, struct task_desc *active);
 void kern_handle_irq(struct kern *k, struct task_desc *active);
 
 /* Handle an undefined instruction */
-void kern_handle_undef(struct kern *k, struct task_desc *active);
+int kern_handle_undef(struct kern *k, struct task_desc *active);
 
 /* Reset hardware state before returning to RedBoot. */
 void kern_cleanup(struct kern *kern);

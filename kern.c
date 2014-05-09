@@ -68,19 +68,23 @@ kern_main(struct kparam *kp)
 	     (unsigned int)kern.user_stack_size);
 
     /* Main loop */
-    start_time = dbg_tmr_get();
+    int skip_sched = 0;
+    start_time = dbg_tmr_get() / 1000;
     while (!kern.shutdown && (kern.rdy_count > 1 || kern.evblk_count > 0)) {
         struct task_desc *active;
         uint32_t          intr;
-        active = task_schedule(&kern);
-        time   = dbg_tmr_get();
+	if (!skip_sched) {
+	  active = task_schedule(&kern);
+	}
+        time   = dbg_tmr_get() / 1000;
         intr   = ctx_switch(active);
-        active->time += dbg_tmr_get() - time;
-        kern_handle_intr(&kern, active, intr);
-        assert(TASK_STATE(active) != TASK_STATE_ACTIVE);
+        active->time += (dbg_tmr_get() / 1000) - time;
+        skip_sched = kern_handle_intr(&kern, active, intr);
+	/* Either the active task is no longer active, or we're skipping the scheduler */
+	assert((TASK_STATE(active) != TASK_STATE_ACTIVE) || skip_sched);
     }
 
-    end_time = dbg_tmr_get();
+    end_time = dbg_tmr_get() / 1000;
     kern_cleanup(&kern);
 
     if (kp->show_top)
@@ -140,21 +144,23 @@ kern_init(struct kern *kern, struct kparam *kp)
     assertv(tid, tid == 1);
 }
 
-void
+int
 kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
 {
     switch (intr) {
     case INTR_SWI:
         kern_handle_swi(kern, active);
+	return 0;
         break;
     case INTR_IRQ:
         kern_handle_irq(kern, active);
+	return 0;
         break;
     case INTR_UNDEF:
-        kern_handle_undef(kern, active);
+        return kern_handle_undef(kern, active);
 	break;
     default:
-        panic("received unknown interrupt 0x%x\n", intr);
+        panic("received unknown interrupt 0x%x\n\r", intr);
     }
 }
 
@@ -212,9 +218,9 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
         task_ready(kern, active); /* must move out of ACTIVE state */
         break;
     case SYSCALL_PANIC:
-        panic("%s", (const char*)active->regs->r0);
+        panic("%s\n\r", (const char*)active->regs->r0);
     default:
-        panic("received unknown syscall 0x%x\n", syscall);
+        panic("received unknown syscall 0x%x\n\r", syscall);
     }
 }
 
@@ -258,13 +264,32 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
     task_ready(kern, wake);
  }
 
-void
+int
 kern_handle_undef(struct kern *k, struct task_desc *active)
 {
-  (void)k;
-  (void)active;
-  bwprintf("Undefined instruction at %x\n\r", active->regs->pc);
-  while(1);
+  /* If the active task is not the floating point context holder,
+     it may be that they tried to execute an fpu instruction. Give them
+     the floating point context and retry the instruction. If it fails again
+     we know it's truely undefined. */
+  if (k->fp_ctx_holder != active) {
+    /* Give active the floating point context and jump back into it immediately */
+    if (k->fp_ctx_holder != NULL) {
+      /* The context holder isn't null, store their fpu context */
+
+    }
+    
+    k->fp_ctx_holder = active; /* Indicate that the active now has the fp context */
+    return 1;
+  } else {
+    /* Actual undefined instruction. Kill the process and run the scheduler. */
+    bwprintf("Killing task for undefined instruction. TID: %d INSTR ADDR: %x\n\r", 
+	     TASK_TID(k,active),
+	     active->regs->pc);
+    if(active->cleanup != NULL)
+      active->cleanup();
+    task_free(k, active);
+    return 0;
+  }
 }
 
 void
