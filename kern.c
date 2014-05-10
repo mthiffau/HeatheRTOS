@@ -71,10 +71,10 @@ kern_main(struct kparam *kp)
     start_time = dbg_tmr_get() / 1000;
     
     /* Run the scheduler now to avoid uninitialized warnings */
-    int skip_sched = 1;
-    struct task_desc *active = task_schedule(&kern);
+    int skip_sched = 0;
     while (!kern.shutdown && (kern.rdy_count > 1 || kern.evblk_count > 0)) {
         uint32_t          intr;
+	struct task_desc *active;
 
 	/* Conditionally run the scheduler */
 	if (!skip_sched) {
