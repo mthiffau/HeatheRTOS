@@ -72,9 +72,9 @@ kern_main(struct kparam *kp)
     
     /* Run the scheduler now to avoid uninitialized warnings */
     int skip_sched = 0;
+    struct task_desc *active = NULL;
     while (!kern.shutdown && (kern.rdy_count > 1 || kern.evblk_count > 0)) {
         uint32_t          intr;
-	struct task_desc *active;
 
 	/* Conditionally run the scheduler */
 	if (!skip_sched) {
