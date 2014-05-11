@@ -89,16 +89,17 @@ kern_main(struct kparam *kp)
 		if (kern.fp_ctx_holder != NULL) {
 		    /* The context holder isn't null, store their fpu context
 		       on the context holder's stack. */
-		    kern.fp_ctx_holder->regs->sp = 
-			vfp_save_state(kern.fp_ctx_holder->regs->sp);
+		    vfp_save_state(&(kern.fp_ctx_holder->fpu_regs), kern.fp_ctx_holder);
+		    assert( ((unsigned int)kern.fp_ctx_holder->fpu_regs) == 
+			    ((unsigned int)kern.fp_ctx_holder->regs) - 260 );
 		    /* Mark that the old context holder has it's fpu state on
 		       the stack */
 		    kern.fp_ctx_holder->fpu_ctx_on_stack = 1;
 		}
 
 		/* Load up the active task's FPU context */
-		active->regs->sp =
-		    vfp_load_state(active->regs->sp);
+		vfp_load_state(&(active->fpu_regs));
+		assert(active->fpu_regs == NULL);
 		active->fpu_ctx_on_stack = 0;
 
 		/* Change who is the context holder */
@@ -120,7 +121,6 @@ kern_main(struct kparam *kp)
 #ifdef HARD_FLOAT
 	vfp_disable();
 #endif
-
         skip_sched = kern_handle_intr(&kern, active, intr);
 
 	/* Either the active task is no longer active, or we're skipping the scheduler */
@@ -321,8 +321,7 @@ kern_handle_undef(struct kern *k, struct task_desc *active)
 	if (k->fp_ctx_holder != NULL) {
 	    /* The context holder isn't null, store their fpu context on
 	       the context holder's stack. */
-	    k->fp_ctx_holder->regs->sp = 
-		vfp_save_state(k->fp_ctx_holder->regs->sp);
+	    vfp_save_state(&(k->fp_ctx_holder->fpu_regs), k->fp_ctx_holder);
 	    /* Mark that the old context holder has it's fpu state on the stack */
 	    k->fp_ctx_holder->fpu_ctx_on_stack = 1;
 	}

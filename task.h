@@ -12,6 +12,7 @@ CONFIG_H;
 
 struct kern;
 struct task_regs;
+struct task_fpu_regs;
 
 /* Conversion to/from  */
 #define TASK_IX2PTR(kern, tix) (&(kern)->tasks[(tix)])
@@ -84,8 +85,12 @@ struct task_desc {
     /* Flag which is set to true if the task has a floating
      point context saved on it's stack. */
     uint8_t fpu_ctx_on_stack;
+
+    /* Points to FPU Context on stack, if not null. */
+    volatile struct task_fpu_regs *fpu_regs;
 };
-STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 28);
+STATIC_ASSERT(task_desc_size, sizeof (struct task_desc) == 32);
+
 
 /* Context switch assumes this memory layout */
 struct task_regs {
@@ -127,6 +132,112 @@ STATIC_ASSERT(task_regs_r12,  offsetof (struct task_regs, r12)  == 0x38);
 STATIC_ASSERT(task_regs_sp,   offsetof (struct task_regs, sp)   == 0x3c);
 STATIC_ASSERT(task_regs_lr,   offsetof (struct task_regs, lr)   == 0x40);
 STATIC_ASSERT(task_regs_size, sizeof   (struct task_regs)       == 0x44);
+
+/* Context switch assumes this memory layout */
+struct task_fpu_regs {
+    uint32_t FPSCR;
+    uint32_t D0_low;
+    uint32_t D0_high;
+    uint32_t D1_low;
+    uint32_t D1_high;
+    uint32_t D2_low;
+    uint32_t D2_high;
+    uint32_t D3_low;
+    uint32_t D3_high;
+    uint32_t D4_low;
+    uint32_t D4_high;
+    uint32_t D5_low;
+    uint32_t D5_high;
+    uint32_t D6_low;
+    uint32_t D6_high;
+    uint32_t D7_low;
+    uint32_t D7_high;
+    uint32_t D8_low;
+    uint32_t D8_high;
+    uint32_t D9_low;
+    uint32_t D9_high;
+    uint32_t D10_low;
+    uint32_t D10_high;
+    uint32_t D11_low;
+    uint32_t D11_high;
+    uint32_t D12_low;
+    uint32_t D12_high;
+    uint32_t D13_low;
+    uint32_t D13_high;
+    uint32_t D14_low;
+    uint32_t D14_high;
+    uint32_t D15_low;
+    uint32_t D15_high;
+    uint32_t D16_low;
+    uint32_t D16_high;
+    uint32_t D17_low;
+    uint32_t D17_high;
+    uint32_t D18_low;
+    uint32_t D18_high;
+    uint32_t D19_low;
+    uint32_t D19_high;
+    uint32_t D20_low;
+    uint32_t D20_high;
+    uint32_t D21_low;
+    uint32_t D21_high;
+    uint32_t D22_low;
+    uint32_t D22_high;
+    uint32_t D23_low;
+    uint32_t D23_high;
+    uint32_t D24_low;
+    uint32_t D24_high;
+    uint32_t D25_low;
+    uint32_t D25_high;
+    uint32_t D26_low;
+    uint32_t D26_high;
+    uint32_t D27_low;
+    uint32_t D27_high;
+    uint32_t D28_low;
+    uint32_t D28_high;
+    uint32_t D29_low;
+    uint32_t D29_high;
+    uint32_t D30_low;
+    uint32_t D30_high;
+    uint32_t D31_low;
+    uint32_t D31_high;
+};
+
+/* Check memory layout is as assumed by context switch */
+STATIC_ASSERT(task_fpu_regs_fpscr, offsetof (struct task_fpu_regs, FPSCR)   == 0x0);
+STATIC_ASSERT(task_fpu_regs_d0,    offsetof (struct task_fpu_regs, D0_low)  == 0x4);
+STATIC_ASSERT(task_fpu_regs_d1,    offsetof (struct task_fpu_regs, D1_low)  == 0xC);
+STATIC_ASSERT(task_fpu_regs_d2,    offsetof (struct task_fpu_regs, D2_low)  == 0x14);
+STATIC_ASSERT(task_fpu_regs_d3,    offsetof (struct task_fpu_regs, D3_low)  == 0x1C);
+STATIC_ASSERT(task_fpu_regs_d4,    offsetof (struct task_fpu_regs, D4_low)  == 0x24);
+STATIC_ASSERT(task_fpu_regs_d5,    offsetof (struct task_fpu_regs, D5_low)  == 0x2C);
+STATIC_ASSERT(task_fpu_regs_d6,    offsetof (struct task_fpu_regs, D6_low)  == 0x34);
+STATIC_ASSERT(task_fpu_regs_d7,    offsetof (struct task_fpu_regs, D7_low)  == 0x3C);
+STATIC_ASSERT(task_fpu_regs_d8,    offsetof (struct task_fpu_regs, D8_low)  == 0x44);
+STATIC_ASSERT(task_fpu_regs_d9,    offsetof (struct task_fpu_regs, D9_low)  == 0x4c);
+STATIC_ASSERT(task_fpu_regs_d10,   offsetof (struct task_fpu_regs, D10_low) == 0x54);
+STATIC_ASSERT(task_fpu_regs_d11,   offsetof (struct task_fpu_regs, D11_low) == 0x5c);
+STATIC_ASSERT(task_fpu_regs_d12,   offsetof (struct task_fpu_regs, D12_low) == 0x64);
+STATIC_ASSERT(task_fpu_regs_d13,   offsetof (struct task_fpu_regs, D13_low) == 0x6c);
+STATIC_ASSERT(task_fpu_regs_d14,   offsetof (struct task_fpu_regs, D14_low) == 0x74);
+STATIC_ASSERT(task_fpu_regs_d15,   offsetof (struct task_fpu_regs, D15_low) == 0x7c);
+STATIC_ASSERT(task_fpu_regs_d16,   offsetof (struct task_fpu_regs, D16_low) == 0x84);
+STATIC_ASSERT(task_fpu_regs_d17,   offsetof (struct task_fpu_regs, D17_low) == 0x8c);
+STATIC_ASSERT(task_fpu_regs_d18,   offsetof (struct task_fpu_regs, D18_low) == 0x94);
+STATIC_ASSERT(task_fpu_regs_d19,   offsetof (struct task_fpu_regs, D19_low) == 0x9c);
+STATIC_ASSERT(task_fpu_regs_d20,   offsetof (struct task_fpu_regs, D20_low) == 0xa4);
+STATIC_ASSERT(task_fpu_regs_d21,   offsetof (struct task_fpu_regs, D21_low) == 0xac);
+STATIC_ASSERT(task_fpu_regs_d22,   offsetof (struct task_fpu_regs, D22_low) == 0xb4);
+STATIC_ASSERT(task_fpu_regs_d23,   offsetof (struct task_fpu_regs, D23_low) == 0xbc);
+STATIC_ASSERT(task_fpu_regs_d24,   offsetof (struct task_fpu_regs, D24_low) == 0xc4);
+STATIC_ASSERT(task_fpu_regs_d25,   offsetof (struct task_fpu_regs, D25_low) == 0xcc);
+STATIC_ASSERT(task_fpu_regs_d26,   offsetof (struct task_fpu_regs, D26_low) == 0xd4);
+STATIC_ASSERT(task_fpu_regs_d27,   offsetof (struct task_fpu_regs, D27_low) == 0xdc);
+STATIC_ASSERT(task_fpu_regs_d28,   offsetof (struct task_fpu_regs, D28_low) == 0xe4);
+STATIC_ASSERT(task_fpu_regs_d29,   offsetof (struct task_fpu_regs, D29_low) == 0xec);
+STATIC_ASSERT(task_fpu_regs_d30,   offsetof (struct task_fpu_regs, D30_low) == 0xf4);
+STATIC_ASSERT(task_fpu_regs_d31,   offsetof (struct task_fpu_regs, D31_low) == 0xfc);
+
+STATIC_ASSERT(task_fpu_regs_size, sizeof   (struct task_fpu_regs)       == 0x104);
 
 /* Find a task by its TID. Returns one of the following error codes. */
 int get_task(struct kern *k, tid_t tid, struct task_desc **td_out);

@@ -17,7 +17,7 @@
 //#define PQ_HEAP
 
 /* Application task priorities */
-#define PRIORITY_NS         PRIORITY_MIN
+#define PRIORITY_NS         2
 #define PRIORITY_CLOCK      2
 #define PRIORITY_SERIAL     2
 #define PRIORITY_BLINK      3

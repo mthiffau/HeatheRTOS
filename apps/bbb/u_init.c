@@ -22,13 +22,15 @@
 #include "gpio.h"
 #include "beaglebone.h"
 
+#include "float_test.h"
+
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)
 
 void
 u_init_main(void)
 {
-    tid_t ns_tid, clk_tid, blnk_tid; // tty_tid
+    tid_t ns_tid, clk_tid, blnk_tid;
     //tid_t hw_tid;
     //struct serialcfg ttycfg, traincfg;
     //int rplylen;
@@ -47,6 +49,17 @@ u_init_main(void)
     /* Start Blink Server */
     blnk_tid = Create(PRIORITY_BLINK, &blnksrv_main);
     assertv(blnk_tid, blnk_tid >= 0);
+
+/*  Floating Point Test Program
+    float_tid1 = Create(5, &fpu_test_main);
+    assertv(float_tid1, float_tid1 >= 0);
+
+    float_tid2 = Create(5, &fpu_test_main);
+    assertv(float_tid2, float_tid2 >= 0);
+
+    float_tid3 = Create(5, &fpu_test_main);
+    assertv(float_tid3, float_tid3 >= 0);
+*/
 
     /* Start serial server for TTY */
     /*

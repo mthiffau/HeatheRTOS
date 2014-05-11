@@ -4,11 +4,14 @@
 
 #define VFP_ENABLE_H
 
+TASK_H;
+
 void vfp_cp_enable(void);
 void vfp_cp_disable(void);
 void vfp_enable(void);
 void vfp_disable(void);
 
-uint32_t vfp_save_state(uint32_t stack_ptr);
-uint32_t vfp_load_state(uint32_t stack_ptr);
+void vfp_save_state(volatile struct task_fpu_regs**, void* stack_pointer);
+void vfp_load_state(volatile struct task_fpu_regs**);
 void vfp_load_fresh(void);
+
