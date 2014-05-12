@@ -25,21 +25,23 @@
 void 
 fpu_test_main()
 {
-    tid_t mytid = MyTid();
-
     struct clkctx clk;
     clkctx_init(&clk);
 
-    volatile float a, b;
+    volatile float a, b, c, d;
 
     uint32_t time = Time(&clk);
 
     while(1) {
 
-	if (time > 60000) {
-	    bwprintf("TID: %d called shutdown\n\r", mytid);
+	time = Time(&clk);
+	if (time > 300000)
 	    Shutdown();
-	}
+
+	c = (float)time;
+	d = c / 1000.0 / 60.0;
+	assert(d <= c);
+	assert(d <= 5.0);
 
 	a = 0.5;
 	b = 0.5;
@@ -49,7 +51,19 @@ fpu_test_main()
 	assert(a * b == 0.25);
 	assert(a / b == 1.0);
 
-	time = Time(&clk);
+	assert((a * a) + (b * b) == a);
+	assert((b * b) + (a * a) == b);
+
+	a = 1.5;
+	b = 0.5;
+
+	assert(a > b);
+	assert(b < a);
+	assert(a / b == 3.0);
+	assert(a * b == 0.75);
+
+	assert(a / 0.0 == __builtin_inf());
+
 	Pass();
     }
 }

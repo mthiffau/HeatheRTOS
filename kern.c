@@ -127,10 +127,6 @@ kern_main(struct kparam *kp)
 	/* Either the active task is no longer active, or we're skipping the scheduler */
 	assert((TASK_STATE(active) != TASK_STATE_ACTIVE) || skip_sched);
     }
-    bwprintf("Shutting down. Flag: %d, Ready Count: %d, Event Blocked Count: %d\n\r",
-	     kern.shutdown,
-	     kern.rdy_count,
-	     kern.evblk_count);
 
     end_time = dbg_tmr_get() / 1000;
     kern_cleanup(&kern);
@@ -385,7 +381,7 @@ static void
 kern_top(struct kern *kern, uint32_t total_time)
 {
     unsigned i;
-    uint32_t total_ms  = total_time / 983;
+    uint32_t total_ms  = total_time;
     uint32_t user_time = 0;
     bwprintf("--------\n\rran for %d ms\n\r", total_ms);
     for (i = 0; i < ARRAY_SIZE(kern->tasks); i++) {
@@ -399,11 +395,11 @@ kern_top(struct kern *kern, uint32_t total_time)
             bwputstr("IDLE");
         else
             bwprintf("%d", (int)tid);
-        kern_top_pct(total_ms, td->time / 983);
+        kern_top_pct(total_ms, td->time);
         user_time += td->time;
     }
     bwputstr("KERNEL");
-    kern_top_pct(total_ms, (total_time - user_time) / 983);
+    kern_top_pct(total_ms, (total_time - user_time));
 }
 
 /* Handle a cleanup function registration */
