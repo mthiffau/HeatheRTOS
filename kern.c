@@ -127,6 +127,10 @@ kern_main(struct kparam *kp)
 	/* Either the active task is no longer active, or we're skipping the scheduler */
 	assert((TASK_STATE(active) != TASK_STATE_ACTIVE) || skip_sched);
     }
+    bwprintf("Shutting down. Flag: %d, Ready Count: %d, Event Blocked Count: %d\n\r",
+	     kern.shutdown,
+	     kern.rdy_count,
+	     kern.evblk_count);
 
     end_time = dbg_tmr_get() / 1000;
     kern_cleanup(&kern);
