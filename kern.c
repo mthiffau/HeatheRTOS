@@ -34,6 +34,7 @@
 #include "vfp.h"
 #endif
 
+/* Forward declarations of helper functions */
 static void kern_top_pct(uint32_t total, uint32_t amt);
 static void kern_top(struct kern *kern, uint32_t total_time);
 static void kern_RegisterCleanup(struct kern *kern, struct task_desc *active);
@@ -187,6 +188,8 @@ kern_init(struct kern *kern, struct kparam *kp)
     assertv(tid, tid == 1);
 }
 
+/* Handle an interrupt. Return non-zero to skip the scheduler and continue
+   running active. */
 int
 kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
 {
@@ -207,6 +210,7 @@ kern_handle_intr(struct kern *kern, struct task_desc *active, uint32_t intr)
     }
 }
 
+/* Handle a software interrupt */
 void
 kern_handle_swi(struct kern *kern, struct task_desc *active)
 {
@@ -267,6 +271,7 @@ kern_handle_swi(struct kern *kern, struct task_desc *active)
     }
 }
 
+/* Handle a hardware interrupt */
 void
 kern_handle_irq(struct kern *kern, struct task_desc *active)
 {
@@ -307,6 +312,7 @@ kern_handle_irq(struct kern *kern, struct task_desc *active)
     task_ready(kern, wake);
 }
 
+/* Handle an undefined instruction */
 int
 kern_handle_undef(struct kern *k, struct task_desc *active)
 {
@@ -346,6 +352,7 @@ kern_handle_undef(struct kern *k, struct task_desc *active)
 #endif
 }
 
+/* Call all the task cleanup functiions and reset the event system */
 void
 kern_cleanup(struct kern *kern)
 {
@@ -358,6 +365,7 @@ kern_cleanup(struct kern *kern)
     evt_cleanup();
 }
 
+/* Display a percentage */
 static void
 kern_top_pct(uint32_t total, uint32_t amt)
 {
@@ -368,6 +376,7 @@ kern_top_pct(uint32_t total, uint32_t amt)
     bwprintf("\t%s%u.%u%%\n\r", pct >= 10 ? "" : " ", pct, pct10);
 }
 
+/* Print a "top" message */
 static void
 kern_top(struct kern *kern, uint32_t total_time)
 {
@@ -393,6 +402,7 @@ kern_top(struct kern *kern, uint32_t total_time)
     kern_top_pct(total_ms, (total_time - user_time) / 983);
 }
 
+/* Handle a cleanup function registration */
 static void
 kern_RegisterCleanup(struct kern *kern, struct task_desc *active)
 {
@@ -400,6 +410,7 @@ kern_RegisterCleanup(struct kern *kern, struct task_desc *active)
     task_ready(kern, active);
 }
 
+/* Handle an event registration request */
 static void
 kern_RegisterEvent(struct kern *kern, struct task_desc *active)
 {
@@ -424,6 +435,7 @@ kern_RegisterEvent(struct kern *kern, struct task_desc *active)
     task_ready(kern, active);
 }
 
+/* Handle an "AwaitEvent" request */
 static void
 kern_AwaitEvent(struct kern *kern, struct task_desc *active)
 {
@@ -441,6 +453,7 @@ kern_AwaitEvent(struct kern *kern, struct task_desc *active)
     kern->evblk_count++;
 }
 
+/* Kernel Idle Task */
 static void
 kern_idle(void)
 {

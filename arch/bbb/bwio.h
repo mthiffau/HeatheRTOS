@@ -34,3 +34,6 @@ void bwformat( const char *format, va_list args );
 
 void bwprintf( const char *format, ... )
     __attribute__((format(printf, 1, 2)));
+
+void bwui2a(unsigned int num, unsigned int base, char *bf);
+void bwi2a(int num, char *bf);

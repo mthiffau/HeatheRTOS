@@ -1,7 +1,4 @@
-#ifdef POLY_H
-#error "double-included poly.h"
-#endif
-
+#ifndef POLY_H
 #define POLY_H
 
 #define POLY_MAX_DEGREE     4
@@ -32,3 +29,5 @@ float polyroot(const struct poly *p, float t0, float eps, int maxiter);
 
 /* Find t such that p(t)=x. Further parameters as in polyroot. */
 float polyinv(const struct poly *p, float x, float t0, float eps, int maxiter);
+
+#endif

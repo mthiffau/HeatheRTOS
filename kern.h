@@ -1,14 +1,11 @@
-#ifdef KERN_H
-#error "double-included kern.h"
-#endif
-
+#ifndef KERN_H
 #define KERN_H
 
-XBOOL_H;
-XINT_H;
-XDEF_H;
-TASK_H;
-EVENT_H;
+#include "xbool.h"
+#include "xint.h"
+#include "xdef.h"
+#include "task.h"
+#include "event.h"
 
 struct kern {
 #ifdef HARD_FLOAT
@@ -59,3 +56,5 @@ int kern_handle_undef(struct kern *k, struct task_desc *active);
 
 /* Reset hardware state before returning to RedBoot. */
 void kern_cleanup(struct kern *kern);
+
+#endif

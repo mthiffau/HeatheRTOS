@@ -19,6 +19,7 @@ static inline void pqueue_swap(struct pqueue *q, int i, int j)
 }
 #endif
 
+/* Initialize a priority queue */
 void
 pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem)
 {
@@ -36,6 +37,7 @@ pqueue_init(struct pqueue *q, size_t maxsize, struct pqueue_node *mem)
 #endif
 }
 
+/* Add a value to a priority queue */
 int
 pqueue_add(struct pqueue* q, size_t val, intptr_t key)
 {
@@ -86,6 +88,7 @@ pqueue_add(struct pqueue* q, size_t val, intptr_t key)
 #endif
 }
 
+/* Reduce the key of a value in the priority queue */
 int
 pqueue_decreasekey(struct pqueue *q, size_t val, intptr_t new_key)
 {
@@ -128,6 +131,7 @@ pqueue_decreasekey(struct pqueue *q, size_t val, intptr_t new_key)
 #endif
 }
 
+/* Peek at the highest priority entry */
 struct pqueue_entry*
 pqueue_peekmin(struct pqueue *q)
 {
@@ -138,6 +142,7 @@ pqueue_peekmin(struct pqueue *q)
 #endif
 }
 
+/* Pop the highest priority entry from the queue */
 void
 pqueue_popmin(struct pqueue *q)
 {

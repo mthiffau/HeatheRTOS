@@ -3,6 +3,7 @@
 #include "xbool.h"
 #include "xassert.h"
 
+/* Evaluate a polynomial at time t */
 float
 polyeval(const struct poly *p, float t)
 {
@@ -17,6 +18,7 @@ polyeval(const struct poly *p, float t)
     return x;
 }
 
+/* Differentiate a polynomial */
 void
 polydiff(const struct poly *p, struct poly *p_prime)
 {
@@ -32,6 +34,7 @@ polydiff(const struct poly *p, struct poly *p_prime)
     }
 }
 
+/* Find the root of a polynomial */
 float
 polyroot(const struct poly *p, float t0, float eps, int maxiter)
 {
@@ -48,6 +51,7 @@ polyroot(const struct poly *p, float t0, float eps, int maxiter)
     return t0;
 }
 
+/* Invert a polynomial */
 float
 polyinv(const struct poly *p, float x, float t0, float eps, int maxiter)
 {

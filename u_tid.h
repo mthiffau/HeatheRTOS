@@ -1,7 +1,7 @@
-#ifdef U_TID_H
-#error "double-included u_tid.h"
-#endif
-
+#ifndef U_TID_H
 #define U_TID_H
 
+/* Define the TID type */
 typedef int tid_t;
+
+#endif

@@ -12,18 +12,21 @@
  *
  * Constants used are those listed under Watcom. */
 
+/* Seed RNG */
 void
 rand_init(struct rand *r, uint32_t seed)
 {
     r->seed = seed;
 }
 
+/* Seed the RNG using the debug timer */
 void
 rand_init_time(struct rand *r)
 {
     rand_init(r, dbg_tmr_get());
 }
 
+/* Get a pseudo random integer */
 uint32_t
 rand(struct rand *r)
 {
@@ -35,6 +38,7 @@ rand(struct rand *r)
     return r->seed;
 }
 
+/* Get a pseudo random integer in the given range */
 uint32_t
 randrange(struct rand *r, uint32_t a, uint32_t b)
 {

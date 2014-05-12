@@ -1,9 +1,7 @@
-#ifdef SYSCALL_H
-#error "double-included syscall.h"
-#endif
-
+#ifndef SYSCALL_H
 #define SYSCALL_H
 
+/* Syscall Numbers */
 #define SYSCALL_CREATE          0x0
 #define SYSCALL_MYTID           0x1
 #define SYSCALL_MYPARENTTID     0x2
@@ -18,3 +16,5 @@
 #define SYSCALL_AWAITEVENT      0xb
 #define SYSCALL_SHUTDOWN        0xc
 #define SYSCALL_PANIC           0xd
+
+#endif

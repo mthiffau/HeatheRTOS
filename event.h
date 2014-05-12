@@ -1,16 +1,13 @@
-#ifdef EVENT_H
-#error "double-included event.h"
-#endif
-
+#ifndef EVENT_H
 #define EVENT_H
 
-XBOOL_H;
-XINT_H;
-XDEF_H;
-U_TID_H;
-CONFIG_H;
+#include "xbool.h"
+#include "xint.h"
+#include "xdef.h"
+#include "u_tid.h"
+#include "config.h"
 
-#define IRQ_COUNT       128
+#include "intr.h"
 
 /* Error codes. */
 enum {
@@ -75,3 +72,5 @@ void evt_acknowledge(void);
 
 /* Clean up interrupt controller state. */
 void evt_cleanup(void);
+
+#endif

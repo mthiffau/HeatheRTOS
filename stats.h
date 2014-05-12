@@ -1,11 +1,9 @@
-#ifdef STATS_H
-#error "double-included stats.h"
-#endif
-
+#ifndef STATS_H
 #define STATS_H
 
-XINT_H;
+#include "xint.h"
 
+/* Task running statistics */
 struct stats {
     int32_t total;
     int32_t total_sqr;
@@ -14,6 +12,7 @@ struct stats {
     int32_t n;
 };
 
+/* Initialize statistics structure */
 static inline void
 stats_init(struct stats *s)
 {
@@ -24,6 +23,7 @@ stats_init(struct stats *s)
     s->n         = 0;
 }
 
+/* Accumulate a value */
 static inline void
 stats_accum(struct stats *s, int32_t x)
 {
@@ -37,15 +37,19 @@ stats_accum(struct stats *s, int32_t x)
     s->n++;
 }
 
+/* Get the mean */
 static inline int32_t
 stats_mean(struct stats *s)
 {
     return s->total / s->n;
 }
 
+/* Get the variance */
 static inline int32_t
 stats_var(struct stats *s)
 {
     int32_t mean = stats_mean(s);
     return s->total_sqr / s->n - mean * mean;
 }
+
+#endif

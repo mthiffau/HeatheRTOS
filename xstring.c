@@ -1,5 +1,6 @@
 #include "xstring.h"
 
+/* Compare two strings */
 int
 strcmp(const char *s1, const char *s2)
 {
@@ -14,6 +15,7 @@ strcmp(const char *s1, const char *s2)
     }
 }
 
+/* Get the length of a string */
 int
 strlen(const char *s)
 {
@@ -23,6 +25,7 @@ strlen(const char *s)
     return n;
 }
 
+/* Get the bounded length of a string */
 int
 strnlen(const char *s, int maxlen)
 {

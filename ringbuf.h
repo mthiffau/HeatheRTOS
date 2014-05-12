@@ -1,12 +1,9 @@
-#ifdef RINGBUF_H
-#error "double-included ringbuf.h"
-#endif
-
+#ifndef RINGBUF_H
 #define RINGBUF_H
 
-XBOOL_H;
-XDEF_H;
-XARG_H;
+#include "xbool.h"
+#include "xdef.h"
+#include "xarg.h"
 
 /*
  * Ring buffer
@@ -58,3 +55,5 @@ struct ringbuf {
     size_t wr;
     size_t len;
 };
+
+#endif

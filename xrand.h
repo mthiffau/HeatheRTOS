@@ -1,10 +1,7 @@
-#ifdef XRAND_H
-#error "double-included xrand.h"
-#endif
-
+#ifndef XRAND_H
 #define XRAND_H
 
-XINT_H;
+#include "xint.h"
 
 #define RAND_MAX    0x7fffffffu
 
@@ -23,3 +20,5 @@ uint32_t rand(struct rand *r);
 
 /* Generate a pseudo-random number in [a, b). */
 uint32_t randrange(struct rand *r, uint32_t a, uint32_t b);
+
+#endif

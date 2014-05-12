@@ -15,6 +15,7 @@
 #include "xarg.h"
 #include "bwio.h"
 
+/* Macros to read various values from the user stack/state */
 #define SEND_ARG_TID(td)     ((tid_t)(td)->regs->r0)
 #define SEND_ARG_MSG(td)     ((const char*)(td)->regs->r1)
 #define SEND_ARG_MSGLEN(td)  ((int)(td)->regs->r2)
@@ -29,8 +30,10 @@
 #define RPLY_ARG_RPLY(td)    ((const char*)(td)->regs->r1)
 #define RPLY_ARG_RPLYLEN(td) ((int)(td)->regs->r2)
 
+/* Forward declaration of rendezvous function */
 static void rendezvous(struct kern*, struct task_desc*, struct task_desc*);
 
+/* Called to start a send when requested by a user task */
 void
 ipc_send_start(struct kern *kern, struct task_desc *active)
 {
@@ -52,6 +55,7 @@ ipc_send_start(struct kern *kern, struct task_desc *active)
     }
 }
 
+/* Called to attempt to receive when requested by a user task */
 void
 ipc_receive_start(struct kern *kern, struct task_desc *active)
 {
@@ -63,6 +67,7 @@ ipc_receive_start(struct kern *kern, struct task_desc *active)
     }
 }
 
+/* Called to initiate a reply when requested by a user task */
 void
 ipc_reply_start(struct kern *kern, struct task_desc *active)
 {
@@ -108,6 +113,7 @@ ipc_reply_start(struct kern *kern, struct task_desc *active)
     task_ready(kern, active);
 }
 
+/* Called when a receiver and a sender are matched */
 static void
 rendezvous(
     struct kern *kern,

@@ -1,7 +1,7 @@
-#ifdef BITHACK_H
-#error "double-included bithack.h"
-#endif
+#ifndef BITHACK_H
+#define BITHACK_H
 
+/* Count trailing zeros of a 16 bit number */
 static inline int
 ctz16(uint16_t x)
 {
@@ -23,6 +23,7 @@ ctz16(uint16_t x)
     return tz;
 }
 
+/* Count trailing zeros of a 32 bit number */
 static inline int
 ctz32(uint32_t x)
 {
@@ -36,6 +37,7 @@ ctz32(uint32_t x)
     return tz;
 }
 
+/* Bit reverse an 8-bit number */
 static inline uint8_t
 bitrev8(uint8_t n)
 {
@@ -43,3 +45,4 @@ bitrev8(uint8_t n)
     return ((n * 0x80200802ULL) & 0x0884422110ULL) * 0x0101010101ULL >> 32;
 }
 
+#endif

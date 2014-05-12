@@ -1,14 +1,11 @@
-#ifdef TASK_H
-#error "double-included task.h"
-#endif
-
+#ifndef TASK_H
 #define TASK_H
 
-XINT_H;
-XDEF_H;
-STATIC_ASSERT_H;
-U_TID_H;
-CONFIG_H;
+#include "xint.h"
+#include "xdef.h"
+#include "static_assert.h"
+#include "u_tid.h"
+#include "config.h"
 
 struct kern;
 struct task_regs;
@@ -281,3 +278,5 @@ void task_enqueue(struct kern*, struct task_desc*, struct task_queue*);
 
 /* Attempt to dequeue a task from a task queue. Returns NULL if empty. */
 struct task_desc *task_dequeue(struct kern*, struct task_queue*);
+
+#endif

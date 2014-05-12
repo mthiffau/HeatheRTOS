@@ -1,11 +1,11 @@
-#ifdef INTR_H
-#error "double-included intr.h"
-#endif
-
+#ifndef INTR_H
 #define INTR_H
 
-XBOOL_H;
-XINT_H;
+#include "xbool.h"
+#include "xint.h"
+
+/* How many IRQ's in the system? */
+#define IRQ_COUNT 128
 
 /* Enable/disable a given interrupt. */
 void intr_enable(int intr, bool enable);
@@ -23,3 +23,5 @@ void intr_reset(void);
 
 /* Acknowledge IRQ and get ready to go again */
 void intr_acknowledge(void);
+
+#endif

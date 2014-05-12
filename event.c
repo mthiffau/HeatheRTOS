@@ -9,15 +9,19 @@
 #include "array_size.h"
 #include "xassert.h"
 
+/* Initialize the kernel IRQ event system */
 void
 evt_init(struct eventab *tab)
 {
     unsigned i;
+    /* Reset the interrupt controller */
     intr_reset();
+    /* Reset the event table */
     for (i = 0; i < ARRAY_SIZE(tab->events); i++)
         tab->events[i].tid = -1;
 }
 
+/* Register a task to handle an IRQ */
 int evt_register(
     struct eventab *tab,
     tid_t tid,
@@ -26,9 +30,11 @@ int evt_register(
 {
     struct event *evt;
 
+    /* Check that the IRQ number makes sense */
     if (irq < 0 || irq >= IRQ_COUNT)
         return IRQ_OOR;
 
+    /* Check that no other task has already registered */
     evt = &tab->events[irq];
     if (evt->tid >= 0)
         return IRQ_IN_USE;
@@ -43,6 +49,7 @@ int evt_register(
     return 0;
 }
 
+/* Un-register a task with respect to an IRQ */
 int
 evt_unregister(struct eventab *tab, int irq)
 {
@@ -60,6 +67,8 @@ evt_unregister(struct eventab *tab, int irq)
     return 0;
 }
 
+/* What is the current highest priority event
+   to handle? */
 int
 evt_cur(void)
 {
@@ -69,6 +78,8 @@ evt_cur(void)
     return irq;
 }
 
+/* Enable (unmask) a particular interrupt, providing the optional
+   arguments to the handler callback */
 void
 evt_enable(struct eventab *tab, int irq, void *cbptr, size_t cbsize)
 {
@@ -81,6 +92,7 @@ evt_enable(struct eventab *tab, int irq, void *cbptr, size_t cbsize)
     intr_enable(irq, true);
 }
 
+/* Disable (mask) a particular interrupt */
 void
 evt_disable(struct eventab *tab, int irq)
 {
@@ -88,12 +100,14 @@ evt_disable(struct eventab *tab, int irq)
     intr_enable(irq, false);
 }
 
+/* Acknowledge the IRQ so that more can happen */
 void
 evt_acknowledge(void)
 {
     intr_acknowledge();
 }
 
+/* Cleanup/reset the interrupt controller */
 void
 evt_cleanup(void)
 {

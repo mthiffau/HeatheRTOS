@@ -1,12 +1,9 @@
-#ifdef PQUEUE_H
-#error "double-included pqueue.h"
-#endif
-
+#ifndef PQUEUE_H
 #define PQ_RING_H
 
-CONFIG_H;
-XINT_H;
-XDEF_H;
+#include "config.h"
+#include "xint.h"
+#include "xdef.h"
 
 /*
  * Integer-keyed, integer-valued priority queue.
@@ -84,3 +81,5 @@ struct pqueue_entry *pqueue_peekmin(struct pqueue *q);
 /* Remove the minimum-key entry from the priority queue, which must
  * not be empty. */
 void pqueue_popmin(struct pqueue *q);
+
+#endif

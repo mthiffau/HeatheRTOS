@@ -8,10 +8,7 @@
 
 #include "bwio.h" /* for debug print */
 
-/* FIXME HACK */
-void bwui2a(unsigned int num, unsigned int base, char *bf);
-void bwi2a(int num, char *bf);
-
+/* Initialize a new ring buffer. */
 void rbuf_init(struct ringbuf *r, char *mem, size_t size)
 {
     r->mem  = mem;
@@ -21,6 +18,7 @@ void rbuf_init(struct ringbuf *r, char *mem, size_t size)
     r->len  = 0;
 }
 
+/* Enqueue a single character. */
 void rbuf_putc(struct ringbuf *r, char c)
 {
     assert(r->len < r->size); /* FIXME */
@@ -29,6 +27,8 @@ void rbuf_putc(struct ringbuf *r, char c)
     r->len++;
 }
 
+/* Get the first character from a ring buffer.
+ * Returns true if a character was peeked at. */
 bool rbuf_peekc(struct ringbuf *r, char *c_out)
 {
     if (r->len == 0)
@@ -38,6 +38,8 @@ bool rbuf_peekc(struct ringbuf *r, char *c_out)
     return true;
 }
 
+/* Dequeue a single character from a ring buffer.
+ * Returns true if a character was read. */
 bool rbuf_getc(struct ringbuf *r, char *c_out)
 {
     if (r->len == 0)
@@ -49,6 +51,7 @@ bool rbuf_getc(struct ringbuf *r, char *c_out)
     return true;
 }
 
+/* Write many characters to ring buffer. */
 void rbuf_write(struct ringbuf *r, const void *buf, size_t n)
 {
     size_t space;
@@ -64,6 +67,7 @@ void rbuf_write(struct ringbuf *r, const void *buf, size_t n)
     r->len += n;
 }
 
+/* Print a NUL-terminated string verbatim. */
 void rbuf_print(struct ringbuf *r, const char *s)
 {
     char c;
@@ -71,6 +75,7 @@ void rbuf_print(struct ringbuf *r, const char *s)
         rbuf_putc(r, c);
 }
 
+/* Formatted printing. Returns 0 for success, unlike real printf! */
 void rbuf_printf(struct ringbuf *r, const char *fmt, ...)
 {
     va_list args;
@@ -79,17 +84,20 @@ void rbuf_printf(struct ringbuf *r, const char *fmt, ...)
     va_end(args);
 }
 
+/* Repeat a character */
 void rbuf_nputc(struct ringbuf *r, int n, char ch)
 {
     while (n-- > 0)
         rbuf_putc(r, ch);
 }
 
+/* Print an signed integer in decimal */
 void rbuf_dec(struct ringbuf *r, int n)
 {
     rbuf_decw(r, n, 0, ' ');
 }
 
+/* Print an signed integer in decimal */
 void rbuf_decw(struct ringbuf *r, int n, int width, char pad)
 {
     char ds[11]; /* no NUL-terminator */
@@ -115,6 +123,7 @@ void rbuf_decw(struct ringbuf *r, int n, int width, char pad)
         rbuf_putc(r, ds[--len]);
 }
 
+/* Print aligned strings */
 static void rbuf_align(
     struct ringbuf *r,
     int w,
@@ -132,11 +141,13 @@ static void rbuf_align(
         rbuf_nputc(r, w, pad);
 }
 
+/* Print aligned strings */
 void rbuf_alignl(struct ringbuf *r, int w, char pad, const char *s)
 {
     rbuf_align(r, w, pad, true, s);
 }
 
+/* Print aligned strings */
 void rbuf_alignr(struct ringbuf *r, int w, char pad, const char *s)
 {
     rbuf_align(r, w, pad, false, s);

@@ -14,6 +14,7 @@
 #include "cpumode.h"
 #include "u_syscall.h"
 
+/* Get a pointer to the task descriptor with the specified TID */
 int
 get_task(struct kern *kern, tid_t tid, struct task_desc **td_out)
 {
@@ -32,6 +33,7 @@ get_task(struct kern *kern, tid_t tid, struct task_desc **td_out)
     return GET_TASK_SUCCESS;
 }
 
+/* Create a new task, returns the new TID */
 tid_t
 task_create(
     struct kern *kern,
@@ -73,6 +75,7 @@ task_create(
     return TASK_TID(kern, td);
 }
 
+/* Put a task on the appropriate kernel ready queue */
 void
 task_ready(struct kern *kern, struct task_desc *td)
 {
@@ -83,6 +86,8 @@ task_ready(struct kern *kern, struct task_desc *td)
     kern->rdy_count++;
 }
 
+/* Pops the task with the highest priority from its
+   ready queue */
 /* NB. lower numbers are higher priority! */
 struct task_desc*
 task_schedule(struct kern *kern)
@@ -110,6 +115,7 @@ task_schedule(struct kern *kern)
     return td;
 }
 
+/* Return a task descriptor to the free list */
 void
 task_free(struct kern *kern, struct task_desc *td)
 {
@@ -123,6 +129,7 @@ task_free(struct kern *kern, struct task_desc *td)
     task_enqueue(kern, td, &kern->free_tasks);
 }
 
+/* Initialize a task queue */
 void
 taskq_init(struct task_queue *q)
 {
@@ -130,6 +137,7 @@ taskq_init(struct task_queue *q)
     q->tail_ix = TASK_IX_NULL;
 }
 
+/* Enqueue a task */
 void
 task_enqueue(struct kern *kern, struct task_desc *td, struct task_queue *q)
 {
@@ -145,6 +153,7 @@ task_enqueue(struct kern *kern, struct task_desc *td, struct task_queue *q)
     }
 }
 
+/* Dequeue a task */
 struct task_desc*
 task_dequeue(struct kern *kern, struct task_queue *q)
 {

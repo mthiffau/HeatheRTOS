@@ -1,5 +1,7 @@
+# Set Target Device
 DEVICE  = bbb
 
+# Beaglebone Black Device Config
 ifeq ($(DEVICE), bbb)
 CFLAGS_FILE = make/cflags-bbb
 ASFLAGS_FILE = make/asflags-bbb

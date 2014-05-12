@@ -3,6 +3,7 @@
 #include "xbool.h"
 #include "xassert.h"
 
+/* Calculate a non-negative integer a^n */
 float
 powi(float a, int n)
 {
@@ -23,6 +24,7 @@ powi(float a, int n)
     return pow;
 }
 
+/* Find the nth root of a number */
 float
 nthroot(int n, float a, int maxiter)
 {

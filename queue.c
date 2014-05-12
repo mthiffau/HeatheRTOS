@@ -6,6 +6,7 @@
 
 #include "xassert.h"
 
+/* Initialize a queue */
 void
 q_init(struct queue *q, void *mem, int eltsize, int memsize)
 {
@@ -18,6 +19,7 @@ q_init(struct queue *q, void *mem, int eltsize, int memsize)
     q->count   = 0;
 }
 
+/* Remove an item from the queue */
 bool
 q_dequeue(struct queue *q, void *buf_out)
 {
@@ -32,6 +34,7 @@ q_dequeue(struct queue *q, void *buf_out)
     return true;
 }
 
+/* Add an item to the queue */
 int
 q_enqueue(struct queue *q, const void *buf_in)
 {
@@ -47,6 +50,7 @@ q_enqueue(struct queue *q, const void *buf_in)
     return 0;
 }
 
+/* Returns how many items are in a queue */
 int
 q_size(struct queue *q)
 {
