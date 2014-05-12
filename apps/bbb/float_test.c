@@ -35,7 +35,7 @@ fpu_test_main()
     while(1) {
 
 	time = Time(&clk);
-	if (time > 300000)
+	if (time >= 300000)
 	    Shutdown();
 
 	c = (float)time;

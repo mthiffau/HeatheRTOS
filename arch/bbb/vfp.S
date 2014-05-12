@@ -1,5 +1,6 @@
 .section .text
 
+#ifdef HARD_FLOAT	
 .global vfp_cp_enable
 .type vfp_cp_enable, %function
 .global vfp_cp_disable
@@ -160,3 +161,4 @@ blank_vfp_regs:
 	.word 0x00000000
 	.word 0x00000000
 	.word 0x00000000
+#endif

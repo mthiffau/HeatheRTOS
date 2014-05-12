@@ -4,7 +4,9 @@
 
 _asm_entry:
 	/* Enable Floating Point Co-Processors */
+#ifdef HARD_FLOAT
 	bl vfp_cp_enable
+#endif
 
 	/* Set Kernel Stack Pointer */
 	bl kernel_stack_init
