@@ -1,4 +1,4 @@
-#ifdef XSTRING_H
+#ifndef XSTRING_H
 #define XSTRING_H
 
 /* Compare two strings */

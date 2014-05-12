@@ -1,9 +1,5 @@
-#ifndef _HW_DMTIMER_H_
-#define _HW_DMTIMER_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef HW_DMTIMER_H
+#define HW_DMTIMER_H
 
 /*************************************************************************\
  * Registers Definition
@@ -299,11 +295,5 @@ extern "C" {
 /* TCAR2 */
 #define DMTIMER_TCAR2_CAPTURED_VALUE   (0xFFFFFFFFu)
 #define DMTIMER_TCAR2_CAPTURED_VALUE_SHIFT   (0x00000000u)
-
-
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

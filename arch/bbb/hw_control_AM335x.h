@@ -1,9 +1,5 @@
-#ifndef _HW_CONTROL_H_
-#define _HW_CONTROL_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef HW_CONTROL_H
+#define HW_CONTROL_H
 
 /*************************************************************************\
  * Registers Definition
@@ -7724,10 +7720,5 @@ extern "C" {
 
 #define CONTROL_DDR_DATA4_IOCTRL_IO_CONFIG_WD1_DQS   (0x20000000u)
 #define CONTROL_DDR_DATA4_IOCTRL_IO_CONFIG_WD1_DQS_SHIFT   (0x0000001Du)
-
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

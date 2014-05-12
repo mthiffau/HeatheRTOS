@@ -1,5 +1,5 @@
-#ifndef _HW_CM_DPLL_H_
-#define _HW_CM_DPLL_H_
+#ifndef HW_CM_DPLL_H
+#define HW_CM_DPLL_H
 
 /*************************************************************************\
  * Registers Definition

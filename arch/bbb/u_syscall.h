@@ -1,11 +1,8 @@
-#ifdef U_SYSCALL_H
-#error "double-included u_syscall.h"
-#endif
-
+#ifndef U_SYSCALL_H
 #define U_SYSCALL_H
 
-XDEF_H;
-U_TID_H;
+#include "xdef.h"
+#include "u_tid.h"
 
 tid_t Create(int priority, void (*task_entry)(void));
 tid_t MyTid(void);
@@ -25,3 +22,5 @@ int   AwaitEvent(void*, size_t);
 /* Instruct the kernel to shut down immediately. */
 void Shutdown(void) __attribute__((noreturn));
 void Panic(const char *msg) __attribute__((noreturn));
+
+#endif

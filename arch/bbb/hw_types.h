@@ -1,17 +1,13 @@
-#ifndef _HW_TYPES_H_
-#define _HW_TYPES_H_
+#ifndef HW_TYPES_H
+#define HW_TYPES_H
 
 //*****************************************************************************
-//
 // Define a boolean type, and values for true and false.
-//
 //*****************************************************************************
 typedef unsigned char tBoolean;
 
 //*****************************************************************************
-//
 // Macros for hardware access, both direct and via the bit-band region.
-//
 //*****************************************************************************
 #define HWREG(x)                                                              \
         (*((volatile unsigned int *)(x)))
@@ -29,4 +25,4 @@ typedef unsigned char tBoolean;
         HWREGB(((unsigned int)(x) & 0xF0000000) | 0x02000000 |               \
                (((unsigned int)(x) & 0x000FFFFF) << 5) | ((b) << 2))
 
-#endif // __HW_TYPES_H__
+#endif // HW_TYPES_H

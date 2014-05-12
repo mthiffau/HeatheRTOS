@@ -1,9 +1,5 @@
-#ifndef _HW_UART_H_
-#define _HW_UART_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef HW_UART_H
+#define HW_UART_H
 
 /*************************************************************************\
  * Registers Definition
@@ -1004,10 +1000,4 @@ extern "C" {
 #define UART_TX_DMA_THRESHOLD_TX_DMA_THRESHOLD   (0x0000003Fu)
 #define UART_TX_DMA_THRESHOLD_TX_DMA_THRESHOLD_SHIFT   (0x00000000u)
 
-
-#ifdef __cplusplus
-}
 #endif
-
-#endif
-

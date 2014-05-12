@@ -1,17 +1,13 @@
-#ifndef _DMTIMER_H_
-#define _DMTIMER_H_
+#ifndef DMTIMER_H
+#define DMTIMER_H
 
 #include "hw_dmtimer.h"
 #include "hw_types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /*****************************************************************************/
 /*
-** Values that can be passed to DMTimerPreScalerClkEnable as ptv so as to derive
-** Pre-Scalar clock from timer clock.
+  Values that can be passed to DMTimerPreScalerClkEnable as ptv so as to derive
+  Pre-Scalar clock from timer clock.
 */
 /* Value used to divide timer clock by 2 */
 #define DMTIMER_PRESCALER_CLK_DIV_BY_2      ((0 << DMTIMER_TCLR_PTV_SHIFT) | \
@@ -47,7 +43,7 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Values that can be passed to DMTimerModeConfigure as timerMode.
+  Values that can be passed to DMTimerModeConfigure as timerMode.
 */
 /* Value used to enable the timer in one-shot and compare mode */
 #define DMTIMER_ONESHOT_CMP_ENABLE          (DMTIMER_TCLR_CE)
@@ -63,7 +59,7 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Values that can be passed to DMTimerGPOConfigure as gpoCfg.
+  Values that can be passed to DMTimerGPOConfigure as gpoCfg.
 */
 /* Value used to drive 0 on PORGPOCFG pin */
 #define DMTIMER_GPO_CFG_0		    (DMTIMER_TCLR_GPO_CFG_DRIVE0)
@@ -74,11 +70,11 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Values that can be passed to DMTimerIntStatusClear/DMTimerIntRawStatusSet/
-** as intFlags. Also these values can be used while checking the status got from 
-** DMTimerIntRawStatusGet/DMTimerIntStatusGet.
-** Any combination is also followed.
-** Example- (DMTIMER_INT_TCAR_IT_FLAG | DMTIMER_INT_OVF_IT_FLAG)
+  Values that can be passed to DMTimerIntStatusClear/DMTimerIntRawStatusSet/
+  as intFlags. Also these values can be used while checking the status got from 
+  DMTimerIntRawStatusGet/DMTimerIntStatusGet.
+  Any combination is also followed.
+  Example- (DMTIMER_INT_TCAR_IT_FLAG | DMTIMER_INT_OVF_IT_FLAG)
 */
 /* Value used for capture event of DMTimer */
 #define DMTIMER_INT_TCAR_IT_FLAG             (DMTIMER_IRQSTATUS_RAW_TCAR_IT_FLAG)
@@ -91,11 +87,11 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Values that can be passed to DMTimerIntEnable/DMTimerIntDisable as intFlags.
-** Also these values can be used while checking the status got from 
-** DMTimerIntEnableGet.
-** Any combination is also followed.
-** Example- (DMTIMER_INT_TCAR_EN_FLAG | DMTIMER_INT_OVF_EN_FLAG)
+  Values that can be passed to DMTimerIntEnable/DMTimerIntDisable as intFlags.
+  Also these values can be used while checking the status got from 
+  DMTimerIntEnableGet.
+  Any combination is also followed.
+  Example- (DMTIMER_INT_TCAR_EN_FLAG | DMTIMER_INT_OVF_EN_FLAG)
 */
 /* Value used for capture event of DMTimer */
 #define DMTIMER_INT_TCAR_EN_FLAG             (DMTIMER_IRQENABLE_SET_TCAR_EN_FLAG)
@@ -108,7 +104,7 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Values that can be passed to DMTimerResetConfigure as rstOption.
+  Values that can be passed to DMTimerResetConfigure as rstOption.
 */
 /* Value used to enable software reset for DMTimer */
 #define DMTIMER_SFT_RESET_ENABLE             (DMTIMER_TSICR_SFT_RESETENABLE)
@@ -118,8 +114,8 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Values that can be used while checking the status received from 
-** DMTimerIsResetDone.
+  Values that can be used while checking the status received from 
+  DMTimerIsResetDone.
 */
 /* Value used to check whether reset is done */
 #define DMTIMER_IS_RESET_DONE                (DMTIMER_TIOCP_CFG_SOFTRESET_DONE)
@@ -129,7 +125,7 @@ extern "C" {
 
 /******************************************************************************/
 /*
-** Structure to store the DM timer context
+  Structure to store the DM timer context
 */
 typedef struct dmtimerContext{
     unsigned int tldr;
@@ -140,7 +136,7 @@ typedef struct dmtimerContext{
 } DMTIMERCONTEXT;
 
 /*
-** Prototype of the APIs
+  Prototype of the APIs
 */
 extern void DMTimerEnable(unsigned int baseAdd);
 extern void DMTimerDisable(unsigned int baseAdd);
@@ -170,10 +166,4 @@ extern void DMTimerContextRestore(unsigned int baseAdd, DMTIMERCONTEXT *contextP
 
 extern void DMTimer2ModuleClkConfig(void);
 
-#ifdef __cplusplus
-}
 #endif
-
-#endif
-
-/******************************** END OF FILE *********************************/

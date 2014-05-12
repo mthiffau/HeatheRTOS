@@ -1,24 +1,18 @@
-#ifndef __CP15_H
-#define __CP15_H
+#ifndef CP15_H
+#define CP15_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/*****************************************************************************/
 /*
-** Macros which can be passed to CP15ControlFeatureDisable/Enable APIs 
-** as 'features'. Any, or an OR combination of the below macros can be
-** passed to disable/enable the corresponding feature.
+  Macros which can be passed to CP15ControlFeatureDisable/Enable APIs 
+  as 'features'. Any, or an OR combination of the below macros can be
+  passed to disable/enable the corresponding feature.
 */
 #define CP15_CONTROL_TEXREMAP                  (0x10000000) 
 #define CP15_CONTROL_ACCESSFLAG                (0x20000000)
 #define CP15_CONTROL_ALIGN_CHCK                (0x00000002)
 #define CP15_CONTROL_MMU                       (0x00000001)
 
-/*****************************************************************************/
 /*
-** API prototypes
+  API prototypes
 */
 extern void CP15AuxControlFeatureEnable(unsigned int enFlag);
 extern void CP15AuxControlFeatureDisable(unsigned int disFlag);
@@ -48,7 +42,4 @@ extern void CP15ControlFeatureEnable(unsigned int features);
 extern void CP15TtbCtlTtb0Config(void);
 extern unsigned int CP15MainIdPrimPartNumGet(void);
 
-#ifdef __cplusplus
-}
-#endif
-#endif /* __CP15_H__ */
+#endif /* CP15_H */

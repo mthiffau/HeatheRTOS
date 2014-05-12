@@ -1,8 +1,7 @@
-#ifdef _EXC_VEC_H_
-#error "Double included exc_vec.h"
-#endif
-
-#define _EXC_VEC_H_
+#ifndef EXC_VEC_H
+#define EXC_VEC_H
 
 /* Copies the CPU exception vector table into memory */
 void load_vector_table(void);
+
+#endif

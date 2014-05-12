@@ -1,9 +1,5 @@
-#ifndef _SOC_AM33XX_H_
-#define _SOC_AM33XX_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef SOC_AM33XX_H
+#define SOC_AM33XX_H
 
 /** Cache Line size in ARM Cortex-A8.                                         */
 #define SOC_CACHELINE_SIZE_MAX               (64)
@@ -153,8 +149,4 @@ extern "C" {
 
 #define SOC_EPWM_MODULE_FREQ                 100 
  
-#ifdef __cplusplus
-}
 #endif
-
-#endif  /* _SOC_AM33XX_H_ */

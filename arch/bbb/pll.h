@@ -1,8 +1,7 @@
-#ifdef _PLL_H_
-#error "Double included pll.h"
-#endif
-
-#define _PLL_H_
+#ifndef PLL_H
+#define PLL_H
 
 /* Configure the PLL's on the system */
 void pll_setup(void);
+
+#endif

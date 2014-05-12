@@ -1,19 +1,15 @@
-#ifndef _PIN_MUX_H_
-#define _PIN_MUX_H_
+#ifndef PIN_MUX_H
+#define PIN_MUX_H
 
 #include "hw_control_AM335x.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /****************************************************************************
-**                       MACRO DEFINITIONS
+                       MACRO DEFINITIONS
 ****************************************************************************/
 
 /****************************************************************************
-**   Macros for every GPIO Pin defining the offset addresses of the Pad
-**   Control Registers in the Control Module.                    
+   Macros for every GPIO Pin defining the offset addresses of the Pad
+   Control Registers in the Control Module.
 ****************************************************************************/
 
 /* Macros of Pins in GPIO0 instance. */
@@ -240,9 +236,5 @@ extern "C" {
 
 #define GPIO_PMUX_OFFADDR_VALUE(instance, pin, padConfValue)    \
  GpioPinMuxSetup(GPIO_##instance##_##pin, padConfValue)
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

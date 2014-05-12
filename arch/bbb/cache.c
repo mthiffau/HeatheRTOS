@@ -2,6 +2,7 @@
 
 #include "cache.h"
 
+/* Enable all caches */
 void
 cache_enable(void)
 {
@@ -9,6 +10,7 @@ cache_enable(void)
     CP15DCacheEnable();
 }
 
+/* Disable all caches */
 void
 cache_disable(void)
 {
@@ -16,6 +18,7 @@ cache_disable(void)
     CP15ICacheDisable();
 }
 
+/* Flush/Clean all caches */
 void
 cache_flush(void)
 {

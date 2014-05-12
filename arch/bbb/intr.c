@@ -13,6 +13,7 @@
 #include "hw_intc.h"
 #include "interrupt.h"
 
+/* Enable/Disable a particular IRQ */
 void
 intr_enable(int intr, bool enable)
 {
@@ -23,6 +24,7 @@ intr_enable(int intr, bool enable)
     }
 }
 
+/* Configure an IRQ priority/FIQ enable */
 void
 intr_config(int intr, unsigned int prio, bool fiq)
 {
@@ -31,21 +33,23 @@ intr_config(int intr, unsigned int prio, bool fiq)
 		   fiq ? AINTC_HOSTINT_ROUTE_FIQ : AINTC_HOSTINT_ROUTE_IRQ);
 }
 
+/* Return the current highest priority interrupt */
 int
 intr_cur()
 {
     return IntActiveIrqNumGet();
 }
 
+/* Reset the interrupt controller */
 void
 intr_reset()
 {
     IntMasterIRQDisable();
     IntMasterIRQEnable();
     IntAINTCInit();
-    //IntProtectionEnable();
 }
 
+/* Re-enable interrupts after trapping */
 void
 intr_acknowledge(void)
 {

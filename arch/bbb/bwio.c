@@ -24,6 +24,7 @@
 #define GPIO_INSTANCE_ADDRESS (SOC_GPIO_1_REGS)
 #define GPIO_INSTANCE_PIN_NUMBER (23)
 
+/* Configure polling IO on default UART */
 void 
 bwio_uart_setup(void)
 {
@@ -64,6 +65,7 @@ bwio_uart_setup(void)
 
 }
 
+/* Polling/blocking write a character to the default UART */
 int 
 bwputc( char c ) {
     UARTCharPut(BWIO_UART, c);
@@ -71,12 +73,14 @@ bwputc( char c ) {
     return 0;
 }
 
+/* Hex print helper functions */
 char 
 c2x( char ch ) {
     if ( (ch <= 9) ) return '0' + ch;
     return 'a' + ch - 10;
 }
 
+/* Print a byte in hex */
 int 
 bwputx( char c ) {
     char chh, chl;
@@ -87,6 +91,7 @@ bwputx( char c ) {
     return bwputc( chl );
 }
 
+/* Print the contents of a register in hex */
 int 
 bwputr( unsigned int reg ) {
     int byte;
@@ -96,6 +101,7 @@ bwputr( unsigned int reg ) {
     return bwputc( ' ' );
 }
 
+/* Print a null terminated string */
 int 
 bwputstr( char *str ) {
     while( *str ) {
@@ -115,11 +121,13 @@ bwputw( int n, char fc, char *bf ) {
     while( ( ch = *bf++ ) ) bwputc( ch );
 }
 
+/* Polling/blocking get character from default UART */
 int 
 bwgetc() {
     return (int)UARTCharGet(BWIO_UART);
 }
 
+/* Formatting/conversion helper functions */
 int 
 bwa2d( char ch ) {
     if( ch >= '0' && ch <= '9' ) return ch - '0';
@@ -171,6 +179,7 @@ bwi2a( int num, char *bf ) {
     bwui2a( num, 10, bf );
 }
 
+/* Format function for bwprintf */
 void 
 bwformat ( const char *fmt, va_list va ) {
     char bf[12];
@@ -229,6 +238,7 @@ bwformat ( const char *fmt, va_list va ) {
     }
 }
 
+/* Polling IO printf */
 void 
 bwprintf( const char *fmt, ... ) {
     va_list va;

@@ -1,18 +1,14 @@
-#ifndef _DRV_UART_H_
-#define _DRV_UART_H_
+#ifndef DRV_UART_H
+#define DRV_UART_H
 
 #include "hw_uart.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /****************************************************************************
-**                       MACRO DEFINITIONS 
+                       MACRO DEFINITIONS 
 ****************************************************************************/
 
 /*
-** Values to configure the Operating modes of UART.
+  Values to configure the Operating modes of UART.
 */
 #define UART16x_OPER_MODE                   (UART_MDR1_MODE_SELECT_UART16X)
 #define UART_SIR_OPER_MODE                  (UART_MDR1_MODE_SELECT_SIR)
@@ -25,7 +21,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values to control the Line characteristics.
+  Values to control the Line characteristics.
 */
 
 /* Break condition generation controls. */
@@ -74,7 +70,7 @@ extern "C" {
 
 /****************************************************************************/
 /* 
-** Values associated with setting the Trigger Levels and DMA mode selection. 
+   Values associated with setting the Trigger Levels and DMA mode selection. 
 */
 
 /* Values for trigger level for the Receiver FIFO. */
@@ -108,15 +104,15 @@ extern "C" {
 #define UART_DMA_MODE_3_ENABLE              (UART_SCR_DMA_MODE_2_MODE3)
 
 /*
-** Values used to choose the path for configuring the DMA Mode.
-** DMA Mode could be configured either through FCR or SCR.
+  Values used to choose the path for configuring the DMA Mode.
+  DMA Mode could be configured either through FCR or SCR.
 */
 #define UART_DMA_EN_PATH_FCR                (UART_SCR_DMA_MODE_CTL_FCR)
 #define UART_DMA_EN_PATH_SCR                (UART_SCR_DMA_MODE_CTL_SCR)
 
 /****************************************************************************/
 /*
-** Values related to enabling/disabling of Interrupts.
+  Values related to enabling/disabling of Interrupts.
 */
 
 /* Values for enabling/disabling the interrupts of UART. */
@@ -132,7 +128,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values related to Line Status information.
+  Values related to Line Status information.
 */
 
 /* Values pertaining to UART Line Status information. */
@@ -145,7 +141,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values related to status of Interrupt souces.
+  Values related to status of Interrupt souces.
 */
 
 /* Values pertaining to status of UART Interrupt sources. */
@@ -172,7 +168,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values pertaining to control of Enhanced Features.
+  Values pertaining to control of Enhanced Features.
 */
 
 /* Values for controlling Auto-CTS and Auto-RTS features. */
@@ -213,7 +209,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values corresponding to Mode Definition Register 2(MDR2).
+  Values corresponding to Mode Definition Register 2(MDR2).
 */
 
 /* Values to enable/disable Pulse shaping for UART. */
@@ -223,7 +219,7 @@ extern "C" {
                                              UART_MDR2_UART_PULSE_SHIFT)
 /****************************************************************************/
 /*
-** Values corresponding to Mode Definition Register 3(MDR3).
+  Values corresponding to Mode Definition Register 3(MDR3).
 */
 
 /* Values used to control the method of setting the TX DMA Threshold value. */
@@ -234,7 +230,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Macros related to control and status of Modem Signals.
+  Macros related to control and status of Modem Signals.
 */
 
 /* Values to enable/disable XON any feature. */
@@ -276,12 +272,12 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values related to the control and status of Supplementary registers.
+  Values related to the control and status of Supplementary registers.
 */
 
 /*
-** Values used to enable/disable a granularity of 1 for TX and RX FIFO trigger
-** levels.
+  Values used to enable/disable a granularity of 1 for TX and RX FIFO trigger
+  levels.
 */
 #define UART_RX_TRIG_LVL_GRAN_1_DISABLE     (UART_SCR_RX_TRIG_GRANU1_DISABLE << \
                                              UART_SCR_RX_TRIG_GRANU1_SHIFT)
@@ -335,7 +331,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values related to Auxilliary Control Register(ACREG).
+  Values related to Auxilliary Control Register(ACREG).
 */
 
 /* Values to set/clear the SD pin. */
@@ -347,7 +343,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values controlling System Configuration functions.
+  Values controlling System Configuration functions.
 */
 
 /* Values controlling Power Management Request/Acknowledgement modes. */
@@ -374,7 +370,7 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values configuring Wake-up modes for the UART in Wake-Up Enable Register.
+  Values configuring Wake-up modes for the UART in Wake-Up Enable Register.
 */
 
 /* Values that enable/disable Wake-Up generation ability for various signals. */
@@ -389,8 +385,8 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Values indicating the line characteristics of UART Autobauding mode
-** communication.
+  Values indicating the line characteristics of UART Autobauding mode
+  communication.
 */
 
 /* Values indicating the parity in UART Autobauding mode. */
@@ -427,10 +423,10 @@ extern "C" {
 
 /****************************************************************************/
 /*
-** Miscellaneous macros.
+  Miscellaneous macros.
 */
 /*
-** Values used to choose the trigger level granularity.
+  Values used to choose the trigger level granularity.
 */
 #define UART_TRIG_LVL_GRANULARITY_4         (0x0000)
 #define UART_TRIG_LVL_GRANULARITY_1         (0x0001)
@@ -477,7 +473,7 @@ extern "C" {
 #define UART_MIR_OVERSAMPLING_RATE_42          (42)
 
 /******************************************************************************
-**                  FUNCTION PROTOTYPES
+                  FUNCTION PROTOTYPES
 ******************************************************************************/
 
 /* APIs pertaining to UART. */
@@ -594,11 +590,4 @@ extern void UARTFIFORegisterWrite(unsigned int baseAdd, unsigned int fcrValue);
 extern void UARTTxDMAThresholdControl(unsigned int baseAdd, unsigned int thrsCtrlFlag);
 extern void UARTTxDMAThresholdValConfig(unsigned int baseAdd, unsigned int thrsValue);
 
-#ifdef __cplusplus
-}
 #endif
-
-#endif
-
-/********************************* End of File********************************/
-

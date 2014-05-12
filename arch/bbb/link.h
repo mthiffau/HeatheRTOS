@@ -1,9 +1,7 @@
-#ifdef LINK_H
-#error "double-included link.h"
-#endif
-
+#ifndef LINK_H
 #define LINK_H
 
+/* Declarations for memory locations defined by the linker script */
 #define KernStackTop ((void*)(&_KernStackTop))
 extern char _KernStackTop;
 
@@ -21,3 +19,5 @@ extern char _UndefInstrStackTop;
 
 #define UndefInstrStackBottom ((void*)(&_UndefInstrStackBottom))
 extern char _UndefInstrStackBottom;
+
+#endif

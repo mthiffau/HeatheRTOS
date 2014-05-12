@@ -60,6 +60,7 @@ load_vector_table(void)
     }
 }
 
+/* This was defined by starterware...not sure what it's supposed to do */
 static void
 entry(void)
 {
@@ -67,19 +68,7 @@ entry(void)
     while(1);
 }
 
-/*
-static void
-undef_inst_handler(void)
-{
-    int lr = 0;
-    asm volatile("mov %[out],lr" : [out] "=r" (lr) ::);
-    bwputstr("Undefined instruction! Lucky you...\n\r");
-    bwprintf("Problem instruction at: %x\n\r", (lr - 4));
-    bwputstr("Go fix it.\n\r");
-    while(1);
-}
-*/
-
+/* Handle a prefetch abort */
 static void
 prefetch_abort_handler(void)
 {
@@ -91,6 +80,7 @@ prefetch_abort_handler(void)
     while(1);
 }
 
+/* Handle a data abort */
 static void
 data_abort_handler(void)
 {
@@ -102,6 +92,7 @@ data_abort_handler(void)
     while(1);
 }
 
+/* Handle an FIQ */
 static void
 FIQ_handler(void)
 {

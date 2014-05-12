@@ -1,9 +1,5 @@
-#ifndef _HW_GPIO_H_
-#define _HW_GPIO_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef HW_GPIO_H
+#define HW_GPIO_H
 
 /*************************************************************************\
  * Registers Definition
@@ -204,11 +200,4 @@ extern "C" {
 #define GPIO_SETDATAOUT_INTLINE   (0xFFFFFFFFu)
 #define GPIO_SETDATAOUT_INTLINE_SHIFT   (0x00000000u)
 
-
-
-#ifdef __cplusplus
-}
 #endif
-
-#endif
-

@@ -1,11 +1,7 @@
-#ifndef  _GPIO_H_
-#define  _GPIO_H_
+#ifndef  GPIO_H
+#define  GPIO_H
 
 #include "hw_gpio.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /*****************************************************************************
 **                       MACRO DEFINITIONS                                   
@@ -156,10 +152,5 @@ extern void GPIO1Pin23PinMuxSetup(void);
 extern void GPIO1PinMuxSetup(unsigned int pinNo);
 extern void GpioPinMuxSetup(unsigned int offsetAddr, unsigned int padConfValue);
 
-#ifdef __cplusplus
-}
 #endif
 
-#endif
-
-/********************************* End Of File ******************************/

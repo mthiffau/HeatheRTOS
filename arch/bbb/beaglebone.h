@@ -1,9 +1,5 @@
-#ifndef _BEALGEBONE_H_
-#define _BEAGLEBONE_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifndef BEALGEBONE_H
+#define BEAGLEBONE_H
 
 /*****************************************************************************
 **                    FUNCTION PROTOTYPES
@@ -30,9 +26,5 @@ extern void I2C1ModuleClkConfig(void);
 extern void I2CPinMuxSetup(unsigned int instance);
 extern void GpioPinMuxSetup(unsigned int offsetAddr,
                             unsigned int padConfValue);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

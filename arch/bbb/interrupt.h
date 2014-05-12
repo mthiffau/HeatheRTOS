@@ -4,14 +4,11 @@
 #include "hw_intc.h"
 #include "hw_types.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 /****************************************************************************
-**                       MACRO DEFINITIONS
+                       MACRO DEFINITIONS
 ****************************************************************************/
 /*
-** Macros which can be passed to IntPrioritySet API as hostIntRoute.
+  Macros which can be passed to IntPrioritySet API as hostIntRoute.
 */
 /* To route an interrupt to IRQ */
 #define AINTC_HOSTINT_ROUTE_IRQ                (0)
@@ -20,7 +17,7 @@ extern "C" {
 #define AINTC_HOSTINT_ROUTE_FIQ                (INTC_ILR_FIQNIRQ)
 
 /*
-** Interrupt number list
+  Interrupt number list
 */
 #define SYS_INT_EMUINT                         (0)
 #define SYS_INT_COMMTX                         (1)
@@ -133,7 +130,7 @@ extern "C" {
 #define SYS_INT_SPI1INT                        (125)
 
 /*****************************************************************************
-**                     API FUNCTION PROTOTYPES
+                     API FUNCTION PROTOTYPES
 *****************************************************************************/
 extern void IntAINTCInit (void);
 extern void IntIfClkFreeRunSet(void);
@@ -169,8 +166,4 @@ extern unsigned int IntRawStatusGet(unsigned int intrNum);
 extern unsigned int IntPendingIrqMaskedStatusGet(unsigned int intrNum);
 extern unsigned int IntPendingFiqMaskedStatusGet(unsigned int intrNum);
 
-#ifdef __cplusplus
-}
 #endif
-#endif
-

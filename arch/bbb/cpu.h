@@ -1,27 +1,17 @@
-#ifndef __CPU_H
-#define __CPU_H
+#ifndef CPU_H
+#define CPU_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 /*****************************************************************************
-**                           FUNCTION PROTOTYPES
+                           FUNCTION PROTOTYPES
 *****************************************************************************/
-extern void CPUSwitchToUserMode(void);
-extern void CPUSwitchToPrivilegedMode(void);
 
-/****************************************************************************/
 /*
-** Functions used internally
+  Functions used internally
 */
-extern void CPUAbortHandler(void);
 extern void CPUirqd(void);
 extern void CPUirqe(void);
 extern void CPUfiqd(void);
 extern void CPUfiqe(void);
 extern unsigned int CPUIntStatus(void);
 
-#ifdef __cplusplus
-}
-#endif
-#endif /* __CPU_H__ */
+#endif /* CPU_H */

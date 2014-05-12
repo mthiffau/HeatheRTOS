@@ -12,7 +12,7 @@
 #include "xassert.h"
 #include "cpumode.h"
 #include "clock_srv.h"
-#include "serial_srv.h"
+
 #include "blnk_srv.h"
 
 #include "xarg.h"
