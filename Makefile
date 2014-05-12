@@ -1,17 +1,31 @@
 # Set Target Device
 DEVICE  = bbb
 
+HARD_FLOAT = on
+
 # Beaglebone Black Device Config
 ifeq ($(DEVICE), bbb)
 CFLAGS_FILE = make/cflags-bbb
 ASFLAGS_FILE = make/asflags-bbb
+# Hard float options
+CFLAGSHF_FILE = make/cflagshf-bbb
+ASFLAGSHF_FILE = make/asflagshf-bbb
+
 HOST    = arm-none-eabi-
 CC      = $(HOST)gcc
 AS      = $(HOST)as
 LD      = $(HOST)gcc
 OCOPY   = $(HOST)objcopy
+
 CFLAGS  = $(shell cat $(CFLAGS_FILE))
 ASFLAGS = $(shell cat $(ASFLAGS_FILE))
+ifeq ($(HARD_FLOAT), on)
+CFLAGSHF = $(shell cat $(CFLAGSHF_FILE))
+ASFLAGSHF = $(shell cat $(ASFLAGSHF_FILE))
+CFLAGS := $(CFLAGS) $(CFLAGSHF)
+ASFLAGS := $(ASFLAGS) $(ASFLAGSHF)
+endif
+
 LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc
 BUILD   = build
@@ -24,6 +38,8 @@ ARCH    = arch/$(DEVICE)
 
 # Code for application processes
 APPS    = apps/$(DEVICE)
+
+INC = -I. -I$(ARCH) -I$(APPS)
 
 # Files
 MAIN    = $(BUILD)/rt.elf
@@ -48,7 +64,7 @@ BUILD_DIRS = $(BUILD) $(BUILD)/test $(BUILD)/kern $(BUILD)/$(ARCH) $(BUILD)/$(AP
 
 .SUFFIXES:
 .SECONDARY:
-.PHONY: all clean install
+.PHONY: all clean
 
 all: $(MAIN)
 
@@ -64,26 +80,22 @@ $(BUILD)/%.c.o: $(BUILD)/%.c.s |$(BUILD_DIRS)
 	$(AS) -o $@ $(ASFLAGS) $<
 
 $(BUILD)/%.c.s: $(BUILD)/%.c.i $(CFLAGS_FILE) |$(BUILD_DIRS)
-	$(CC) -S -o $@ $(CFLAGS) $<
+	$(CC) -S -o $@ $(CFLAGS) $(INC) $<
 
 $(BUILD)/%.c.i: %.c $(CFLAGS_FILE) |$(BUILD_DIRS)
-	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
+	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $(INC) $<
 
 $(BUILD)/%.S.o: $(BUILD)/%.S.s |$(BUILD_DIRS)
-	$(AS) -o $@ $(ASFLAGS) $<
+	$(AS) -o $@ $(ASFLAGS) $(INC) $<
 
 $(BUILD)/%.S.s: %.S $(CFLAGS_FILE) |$(BUILD_DIRS)
-	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $<
+	$(CC) -E -o $@ -MD -MT $@ $(CFLAGS) $(INC) $<
 
 $(BUILD_DIRS):
 	mkdir -p $@
 
 clean:
 	rm -rf $(BUILD)
-
-install: $(MAIN) $(TEST) $(REPEATER)
-	cp $(MAIN) $$tftp && chmod a+r $$tftp/$(notdir $(MAIN))
-	cp $(TEST) $$tftp && chmod a+r $$tftp/$(notdir $(TEST))
 
 -include $(BUILD)/*.c.d
 -include $(BUILD)/*.S.d

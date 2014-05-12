@@ -1,0 +1,1 @@
+-mfloat-abi=hard -mfpu=neon -ffast-math -O3 -DHARD_FLOAT
