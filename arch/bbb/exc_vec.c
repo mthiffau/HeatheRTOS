@@ -61,6 +61,18 @@ load_vector_table(void)
     }
 }
 
+/* Print vector table */
+void
+print_vector_table(void)
+{
+    unsigned int count;
+    unsigned int *entry = (unsigned int*)AM335X_VECTOR_BASE;
+    bwprintf("\n\rException Vector\n\r");
+    for(count = 0; count < sizeof(vecTbl)/sizeof(vecTbl[0]); count++) {
+	bwprintf("%x\n\r", entry[count]);
+    }
+}
+
 /* This was defined by starterware...not sure what it's supposed to do */
 static void
 entry(void)

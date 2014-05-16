@@ -6,7 +6,7 @@
 .type undef_instr_stack_init, %function
 
 _kernel_stack_bottom:
-	.word 0x4030FF00
+	.word 0x4030FBF0
 
 _undef_instr_stack_bottom:
 	.word 0x4030FFF0
