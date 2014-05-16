@@ -40,9 +40,14 @@ SECTIONS
     . = ALIGN(4);
     _KernStackTop = . ;
 
-    . = 0x4030FF00;
+    . = 0x4030FBF0;
+    . = ALIGN(4);
     _KernStackBottom = . ;
+
+    . = 0x4030FC00;
+    _ExcVecLoc = . ;
     
+    . = _ExcVecLoc + 0x40;
     . = ALIGN(4);
     _UndefInstrStackTop = . ;
 

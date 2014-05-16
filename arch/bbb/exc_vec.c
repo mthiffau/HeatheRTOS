@@ -12,10 +12,11 @@
 
 #include "cp15.h"
 #include "ctx_switch.h"
+#include "link.h"
 #include "exc_vec.h"
 
 /* This is where we're going to put the exception vector table */
-const unsigned int AM335X_VECTOR_BASE = 0x4030FC00;
+const unsigned int AM335X_VECTOR_BASE = (unsigned int)ExcVecLoc;
 
 /* Place holders for things we don't handle yet... */
 static void entry(void);

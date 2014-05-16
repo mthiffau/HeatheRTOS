@@ -2,6 +2,9 @@
 #define LINK_H
 
 /* Declarations for memory locations defined by the linker script */
+#define ExcVecLoc ((void*)(&_ExcVecLoc))
+extern char _ExcVecLoc;
+
 #define KernStackTop ((void*)(&_KernStackTop))
 extern char _KernStackTop;
 
