@@ -28,10 +28,12 @@ endif
 
 LDFLAGS = -nostdlib -Wl,-init,main -Wl,-N
 LIBS    = -lgcc
-BUILD   = build
 
 LINK    = make/link-bbb.ld
 endif
+
+# Build directory
+BUILD   = build
 
 # Architecture specific code
 ARCH    = arch/$(DEVICE)
@@ -42,10 +44,10 @@ APPS    = apps/$(DEVICE)
 INC = -I. -I$(ARCH) -I$(APPS)
 
 # Files
-MAIN    = $(BUILD)/rt.elf
-BIN     = $(BUILD)/u-boot.bin
+MAIN    = $(BUILD)/hrtos.elf
+BIN     = $(BUILD)/uImage
 TEST    = $(BUILD)/test.elf
-MAP     = $(BUILD)/rt.map
+MAP     = $(BUILD)/hrtos.map
 TMAP    = $(BUILD)/test.map
 
 SRCS    = $(wildcard *.c) $(wildcard $(ARCH)/*.c) $(wildcard $(APPS)/*.c)
@@ -70,7 +72,7 @@ all: $(MAIN)
 
 $(MAIN): $(LINK) $(KOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(MAP) -o $@ $(KOBJS) $(LIBS)
-	$(OCOPY) $(MAIN) -O binary $(BUILD)/uImage
+	$(OCOPY) $(MAIN) -O binary $(BIN)
 
 $(TEST): $(LINK) $(TOBJS)
 	$(LD) $(LDFLAGS) -T $(LINK) -Wl,-Map,$(TMAP) -o $@ $(TOBJS) $(LIBS)

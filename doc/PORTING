@@ -1,0 +1,165 @@
+HeatheRTOS Porting Guide
+------------------------
+
+Makefile
+--------
+
+The make file is very straight forward. At the top the target device
+is set, and whether or not hardware floating point is supported.
+
+Next come conditional blocks which define device/float specific
+variables for compilation. They are:
+
+CFLAGS   - flags for C compiler
+ASFLAGS  - flags for assembler
+LDFLAGS  - flags for linker
+LIBS     - any library specifications (-L<libdir> -l<library>)
+
+LINK     - linker script filepath
+
+CC       - C compiler
+AS       - assembler
+LD       - linker
+OCOPY    - objcopy
+
+So for every platform supported, there has to be an "ifeq" block
+(conditionalized on the platform name variable set at the top)
+defining all these. When there are enough platforms these blocks can
+be broken out to other files, but for now this is easier.
+
+----------------------
+HARDWARE SPECIFIC CODE
+----------------------
+
+Here I have tried to compile a complete listing of all the functions
+which need to be defined in order to port HeatheRTOS to other
+platforms. All hardware specific kernel code (so all of the following)
+should be defined in various source files located in the
+'arch/<platform>/' directory, where <platform> matches the device name
+set in the Makefile as described above.
+
+startup.S 
+--------- 
+
+- _asm_entry : This is the entry point as specified by the linker. The
+  idea of this is to allow you to run any assembly code for
+  initialization before calling main. The last thing this code should
+  do is call main.
+
+cache.h
+-------
+
+- cache_enable() : This is called during kernel initialization and
+  should perform any cache enabling actions necessary/desired.
+
+pll.h:
+------
+
+- pll_setup() : This is called during kernel initialization and should
+  perform any clock/pll initialization necessary/desired.
+
+timer.h:
+--------
+
+This file defines functions for a debug timer that is used for a few
+things (statistics) in the kernel, but can also be useful in user
+mode.
+
+- dbg_tmr_setup() : This should configure one of the timer modules to
+  act as a freerunning system timer, with a 1 us tick if you want the
+  kernel's top output on shutdown to be correct.
+
+- dbg_tmr_get() : Returns the value of the debug timer.
+
+bwio.h:
+-------
+
+This defines some polling IO functionality used by the kernel (panic,
+top output, etc). These three functions should really be broken out
+into a seperate file, but it hasn't been a big enough deal to make it
+happen yet.
+
+- bwio_uart_setup() : Setup one of the UART's for polling I/O.
+- bwputc(char c) : Print a character to the setup UART.
+- int bwgetc() : Get a character from the setup UART.
+
+exc_vec.h:
+----------
+
+- load_vector_table() : Setup the system exception vectors
+  (SWI,IRQ,UNDEF at minimum)
+
+intr.h:
+-------
+
+- intr_enable(int intr, bool enable) : Enable/disable a specific
+  interrupt (masking) in the INTC.
+
+- intr_config(int intr, unsigned int prio, bool fiq) : Configure an
+  interrupt in the INTC with a priority and whether or not it's an
+  FIQ.
+
+- int intr_cur() : Read the INTC and return the asserted interrupt
+  with the highest priority.
+
+- intr_reset() : Reset the interrupt controller. 
+
+- intr_acknowledge() : Do anything required after an interrupt has
+  been handled to allow new interrupts to happen. Not necessary on all
+  platforms.
+
+ctx_switch.h:
+-------------
+
+These functions are all part of the context switch, please see the
+current implementations for beaglebone black if you want a good idea
+of how the code should work.
+
+- kern_entry_swi() : Jumped into from software interrupt
+  vector. Should save the user context to the user stack, and restore
+  the kernel context, before returning INTR_SWI. It will return into
+  the kernel as if ctx_switch had returned a value.
+
+- kern_entry_irq() : Jumped into from the hardware interrupt
+  vector. Should save the user context to the user stack, and restore
+  the kernel context, before returning INTR_IRQ. It will return into
+  the kernel as if ctx_switch had returned a value.
+
+- kern_entry_undef() : Jumped into from the undefined instruction
+  vector. Should save the user context to the user stack, and restore
+  the kernel context, before returning INTR_UNDEF. It will return into
+  the kernel as if ctx_switch had returned a value.
+
+- ctx_switch(struct task_desc *td) : Called from the kernel to enter a
+  user task. Should save the kernel context to the kernel stack and
+  restore the user task context from the user stack (via the passed
+  pointer, see task.h or related docs). It should then jump back into
+  the user task in user mode.
+
+OPTIONAL FOR HARDWARE FLOATING POINT SUPPORT:
+
+vfp.h
+-----
+
+These are optional functions to implement if you would like to compile
+the kernel with -DHARD_FLOAT for hardware floating point support.
+
+- vfp_cp_enable() : Enable access to the VFP coprocessor
+
+- vfp_cp_disable() : Disable access to the VFP coprocessor
+
+- vfp_enable() : Enable VFP instructions
+
+- vfp_disable() : Disable VFP instructions
+
+- vfp_save_state(volatile struct task_fpu_regs**, void* stack_pointer)
+  : Save the VFP context on the user stack (using the stack pointer)
+  and return the start location of the context on the stack in the
+  task_fpu_regs pointer.
+
+- vfp_load_state(volatile struct task_fpu_regs**) : Load the VFP
+  context off the user stack from the given pointer.
+
+- vfp_load_fresh() : Load a blank VFP context (zero registers and
+  status flags, etc).
+
