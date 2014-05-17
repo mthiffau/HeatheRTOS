@@ -1,5 +1,22 @@
+HeatheRTOS
+----------
+
+HeatheRTOS is a lightweight real time embedded kernel designed for
+use in robotic control applications. All user tasks have direct
+access to peripheral hardware (flat address space) and all kernel
+operations take constant time. The kernel and user space code is 
+compiled into a single binary image which can be loaded and started
+using a bootloader such as uBoot. Hardware floating point is also
+supported by the kernel.
+
+For more information about the kernel, see the included whitepaper 
+and porting guide in the doc directory. I'm sacrificing keeping some
+of the documentation entirely up to date in favour of actually 
+implementing features. If you have questions, and/or would like to
+help/contribute, please do not hesitate to get in touch with me.
+
 BUILDING AND BOOTING
---------------------
+====================
 
 As currently checked out fresh, the code is configured to build for
 beaglebone black.
