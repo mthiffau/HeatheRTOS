@@ -67,7 +67,6 @@ extern unsigned int RTCRevisionInfoGet(void);
 extern void EDMAModuleClkConfig(void);
 extern void EVMMACAddrGet(unsigned int addrIdx, unsigned char *macAddr);
 extern void WatchdogTimer1ModuleClkConfig(void);
-extern void DMTimer2ModuleClkConfig(void);
 extern void DMTimer4ModuleClkConfig(void);
 extern void DMTimer7ModuleClkConfig(void);
 extern void EVMPortMIIModeSelect(void);

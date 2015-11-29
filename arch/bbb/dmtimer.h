@@ -217,6 +217,4 @@ extern void DMTimerReset(unsigned int baseAdd);
 extern void DMTimerContextSave(unsigned int baseAdd, DMTIMERCONTEXT *contextPtr);
 extern void DMTimerContextRestore(unsigned int baseAdd, DMTIMERCONTEXT *contextPtr);
 
-extern void DMTimer2ModuleClkConfig(void);
-
 #endif

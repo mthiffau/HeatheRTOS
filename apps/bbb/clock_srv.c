@@ -144,7 +144,8 @@ DMTimer3ModuleClkConfig(void)
 int
 clock_init()
 {
-    /* Set up timer to produce interrupts every microsecond */
+    /* Set up timer to produce interrupts every millisecond */
+    /* DMTimers2-7 on BBB run off 24Mhz clock (CLK_M_OSC) */
 
     /* Configure functional clock */
     DMTimer3ModuleClkConfig();
@@ -192,7 +193,7 @@ clksrv_main(void)
             rc = Reply(client, NULL, 0);
             assertv(rc, rc == 0);
 
-	    clk.ms_ticks++;
+            clk.ms_ticks++;
 
             clksrv_undelay(&clk);
             break;

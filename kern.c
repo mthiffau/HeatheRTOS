@@ -80,14 +80,14 @@ kern_main(struct kparam *kp)
 
     bwprintf("\n\rKernel initialized:\n\r");
     bwprintf("Kernel Stack -- Bottom: %x Top: %x Size: %d bytes\n\r", 
-	     (unsigned int)KernStackBottom, 
-	     (unsigned int)KernStackTop, 
-	     (unsigned int)(KernStackBottom - KernStackTop));
+             (unsigned int)KernStackBottom, 
+             (unsigned int)KernStackTop, 
+             (unsigned int)(KernStackBottom - KernStackTop));
     bwprintf("User Stacks -- Bottom: %x Top: %x Size: %d bytes\n\r",
-	     (unsigned int)UserStacksEnd,
-	     (unsigned int)UserStacksStart,
-	     (unsigned int)kern.user_stack_size);
-
+             (unsigned int)UserStacksEnd,
+             (unsigned int)UserStacksStart,
+             (unsigned int)kern.user_stack_size);
+    
     /* Main loop */
     start_time = dbg_tmr_get() / 1000;
     
@@ -97,55 +97,55 @@ kern_main(struct kparam *kp)
     while (!kern.shutdown && (kern.rdy_count > 1 || kern.evblk_count > 0)) {
         uint32_t          intr;
 
-	/* Conditionally run the scheduler */
-	if (!skip_sched) {
-	    active = task_schedule(&kern);
+        /* Conditionally run the scheduler */
+        if (!skip_sched) {
+            active = task_schedule(&kern);
 
 #ifdef HARD_FLOAT
-	    /* If the task we just scheduled has a stored floating
-	       point context, save the current floating point context
-	       to it's owner's stack and load up this one. */
-	    if (active->fpu_ctx_on_stack) {
-		vfp_enable();
-		if (kern.fp_ctx_holder != NULL) {
-		    /* The context holder isn't null, store their fpu context
-		       on the context holder's stack. */
-		    vfp_save_state(&(kern.fp_ctx_holder->fpu_regs), kern.fp_ctx_holder);
-		    assert( ((unsigned int)kern.fp_ctx_holder->fpu_regs) == 
-			    ((unsigned int)kern.fp_ctx_holder->regs) - 260 );
-		    /* Mark that the old context holder has it's fpu state on
-		       the stack */
-		    kern.fp_ctx_holder->fpu_ctx_on_stack = 1;
-		}
+            /* If the task we just scheduled has a stored floating
+               point context, save the current floating point context
+               to it's owner's stack and load up this one. */
+            if (active->fpu_ctx_on_stack) {
+                vfp_enable();
+                if (kern.fp_ctx_holder != NULL) {
+                    /* The context holder isn't null, store their fpu context
+                       on the context holder's stack. */
+                    vfp_save_state(&(kern.fp_ctx_holder->fpu_regs), kern.fp_ctx_holder);
+                    assert( ((unsigned int)kern.fp_ctx_holder->fpu_regs) == 
+                            ((unsigned int)kern.fp_ctx_holder->regs) - 260 );
+                    /* Mark that the old context holder has it's fpu state on
+                       the stack */
+                    kern.fp_ctx_holder->fpu_ctx_on_stack = 1;
+                }
 
-		/* Load up the active task's FPU context */
-		vfp_load_state(&(active->fpu_regs));
-		assert(active->fpu_regs == NULL);
-		active->fpu_ctx_on_stack = 0;
+                /* Load up the active task's FPU context */
+                vfp_load_state(&(active->fpu_regs));
+                assert(active->fpu_regs == NULL);
+                active->fpu_ctx_on_stack = 0;
 
-		/* Change who is the context holder */
-		kern.fp_ctx_holder = active;
-	    } else {
-		/* If we don't need to restore FPU context but
-		   the task we're going to jump into does use VFP,
-		   just do the re-enable. */
-		if (kern.fp_ctx_holder == active) {
-		    vfp_enable();
-		}
-	    }
+                /* Change who is the context holder */
+                kern.fp_ctx_holder = active;
+            } else {
+                /* If we don't need to restore FPU context but
+                   the task we're going to jump into does use VFP,
+                   just do the re-enable. */
+                if (kern.fp_ctx_holder == active) {
+                    vfp_enable();
+                }
+            }
 #endif
-	}
+        }
 
         time   = dbg_tmr_get() / 1000;
         intr   = ctx_switch(active);
-	active->time += (dbg_tmr_get() / 1000) - time;
+        active->time += (dbg_tmr_get() / 1000) - time;
 #ifdef HARD_FLOAT
-	vfp_disable();
+        vfp_disable();
 #endif
         skip_sched = kern_handle_intr(&kern, active, intr);
 
-	/* Either the active task is no longer active, or we're skipping the scheduler */
-	assert((TASK_STATE(active) != TASK_STATE_ACTIVE) || skip_sched);
+        /* Either the active task is no longer active, or we're skipping the scheduler */
+        assert((TASK_STATE(active) != TASK_STATE_ACTIVE) || skip_sched);
     }
 
     end_time = dbg_tmr_get() / 1000;
@@ -342,31 +342,31 @@ kern_handle_undef(struct kern *k, struct task_desc *active)
        the floating point context and retry the instruction. If it fails again
        we know it's truely undefined. */
     if (k->fp_ctx_holder != active) {
-	/* Give active the floating point context and jump back into it immediately */
-	vfp_enable();
-	if (k->fp_ctx_holder != NULL) {
-	    /* The context holder isn't null, store their fpu context on
-	       the context holder's stack. */
-	    vfp_save_state(&(k->fp_ctx_holder->fpu_regs), k->fp_ctx_holder);
-	    /* Mark that the old context holder has it's fpu state on the stack */
-	    k->fp_ctx_holder->fpu_ctx_on_stack = 1;
-	}
-	/* This should only be running the first time a task tries to use FPU
-	   instructions, so load a fresh FPU context */
-	vfp_load_fresh();
+        /* Give active the floating point context and jump back into it immediately */
+        vfp_enable();
+        if (k->fp_ctx_holder != NULL) {
+            /* The context holder isn't null, store their fpu context on
+               the context holder's stack. */
+            vfp_save_state(&(k->fp_ctx_holder->fpu_regs), k->fp_ctx_holder);
+            /* Mark that the old context holder has it's fpu state on the stack */
+            k->fp_ctx_holder->fpu_ctx_on_stack = 1;
+        }
+        /* This should only be running the first time a task tries to use FPU
+           instructions, so load a fresh FPU context */
+        vfp_load_fresh();
 	
-	k->fp_ctx_holder = active; /* Indicate that the active now has the fp context */
-	return 1; /* Don't run the scheduler so we jump right back into active */
+        k->fp_ctx_holder = active; /* Indicate that the active now has the fp context */
+        return 1; /* Don't run the scheduler so we jump right back into active */
     } else {
 #endif
-	/* Actual undefined instruction. Kill the process and run the scheduler. */
-	bwprintf("Killing task for undefined instruction. TID: %d INSTR ADDR: %x\n\r", 
-		 TASK_TID(k,active),
-		 active->regs->pc);
-	if(active->cleanup != NULL)
-	    active->cleanup();
-	task_free(k, active);
-	return 0;
+        /* Actual undefined instruction. Kill the process and run the scheduler. */
+        bwprintf("Killing task for undefined instruction. TID: %d INSTR ADDR: %x\n\r", 
+                 TASK_TID(k,active),
+                 active->regs->pc);
+        if(active->cleanup != NULL)
+            active->cleanup();
+        task_free(k, active);
+        return 0;
 #ifdef HARD_FLOAT
     }
 #endif

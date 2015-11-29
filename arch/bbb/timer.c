@@ -63,8 +63,12 @@
 
 #include "dmtimer.h"
 
-/* Fwd Decl. DMTimer2 Clock src enable/select */
-void DMTimer2ModuleClkConfig(void);
+/* DMTimer2-7 are driven by a 24 Mhz clock (CLK_M_OSC). Add a divide by 8
+   prescaler, and then divide the timer value register by 3 to get microseconds */
+
+/* With 32bits of resolution, at 3Mhz (8x divider), the timer will overflow 
+   approximately every 23.8 minutes. This should be sufficient for debugging at
+   first */
 
 /* Configure a timer to use for debug purposes */
 void dbg_tmr_setup(void)
